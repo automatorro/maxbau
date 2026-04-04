@@ -14,16 +14,312 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      categories: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          parent_id: string | null
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          parent_id?: string | null
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          parent_id?: string | null
+          slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "categories_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      discount_rules: {
+        Row: {
+          active: boolean
+          category_id: string | null
+          created_at: string
+          discount_percent: number
+          id: string
+          label: string | null
+          min_quantity: number | null
+          product_id: string | null
+          rule_type: Database["public"]["Enums"]["discount_rule_type"]
+        }
+        Insert: {
+          active?: boolean
+          category_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          label?: string | null
+          min_quantity?: number | null
+          product_id?: string | null
+          rule_type: Database["public"]["Enums"]["discount_rule_type"]
+        }
+        Update: {
+          active?: boolean
+          category_id?: string | null
+          created_at?: string
+          discount_percent?: number
+          id?: string
+          label?: string | null
+          min_quantity?: number | null
+          product_id?: string | null
+          rule_type?: Database["public"]["Enums"]["discount_rule_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discount_rules_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "discount_rules_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      products: {
+        Row: {
+          category_id: string | null
+          cod_intern: string
+          created_at: string
+          denumire_completa: string
+          description: string | null
+          id: string
+          image_url: string | null
+          pret_lista: number
+          source_url: string | null
+          specifications: Json | null
+          unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          category_id?: string | null
+          cod_intern: string
+          created_at?: string
+          denumire_completa: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          pret_lista?: number
+          source_url?: string | null
+          specifications?: Json | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category_id?: string | null
+          cod_intern?: string
+          created_at?: string
+          denumire_completa?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          pret_lista?: number
+          source_url?: string | null
+          specifications?: Json | null
+          unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string | null
+          id: string
+          phone: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          phone?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          phone?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      quote_items: {
+        Row: {
+          cod_intern: string
+          created_at: string
+          denumire: string
+          discount_percent: number | null
+          id: string
+          pret_final: number
+          pret_unitar: number
+          product_id: string | null
+          quantity: number
+          quote_id: string
+          subtotal: number
+          unit: string | null
+        }
+        Insert: {
+          cod_intern: string
+          created_at?: string
+          denumire: string
+          discount_percent?: number | null
+          id?: string
+          pret_final?: number
+          pret_unitar?: number
+          product_id?: string | null
+          quantity?: number
+          quote_id: string
+          subtotal?: number
+          unit?: string | null
+        }
+        Update: {
+          cod_intern?: string
+          created_at?: string
+          denumire?: string
+          discount_percent?: number | null
+          id?: string
+          pret_final?: number
+          pret_unitar?: number
+          product_id?: string | null
+          quantity?: number
+          quote_id?: string
+          subtotal?: number
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_items_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quotes: {
+        Row: {
+          client_email: string | null
+          client_name: string | null
+          client_phone: string | null
+          created_at: string
+          id: string
+          project_description: string | null
+          status: Database["public"]["Enums"]["quote_status"]
+          total_gross: number | null
+          total_net: number | null
+          total_tva: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          client_email?: string | null
+          client_name?: string | null
+          client_phone?: string | null
+          created_at?: string
+          id?: string
+          project_description?: string | null
+          status?: Database["public"]["Enums"]["quote_status"]
+          total_gross?: number | null
+          total_net?: number | null
+          total_tva?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          client_email?: string | null
+          client_name?: string | null
+          client_phone?: string | null
+          created_at?: string
+          id?: string
+          project_description?: string | null
+          status?: Database["public"]["Enums"]["quote_status"]
+          total_gross?: number | null
+          total_net?: number | null
+          total_tva?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
+      discount_rule_type: "quantity" | "payment" | "transport" | "promo"
+      quote_status: "draft" | "sent" | "accepted"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +446,10 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+      discount_rule_type: ["quantity", "payment", "transport", "promo"],
+      quote_status: ["draft", "sent", "accepted"],
+    },
   },
 } as const
