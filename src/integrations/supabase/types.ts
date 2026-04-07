@@ -285,6 +285,36 @@ export type Database = {
         }
         Relationships: []
       }
+      retete_constructii: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          materials: Json
+          recipe_name: string
+          status: string | null
+          unit: string | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id: string
+          materials: Json
+          recipe_name: string
+          status?: string | null
+          unit?: string | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          materials?: Json
+          recipe_name?: string
+          status?: string | null
+          unit?: string | null
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           id: string
