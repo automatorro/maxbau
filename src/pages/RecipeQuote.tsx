@@ -73,7 +73,7 @@ const RecipeQuote = () => {
         .select("id, recipe_name, category, unit, materials")
         .eq("status", "active");
       if (error) throw error;
-      return data as { id: string; recipe_name: string; category: string | null; unit: string; materials: RecipeMaterial[] }[];
+      return data as unknown as { id: string; recipe_name: string; category: string | null; unit: string; materials: RecipeMaterial[] }[];
     },
   });
 
