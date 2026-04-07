@@ -13,6 +13,7 @@ import NewQuote from "./pages/NewQuote";
 import MyQuotes from "./pages/MyQuotes";
 import AdminProducts from "./pages/AdminProducts";
 import AdminDiscounts from "./pages/AdminDiscounts";
+import RecipeQuote from "./pages/RecipeQuote";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
             <Route path="/catalog" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
             <Route path="/quote/new" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/quote/:id/edit" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
+            <Route path="/recipe-quote" element={<ProtectedRoute><RecipeQuote /></ProtectedRoute>} />
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
