@@ -1,11 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Plus, Eye } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { FileText, Plus, Pencil, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 const statusLabels: Record<string, string> = {
   draft: "Ciornă",
@@ -21,6 +26,7 @@ const statusVariant: Record<string, "default" | "secondary" | "outline"> = {
 
 const MyQuotes = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: quotes, isLoading } = useQuery({
     queryKey: ["my-quotes"],
@@ -32,6 +38,21 @@ const MyQuotes = () => {
       if (error) throw error;
       return data;
     },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (quoteId: string) => {
+      // Delete items first, then the quote
+      const { error: iErr } = await supabase.from("quote_items").delete().eq("quote_id", quoteId);
+      if (iErr) throw iErr;
+      const { error } = await supabase.from("quotes").delete().eq("id", quoteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-quotes"] });
+      toast.success("Oferta a fost ștearsă");
+    },
+    onError: () => toast.error("Eroare la ștergere"),
   });
 
   return (
@@ -54,8 +75,7 @@ const MyQuotes = () => {
         ) : quotes && quotes.length > 0 ? (
           <div className="space-y-3">
             {quotes.map((quote) => {
-              const itemCount =
-                (quote.quote_items as any)?.[0]?.count ?? 0;
+              const itemCount = (quote.quote_items as any)?.[0]?.count ?? 0;
               return (
                 <Card key={quote.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="flex items-center justify-between p-4">
@@ -72,15 +92,42 @@ const MyQuotes = () => {
                         {quote.project_description || "Fără descriere"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(quote.created_at).toLocaleDateString("ro-RO")} · {itemCount}{" "}
-                        produse
+                        {new Date(quote.created_at).toLocaleDateString("ro-RO")} · {itemCount} produse
                       </p>
                     </div>
-                    <div className="text-right ml-4 shrink-0">
-                      <p className="text-lg font-bold text-primary">
-                        {Number(quote.total_gross).toFixed(2)} lei
-                      </p>
-                      <p className="text-xs text-muted-foreground">cu TVA</p>
+                    <div className="flex items-center gap-3 ml-4 shrink-0">
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-primary">
+                          {Number(quote.total_gross).toFixed(2)} lei
+                        </p>
+                        <p className="text-xs text-muted-foreground">cu TVA</p>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-8 w-8"
+                        onClick={() => navigate(`/quote/${quote.id}/edit`)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Șterge oferta?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Această acțiune este ireversibilă. Oferta și toate produsele asociate vor fi șterse definitiv.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Anulează</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteMutation.mutate(quote.id)}
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              Șterge
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </CardContent>
                 </Card>
