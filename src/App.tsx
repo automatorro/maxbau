@@ -30,6 +30,7 @@ const App = () => (
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/catalog" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
             <Route path="/quote/new" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
+            <Route path="/quote/:id/edit" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
