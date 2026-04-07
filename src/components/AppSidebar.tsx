@@ -5,6 +5,7 @@ import {
   Settings,
   Tags,
   LogOut,
+  Calculator,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -26,6 +27,7 @@ import { Button } from "@/components/ui/button";
 const mainItems = [
   { title: "Catalog", url: "/catalog", icon: Package },
   { title: "Ofertă nouă", url: "/quote/new", icon: FilePlus },
+  { title: "Generare rețetă", url: "/recipe-quote", icon: Calculator },
   { title: "Ofertele mele", url: "/quotes", icon: FileText },
 ];
 
