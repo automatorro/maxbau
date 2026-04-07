@@ -331,7 +331,7 @@ const RecipeQuote = () => {
                           </TableCell>
                           <TableCell>
                             {line.status === "FOUND" ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                              <CheckCircle2 className="h-4 w-4 text-primary" />
                             ) : (
                               <AlertTriangle className="h-4 w-4 text-destructive" />
                             )}
