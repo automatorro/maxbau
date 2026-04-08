@@ -99,6 +99,7 @@ export type Database = {
       }
       products: {
         Row: {
+          brand: string | null
           category_id: string | null
           cod_intern: string
           created_at: string
@@ -106,6 +107,9 @@ export type Database = {
           description: string | null
           id: string
           image_url: string | null
+          manufacturer: string | null
+          packaging: string | null
+          pack_quantity: string | null
           pret_lista: number
           source_url: string | null
           specifications: Json | null
@@ -113,6 +117,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          brand?: string | null
           category_id?: string | null
           cod_intern: string
           created_at?: string
@@ -120,6 +125,9 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          manufacturer?: string | null
+          packaging?: string | null
+          pack_quantity?: string | null
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null
@@ -127,6 +135,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          brand?: string | null
           category_id?: string | null
           cod_intern?: string
           created_at?: string
@@ -134,6 +143,9 @@ export type Database = {
           description?: string | null
           id?: string
           image_url?: string | null
+          manufacturer?: string | null
+          packaging?: string | null
+          pack_quantity?: string | null
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null

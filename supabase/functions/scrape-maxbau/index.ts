@@ -54,6 +54,63 @@ function extractSection(markdown: string, titles: string[]): string | null {
   return null;
 }
 
+function normalizeForSearch(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function extractLabeledValue(markdown: string, labels: string[]): string | null {
+  const normalizedLabels = labels.map((l) => normalizeForSearch(l));
+  const lines = markdown.split(/\r?\n/);
+
+  for (const line of lines) {
+    const raw = line.trim();
+    if (!raw) continue;
+
+    const cleaned = raw.replace(/^[-*+\s]+/, "").trim();
+    const normLine = normalizeForSearch(cleaned);
+
+    for (const label of normalizedLabels) {
+      if (!normLine.includes(label)) continue;
+
+      if (cleaned.includes("|")) {
+        const parts = cleaned
+          .split("|")
+          .map((p) => p.trim())
+          .filter(Boolean);
+
+        const idx = parts.findIndex((p) => {
+          const np = normalizeForSearch(p).replace(/:$/, "");
+          return np === label || np.startsWith(`${label} `);
+        });
+        if (idx >= 0 && parts[idx + 1]) return parts[idx + 1].trim().slice(0, 200);
+      }
+
+      const colonIndex = cleaned.indexOf(":");
+      if (colonIndex !== -1) {
+        const key = cleaned.slice(0, colonIndex).trim();
+        if (normalizeForSearch(key).includes(label)) {
+          const value = cleaned.slice(colonIndex + 1).trim();
+          if (value) return value.slice(0, 200);
+        }
+      }
+
+      const dashMatch = cleaned.match(/^(.+?)\s*[-=]\s*(.+)$/);
+      if (dashMatch) {
+        const key = dashMatch[1].trim();
+        if (normalizeForSearch(key).includes(label)) {
+          const value = dashMatch[2].trim();
+          if (value) return value.slice(0, 200);
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseProduct(markdown: string, url: string) {
   // Extract cod produs from URL (pattern: -XXXXXXXX.html)
   const codMatch = url.match(/-(\d{5,})\.html$/);
@@ -170,6 +227,17 @@ function parseProduct(markdown: string, url: string) {
   if (lambda !== null) specifications.lambda_w_mk = lambda;
   if (datasheetUrl) specifications.datasheet_url = datasheetUrl;
 
+  const brand = extractLabeledValue(markdown, ["brand", "marca"]);
+  const manufacturer = extractLabeledValue(markdown, ["producator", "manufacturer"]);
+  const packaging = extractLabeledValue(markdown, ["ambalare", "ambalaj"]);
+  const packQuantity = extractLabeledValue(markdown, [
+    "cantitate/pachet",
+    "cantitate per pachet",
+    "cantitate pachet",
+    "buc/pachet",
+    "mp/pachet",
+  ]);
+
   return {
     cod_intern: codFromPage || codIntern,
     denumire_completa: productName,
@@ -180,6 +248,10 @@ function parseProduct(markdown: string, url: string) {
     source_url: url,
     description,
     specifications,
+    brand,
+    manufacturer,
+    packaging,
+    pack_quantity: packQuantity,
   };
 }
 
@@ -343,6 +415,10 @@ Deno.serve(async (req) => {
             cod_intern: parsed.cod_intern,
             denumire_completa: parsed.denumire_completa,
             description: parsed.description || null,
+            brand: parsed.brand || null,
+            manufacturer: parsed.manufacturer || null,
+            packaging: parsed.packaging || null,
+            pack_quantity: parsed.pack_quantity || null,
             pret_lista: parsed.pret_lista,
             unit: parsed.unit,
             category_id: categoryId,
