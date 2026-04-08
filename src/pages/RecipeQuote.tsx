@@ -13,12 +13,12 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Calculator, Loader2, AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import { Calculator, AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 
-const TVA_RATE = 0.21;
+const TVA_RATE = 0.19;
 
 interface RecipeMaterial {
   position: number;
@@ -26,6 +26,7 @@ interface RecipeMaterial {
   um: string;
   consumption_per_m2: number;
   keywords: string[];
+  cod_intern?: string;
 }
 
 interface GeneratedLine {
@@ -43,16 +44,104 @@ interface GeneratedLine {
   status: "FOUND" | "NOT_FOUND";
 }
 
-// Fuzzy search: score keywords against product name + cod_intern
-function fuzzyMatch(keywords: string[], productName: string, codIntern: string): number {
-  const target = `${productName} ${codIntern}`.toLowerCase();
-  let score = 0;
-  for (const kw of keywords) {
-    if (target.includes(kw.toLowerCase())) {
-      score += kw.length; // longer matches = better
+type Product = {
+  id: string;
+  cod_intern: string;
+  denumire_completa: string;
+  pret_lista: number;
+  unit: string | null;
+  category_id: string | null;
+};
+
+// UM compatibility map
+const UM_COMPAT: Record<string, string[]> = {
+  "m²": ["mp", "m2", "m²"],
+  "mp": ["mp", "m2", "m²"],
+  "m": ["m", "ml", "buc"], // bars sold as BUC but measured in ml
+  "ml": ["m", "ml", "buc"],
+  "buc": ["buc", "cut", "set"],
+  "cut": ["buc", "cut"],
+  "kg": ["kg", "sac", "buc"],
+  "sac": ["sac", "kg", "buc"],
+  "rola": ["rola", "buc", "cut"],
+};
+
+function normalizeUM(um: string): string {
+  return um.toLowerCase().trim();
+}
+
+function umCompatible(recipeUM: string, productUM: string | null): boolean {
+  if (!productUM) return true; // no info = allow
+  const rn = normalizeUM(recipeUM);
+  const pn = normalizeUM(productUM);
+  if (rn === pn) return true;
+  const compat = UM_COMPAT[rn];
+  return compat ? compat.includes(pn) : false;
+}
+
+/**
+ * Improved matching: 
+ * 1. If material has cod_intern → exact match (highest priority)
+ * 2. Fuzzy: ALL keywords must match (AND logic), filtered by UM compatibility
+ * 3. Score threshold: reject matches below 60%
+ */
+function findBestProduct(
+  mat: RecipeMaterial,
+  products: Product[]
+): Product | null {
+  // Priority 1: exact cod_intern match
+  if (mat.cod_intern) {
+    const exact = products.find(
+      (p) => p.cod_intern === mat.cod_intern
+    );
+    if (exact) return exact;
+  }
+
+  // Priority 2: fuzzy keyword search with AND logic + UM filter
+  const keywords = mat.keywords.map((k) => k.toLowerCase());
+  if (keywords.length === 0) return null;
+
+  let bestProduct: Product | null = null;
+  let bestScore = 0;
+
+  for (const p of products) {
+    // UM filter
+    if (!umCompatible(mat.um, p.unit)) continue;
+
+    const target = `${p.denumire_completa} ${p.cod_intern}`.toLowerCase();
+
+    // All keywords must match (AND logic)
+    let allMatch = true;
+    let matchedLength = 0;
+    for (const kw of keywords) {
+      if (target.includes(kw)) {
+        matchedLength += kw.length;
+      } else {
+        allMatch = false;
+        break;
+      }
+    }
+
+    if (!allMatch) continue;
+
+    // Score = matched keyword length / total possible
+    const totalKwLength = keywords.reduce((s, k) => s + k.length, 0);
+    const score = totalKwLength > 0 ? matchedLength / totalKwLength : 0;
+
+    // Minimum threshold 60%
+    if (score < 0.6) continue;
+
+    // Prefer higher price products (more likely to be the real/quality product)
+    // and longer keyword matches
+    const finalScore = matchedLength + (Number(p.pret_lista) > 0 ? 0.1 : 0);
+
+    if (finalScore > bestScore) {
+      bestScore = finalScore;
+      bestProduct = p;
     }
   }
-  return score;
+
+  return bestProduct;
 }
 
 const RecipeQuote = () => {
@@ -64,7 +153,6 @@ const RecipeQuote = () => {
   const [lines, setLines] = useState<GeneratedLine[]>([]);
   const [generated, setGenerated] = useState(false);
 
-  // Fetch recipes
   const { data: recipes = [] } = useQuery({
     queryKey: ["recipes"],
     queryFn: async () => {
@@ -73,11 +161,16 @@ const RecipeQuote = () => {
         .select("id, recipe_name, category, unit, materials")
         .eq("status", "active");
       if (error) throw error;
-      return data as unknown as { id: string; recipe_name: string; category: string | null; unit: string; materials: RecipeMaterial[] }[];
+      return data as unknown as {
+        id: string;
+        recipe_name: string;
+        category: string | null;
+        unit: string;
+        materials: RecipeMaterial[];
+      }[];
     },
   });
 
-  // Fetch all products for matching
   const { data: products = [] } = useQuery({
     queryKey: ["all-products-for-recipe"],
     queryFn: async () => {
@@ -85,20 +178,7 @@ const RecipeQuote = () => {
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id");
       if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch active discount rules
-  const { data: discountRules = [] } = useQuery({
-    queryKey: ["discount-rules-active"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("discount_rules")
-        .select("*")
-        .eq("active", true);
-      if (error) throw error;
-      return data;
+      return data as Product[];
     },
   });
 
@@ -115,21 +195,11 @@ const RecipeQuote = () => {
       return;
     }
     const discountNum = parseFloat(discount) || 0;
-
     const materials = selectedRecipe.materials as RecipeMaterial[];
+
     const result: GeneratedLine[] = materials.map((mat) => {
       const quantity = mat.consumption_per_m2 * surfaceNum;
-
-      // Fuzzy search in products
-      let bestProduct: typeof products[number] | null = null;
-      let bestScore = 0;
-      for (const p of products) {
-        const score = fuzzyMatch(mat.keywords, p.denumire_completa, p.cod_intern);
-        if (score > bestScore) {
-          bestScore = score;
-          bestProduct = p;
-        }
-      }
+      const bestProduct = findBestProduct(mat, products);
 
       const unitPrice = bestProduct ? Number(bestProduct.pret_lista) : 0;
       const lineTotal = quantity * unitPrice * (1 - discountNum / 100);
@@ -152,7 +222,8 @@ const RecipeQuote = () => {
 
     setLines(result);
     setGenerated(true);
-    toast.success(`Ofertă generată: ${result.length} materiale`);
+    const found = result.filter((r) => r.status === "FOUND").length;
+    toast.success(`Ofertă generată: ${found}/${result.length} materiale găsite`);
   };
 
   const totals = useMemo(() => {
@@ -163,9 +234,7 @@ const RecipeQuote = () => {
 
   const handleCreateQuote = async () => {
     if (!user) return;
-    const discountNum = parseFloat(discount) || 0;
 
-    // Create quote
     const { data: quote, error: qErr } = await supabase
       .from("quotes")
       .insert({
@@ -221,7 +290,6 @@ const RecipeQuote = () => {
           </p>
         </div>
 
-        {/* Inputs */}
         <Card>
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
@@ -242,24 +310,11 @@ const RecipeQuote = () => {
               </div>
               <div>
                 <Label>Suprafață (m²)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.1"
-                  value={surface}
-                  onChange={(e) => setSurface(e.target.value)}
-                />
+                <Input type="number" min={0} step="0.1" value={surface} onChange={(e) => setSurface(e.target.value)} />
               </div>
               <div>
                 <Label>Discount global (%)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.5"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
-                />
+                <Input type="number" min={0} max={100} step="0.5" value={discount} onChange={(e) => setDiscount(e.target.value)} />
               </div>
             </div>
             <div className="mt-4">
@@ -271,7 +326,6 @@ const RecipeQuote = () => {
           </CardContent>
         </Card>
 
-        {/* Results */}
         {generated && lines.length > 0 && (
           <>
             <Card>
@@ -279,9 +333,7 @@ const RecipeQuote = () => {
                 <CardTitle className="text-base flex items-center gap-2">
                   {selectedRecipe?.recipe_name}
                   <Badge variant="secondary">{surface} m²</Badge>
-                  {parseFloat(discount) > 0 && (
-                    <Badge variant="outline">-{discount}%</Badge>
-                  )}
+                  {parseFloat(discount) > 0 && <Badge variant="outline">-{discount}%</Badge>}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
@@ -323,12 +375,8 @@ const RecipeQuote = () => {
                           </TableCell>
                           <TableCell className="text-right font-medium">{line.quantity}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{line.um}</TableCell>
-                          <TableCell className="text-right">
-                            {line.unit_price > 0 ? `${line.unit_price.toFixed(2)}` : "—"}
-                          </TableCell>
-                          <TableCell className="text-right font-bold">
-                            {line.line_total > 0 ? `${line.line_total.toFixed(2)}` : "—"}
-                          </TableCell>
+                          <TableCell className="text-right">{line.unit_price > 0 ? `${line.unit_price.toFixed(2)}` : "—"}</TableCell>
+                          <TableCell className="text-right font-bold">{line.line_total > 0 ? `${line.line_total.toFixed(2)}` : "—"}</TableCell>
                           <TableCell>
                             {line.status === "FOUND" ? (
                               <CheckCircle2 className="h-4 w-4 text-primary" />
@@ -344,7 +392,6 @@ const RecipeQuote = () => {
               </CardContent>
             </Card>
 
-            {/* Totals */}
             <Card>
               <CardContent className="pt-4">
                 <div className="flex flex-col items-end gap-1 text-sm">
@@ -353,7 +400,7 @@ const RecipeQuote = () => {
                     <span className="font-medium">{totals.net.toFixed(2)} lei</span>
                   </div>
                   <div className="flex justify-between w-full max-w-xs">
-                    <span className="text-muted-foreground">TVA (21%):</span>
+                    <span className="text-muted-foreground">TVA (19%):</span>
                     <span className="font-medium">{totals.tva.toFixed(2)} lei</span>
                   </div>
                   <div className="flex justify-between w-full max-w-xs border-t pt-1 mt-1">
@@ -364,7 +411,6 @@ const RecipeQuote = () => {
               </CardContent>
             </Card>
 
-            {/* Action: save as quote */}
             <div className="flex justify-end pb-8">
               <Button onClick={handleCreateQuote} size="lg" className="gap-2">
                 <Plus className="h-4 w-4" />
