@@ -6,6 +6,54 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function parseNumber(raw: string): number | null {
+  const cleaned = raw
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toMillimeters(value: number, unit: string): number {
+  const u = unit.toLowerCase();
+  if (u === "mm") return value;
+  if (u === "cm") return value * 10;
+  if (u === "m") return value * 1000;
+  return value;
+}
+
+function extractFirstPdfUrl(markdown: string): string | null {
+  const m = markdown.match(/https?:\/\/[^\s)]+\.pdf(\?[^\s)]+)?/i);
+  return m ? m[0] : null;
+}
+
+function extractSection(markdown: string, titles: string[]): string | null {
+  for (const title of titles) {
+    const re = new RegExp(`^##\\s*${title}\\s*$([\\s\\S]*?)(?=^##\\s+|\\Z)`, "im");
+    const m = markdown.match(re);
+    if (m?.[1]) {
+      const text = m[1].trim().replace(/\n{3,}/g, "\n\n");
+      if (text.length >= 30) return text.slice(0, 5000);
+    }
+  }
+
+  const h1Index = markdown.search(/^#\s+/m);
+  const tail = h1Index >= 0 ? markdown.slice(h1Index) : markdown;
+  const paragraphs = tail
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  for (const p of paragraphs) {
+    if (p.startsWith("#")) continue;
+    if (/lei/i.test(p)) continue;
+    if (/^(\d+\.)\s+/.test(p)) continue;
+    const plain = p.replace(/\s+/g, " ").trim();
+    if (plain.length >= 60) return plain.slice(0, 2000);
+  }
+  return null;
+}
+
 function parseProduct(markdown: string, url: string) {
   // Extract cod produs from URL (pattern: -XXXXXXXX.html)
   const codMatch = url.match(/-(\d{5,})\.html$/);
@@ -82,6 +130,46 @@ function parseProduct(markdown: string, url: string) {
   const codProdusMatch = markdown.match(/Cod produs:\s*(\S+)/i);
   const codFromPage = codProdusMatch ? codProdusMatch[1].trim() : codIntern;
 
+  const thicknessMatch = productName.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm)\s*(?:grosime|grosimea)/i);
+  const thicknessValue = thicknessMatch ? parseNumber(thicknessMatch[1]) : null;
+  const thicknessUnit = thicknessMatch ? thicknessMatch[2] : null;
+  const thicknessMm =
+    thicknessValue !== null && thicknessUnit ? Math.round(toMillimeters(thicknessValue, thicknessUnit)) : null;
+
+  const dimMatch = productName.match(/(\d+(?:[.,]\d+)?)\s*(?:[xX]|\u00D7)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m)\b/i);
+  const dimA = dimMatch ? parseNumber(dimMatch[1]) : null;
+  const dimB = dimMatch ? parseNumber(dimMatch[2]) : null;
+  const dimUnit = dimMatch ? dimMatch[3] : null;
+  const lengthMm =
+    dimA !== null && dimUnit ? Math.round(toMillimeters(dimA, dimUnit)) : null;
+  const widthMm =
+    dimB !== null && dimUnit ? Math.round(toMillimeters(dimB, dimUnit)) : null;
+
+  const kpaMatch = productName.match(/(\d+(?:[.,]\d+)?)\s*kpa\b/i) || markdown.match(/(\d+(?:[.,]\d+)?)\s*kpa\b/i);
+  const kpa = kpaMatch ? parseNumber(kpaMatch[1]) : null;
+
+  const lambdaMatch = markdown.match(/(?:lambda|\u03BB)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i);
+  const lambda = lambdaMatch ? parseNumber(lambdaMatch[1]) : null;
+
+  const datasheetUrl = extractFirstPdfUrl(markdown);
+  const description = extractSection(markdown, [
+    "Descriere produs",
+    "Descriere",
+    "Caracteristici",
+    "Utilizare",
+    "Avantaje",
+    "Detalii",
+    "Informatii",
+  ]);
+
+  const specifications: Record<string, unknown> = {};
+  if (thicknessMm !== null) specifications.thickness_mm = thicknessMm;
+  if (lengthMm !== null) specifications.length_mm = lengthMm;
+  if (widthMm !== null) specifications.width_mm = widthMm;
+  if (kpa !== null) specifications.compressive_strength_kpa = kpa;
+  if (lambda !== null) specifications.lambda_w_mk = lambda;
+  if (datasheetUrl) specifications.datasheet_url = datasheetUrl;
+
   return {
     cod_intern: codFromPage || codIntern,
     denumire_completa: productName,
@@ -90,6 +178,8 @@ function parseProduct(markdown: string, url: string) {
     breadcrumbs,
     image_url: imageUrl,
     source_url: url,
+    description,
+    specifications,
   };
 }
 
@@ -252,10 +342,12 @@ Deno.serve(async (req) => {
           const productData = {
             cod_intern: parsed.cod_intern,
             denumire_completa: parsed.denumire_completa,
+            description: parsed.description || null,
             pret_lista: parsed.pret_lista,
             unit: parsed.unit,
             category_id: categoryId,
             image_url: parsed.image_url,
+            specifications: parsed.specifications || {},
             source_url: url,
             updated_at: new Date().toISOString(),
           };
