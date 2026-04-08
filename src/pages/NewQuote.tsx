@@ -17,7 +17,7 @@ import {
 import { Trash2, Save, Send, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-const TVA_RATE = 0.19;
+const TVA_RATE = 0.21;
 
 interface QuoteItem {
   tempId: string;
@@ -396,7 +396,7 @@ const NewQuote = () => {
                   <span className="font-medium">{totals.totalNet.toFixed(2)} lei</span>
                 </div>
                 <div className="flex justify-between w-full max-w-xs">
-                  <span className="text-muted-foreground">TVA (19%):</span>
+                  <span className="text-muted-foreground">TVA (21%):</span>
                   <span className="font-medium">{totals.totalTva.toFixed(2)} lei</span>
                 </div>
                 <div className="flex justify-between w-full max-w-xs border-t pt-1 mt-1">
