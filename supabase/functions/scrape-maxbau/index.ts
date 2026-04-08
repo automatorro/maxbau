@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
               categoryId = existing.id;
               parentId = existing.id;
             } else {
-              const { data: newCat, error: catError } = await supabase
+              const { data: newCat, error: catError }: { data: any; error: any } = await supabase
                 .from("categories")
                 .insert({ name: catName, slug, parent_id: parentId })
                 .select("id")
