@@ -327,7 +327,7 @@ const NewQuote = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[80px]">Cod</TableHead>

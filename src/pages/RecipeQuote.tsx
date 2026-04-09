@@ -337,7 +337,7 @@ const RecipeQuote = () => {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table className="min-w-[900px]">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-[40px]">#</TableHead>

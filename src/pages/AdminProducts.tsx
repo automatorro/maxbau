@@ -153,7 +153,7 @@ const AdminProducts = () => {
         </div>
 
         <div className="rounded-md border">
-          <Table>
+          <Table className="min-w-[1100px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Cod intern</TableHead>
