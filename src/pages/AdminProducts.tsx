@@ -159,14 +159,18 @@ const AdminProducts = () => {
                 <TableHead>Cod intern</TableHead>
                 <TableHead>Denumire</TableHead>
                 <TableHead>Categorie</TableHead>
-                <TableHead className="text-right">Preț (fără TVA)</TableHead>
+                <TableHead>Brand</TableHead>
+                <TableHead>Producător</TableHead>
+                <TableHead>Ambalare</TableHead>
+                <TableHead>Cantitate/pachet</TableHead>
                 <TableHead>UM</TableHead>
+                <TableHead className="text-right">Preț (fără TVA)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={9} className="text-center py-8">
                     <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />
                   </TableCell>
                 </TableRow>
@@ -176,15 +180,19 @@ const AdminProducts = () => {
                     <TableCell className="font-mono text-sm">{product.cod_intern}</TableCell>
                     <TableCell className="max-w-xs truncate">{product.denumire_completa}</TableCell>
                     <TableCell>{(product.categories as any)?.name || "-"}</TableCell>
+                    <TableCell className="max-w-[140px] truncate">{product.brand || "-"}</TableCell>
+                    <TableCell className="max-w-[160px] truncate">{product.manufacturer || "-"}</TableCell>
+                    <TableCell className="max-w-[160px] truncate">{product.packaging || "-"}</TableCell>
+                    <TableCell className="max-w-[140px] truncate">{product.pack_quantity || "-"}</TableCell>
+                    <TableCell>{product.unit}</TableCell>
                     <TableCell className="text-right font-medium">
                       {Number(product.pret_lista).toFixed(2)} lei
                     </TableCell>
-                    <TableCell>{product.unit}</TableCell>
                   </TableRow>
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     Niciun produs. Importați produse de pe maxbau.ro.
                   </TableCell>
                 </TableRow>
