@@ -70,6 +70,34 @@ function extractFirstMatch(markdown: string, patterns: RegExp[]): string | null 
   return null;
 }
 
+function extractBrandFromHtml(html: string): string | null {
+  if (!html) return null;
+
+  const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    if (!/cs-photos\/brands/i.test(tag)) continue;
+
+    const alt = tag.match(/\balt\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+    if (alt && alt.length <= 60) return alt.slice(0, 200);
+
+    const title = tag.match(/\btitle\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+    if (title && title.length <= 60) return title.slice(0, 200);
+
+    const src = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
+    if (!src) continue;
+
+    const base = src.split("?")[0]?.split("#")[0]?.split("/").pop() || "";
+    const decoded = decodeURIComponent(base);
+    const token = decoded.split(".")[0]?.split("_")[0]?.trim();
+    if (!token) continue;
+    const normalized = token.replace(/[-]+/g, " ").trim();
+    if (!normalized) continue;
+    return normalized.slice(0, 200);
+  }
+
+  return null;
+}
+
 function extractLabeledValue(markdown: string, labels: string[]): string | null {
   const normalizedLabels = labels.map((l) => normalizeForSearch(l));
   const lines = markdown.split(/\r?\n/);
@@ -140,7 +168,7 @@ function extractLabeledValue(markdown: string, labels: string[]): string | null 
   return null;
 }
 
-function parseProduct(markdown: string, url: string) {
+function parseProduct(markdown: string, url: string, html?: string) {
   // Extract cod produs from URL (pattern: -XXXXXXXX.html)
   const codMatch = url.match(/-(\d{5,})\.html$/);
   const codIntern = codMatch ? codMatch[1] : null;
@@ -256,18 +284,23 @@ function parseProduct(markdown: string, url: string) {
   if (lambda !== null) specifications.lambda_w_mk = lambda;
   if (datasheetUrl) specifications.datasheet_url = datasheetUrl;
 
+  const brandFromHtml = html ? extractBrandFromHtml(html) : null;
   const brand =
     extractFirstMatch(markdown, [
       /Marca\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
       /\bBrand\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
-    ]) ?? extractLabeledValue(markdown, ["brand", "marca"]);
+    ]) ??
+    extractLabeledValue(markdown, ["brand", "marca"]) ??
+    brandFromHtml;
 
   const manufacturer =
     extractFirstMatch(markdown, [
       /Produc[aă]tor\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
       /\bManufacturer\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
       /\bFabricant\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
-    ]) ?? extractLabeledValue(markdown, ["producator", "manufacturer", "fabricant"]);
+    ]) ??
+    extractLabeledValue(markdown, ["producator", "manufacturer", "fabricant"]) ??
+    brandFromHtml;
 
   let packaging =
     extractFirstMatch(markdown, [
@@ -406,7 +439,7 @@ Deno.serve(async (req) => {
             },
             body: JSON.stringify({
               url,
-              formats: ["markdown"],
+              formats: ["markdown", "html"],
               onlyMainContent: false,
             }),
           });
@@ -427,6 +460,8 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          const html = data.data?.html || data.html || "";
+
           const head = markdown.slice(0, 2500).toLowerCase();
           if (
             (head.includes("403") && (head.includes("forbidden") || head.includes("access denied"))) ||
@@ -439,7 +474,7 @@ Deno.serve(async (req) => {
             continue;
           }
 
-          const parsed = parseProduct(markdown, url);
+          const parsed = parseProduct(markdown, url, html);
           if (!parsed || !parsed.cod_intern) {
             const errMsg = `${url}: Could not parse product data from markdown`;
             console.error(errMsg);
