@@ -61,6 +61,15 @@ function normalizeForSearch(input: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function extractFirstMatch(markdown: string, patterns: RegExp[]): string | null {
+  for (const pattern of patterns) {
+    const m = markdown.match(pattern);
+    const value = m?.[1]?.trim();
+    if (value) return value.slice(0, 200);
+  }
+  return null;
+}
+
 function extractLabeledValue(markdown: string, labels: string[]): string | null {
   const normalizedLabels = labels.map((l) => normalizeForSearch(l));
   const lines = markdown.split(/\r?\n/);
@@ -247,16 +256,57 @@ function parseProduct(markdown: string, url: string) {
   if (lambda !== null) specifications.lambda_w_mk = lambda;
   if (datasheetUrl) specifications.datasheet_url = datasheetUrl;
 
-  const brand = extractLabeledValue(markdown, ["brand", "marca"]);
-  const manufacturer = extractLabeledValue(markdown, ["producator", "manufacturer"]);
-  const packaging = extractLabeledValue(markdown, ["ambalare", "ambalaj"]);
-  const packQuantity = extractLabeledValue(markdown, [
-    "cantitate/pachet",
-    "cantitate per pachet",
-    "cantitate pachet",
-    "buc/pachet",
-    "mp/pachet",
-  ]);
+  const brand =
+    extractFirstMatch(markdown, [
+      /Marca\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
+      /\bBrand\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
+    ]) ?? extractLabeledValue(markdown, ["brand", "marca"]);
+
+  const manufacturer =
+    extractFirstMatch(markdown, [
+      /Produc[aă]tor\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
+      /\bManufacturer\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
+      /\bFabricant\s*[:：]\s*([^\n;|]+?)(?:\s*Cod produs\b|$)/i,
+    ]) ?? extractLabeledValue(markdown, ["producator", "manufacturer", "fabricant"]);
+
+  let packaging =
+    extractFirstMatch(markdown, [
+      /Ambalare\s*[:：]\s*([^\n;|]+)/i,
+      /Mod de ambalare\s*[:：]\s*([^\n;|]+)/i,
+      /Se vinde la\s*[:：]\s*([^\n;|]+)/i,
+      /Cantitate\/ambalaj colectiv\s*[:：]?\s*([^\n;|]+)/i,
+    ]) ?? extractLabeledValue(markdown, ["ambalare", "ambalaj", "mod de ambalare", "cantitate/ambalaj colectiv", "se vinde la"]);
+
+  let packQuantity =
+    extractFirstMatch(markdown, [
+      /Cantitate\/pachet\s*[:：]\s*([^\n;|]+)/i,
+      /Mp\/pachet\s*[:：]?\s*([^\n;|]+)/i,
+      /Buc(?:a|ă)ti pe palet\s*[:：]?\s*([^\n;|]+)/i,
+      /Buc\s*\/\s*pachet\s*[:：]?\s*([^\n;|]+)/i,
+    ]) ??
+    extractLabeledValue(markdown, [
+      "cantitate/pachet",
+      "cantitate per pachet",
+      "cantitate pachet",
+      "buc/pachet",
+      "mp/pachet",
+      "mp/pachet ",
+      "bucati pe palet",
+      "cantitate/ambalaj colectiv",
+    ]);
+
+  const qtyPackMatch =
+    markdown.match(/(?:Ambalare|Mod de ambalare|Cantitate\/ambalaj colectiv)\s*[:：]?\s*(\d+(?:[.,]\d+)?)\s*([a-zA-ZăâîșțĂÂÎȘȚ.]+)?\s*\/\s*([a-zA-ZăâîșțĂÂÎȘȚ]+)/i) ??
+    markdown.match(/(\d+(?:[.,]\d+)?)\s*([a-zA-ZăâîșțĂÂÎȘȚ.]+)?\s*\/\s*(pachet|bax|palet|cutie|sac)\b/i);
+  if (qtyPackMatch) {
+    const qty = qtyPackMatch[1]?.trim();
+    const qtyUnit = qtyPackMatch[2]?.trim() || "";
+    const pack = qtyPackMatch[3]?.trim();
+    if (pack && !packaging) packaging = pack;
+    if (!packQuantity && qty) packQuantity = `${qty}${qtyUnit ? ` ${qtyUnit.replace(/\.$/, "")}` : ""}`;
+  }
+
+  if (packaging) packaging = packaging.replace(/\(.*?\)/g, "").trim() || null;
 
   return {
     cod_intern: codFromPage || codIntern,
