@@ -280,6 +280,7 @@ function parseProduct(markdown: string, url: string) {
   let packQuantity =
     extractFirstMatch(markdown, [
       /Cantitate\/pachet\s*[:：]\s*([^\n;|]+)/i,
+      /Cantitate\/UM\s*[:：]?\s*([^\n;|]+)/i,
       /Mp\/pachet\s*[:：]?\s*([^\n;|]+)/i,
       /Buc(?:a|ă)ti pe palet\s*[:：]?\s*([^\n;|]+)/i,
       /Buc\s*\/\s*pachet\s*[:：]?\s*([^\n;|]+)/i,
@@ -288,6 +289,7 @@ function parseProduct(markdown: string, url: string) {
       "cantitate/pachet",
       "cantitate per pachet",
       "cantitate pachet",
+      "cantitate/um",
       "buc/pachet",
       "mp/pachet",
       "mp/pachet ",
