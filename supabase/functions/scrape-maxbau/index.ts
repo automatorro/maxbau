@@ -65,11 +65,15 @@ function extractLabeledValue(markdown: string, labels: string[]): string | null 
   const normalizedLabels = labels.map((l) => normalizeForSearch(l));
   const lines = markdown.split(/\r?\n/);
 
-  for (const line of lines) {
-    const raw = line.trim();
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i].trim();
     if (!raw) continue;
 
-    const cleaned = raw.replace(/^[-*+\s]+/, "").trim();
+    const cleaned = raw
+      .replace(/^[-*+\s]+/, "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/[*_`]+/g, "")
+      .trim();
     const normLine = normalizeForSearch(cleaned);
 
     for (const label of normalizedLabels) {
@@ -103,6 +107,22 @@ function extractLabeledValue(markdown: string, labels: string[]): string | null 
         if (normalizeForSearch(key).includes(label)) {
           const value = dashMatch[2].trim();
           if (value) return value.slice(0, 200);
+        }
+      }
+
+      const cleanedKey = cleaned.replace(/:$/, "").trim();
+      if (normalizeForSearch(cleanedKey) === label) {
+        for (let j = i + 1; j < lines.length; j++) {
+          const candidate = lines[j]
+            .trim()
+            .replace(/^[-*+\s]+/, "")
+            .replace(/<[^>]+>/g, "")
+            .replace(/[*_`]+/g, "")
+            .trim();
+          if (!candidate) continue;
+          if (candidate.startsWith("#")) break;
+          if (candidate.includes("|") && candidate.replace(/\|/g, "").trim().length === 0) continue;
+          return candidate.slice(0, 200);
         }
       }
     }
@@ -355,11 +375,30 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          const head = markdown.slice(0, 2500).toLowerCase();
+          if (
+            (head.includes("403") && (head.includes("forbidden") || head.includes("access denied"))) ||
+            head.includes("captcha") ||
+            head.includes("cloudflare")
+          ) {
+            const errMsg = `${url}: Access blocked (403/captcha)`;
+            console.error(errMsg);
+            errors.push(errMsg);
+            continue;
+          }
+
           const parsed = parseProduct(markdown, url);
           if (!parsed || !parsed.cod_intern) {
             const errMsg = `${url}: Could not parse product data from markdown`;
             console.error(errMsg);
             console.error("First 500 chars:", markdown.substring(0, 500));
+            errors.push(errMsg);
+            continue;
+          }
+
+          if (!Number.isFinite(parsed.pret_lista) || parsed.pret_lista <= 0) {
+            const errMsg = `${url}: Price not parsed (pret_lista=${parsed.pret_lista})`;
+            console.error(errMsg);
             errors.push(errMsg);
             continue;
           }
@@ -411,14 +450,10 @@ Deno.serve(async (req) => {
             }
           }
 
-          const productData = {
+          const productData: Record<string, unknown> = {
             cod_intern: parsed.cod_intern,
             denumire_completa: parsed.denumire_completa,
             description: parsed.description || null,
-            brand: parsed.brand || null,
-            manufacturer: parsed.manufacturer || null,
-            packaging: parsed.packaging || null,
-            pack_quantity: parsed.pack_quantity || null,
             pret_lista: parsed.pret_lista,
             unit: parsed.unit,
             category_id: categoryId,
@@ -427,6 +462,11 @@ Deno.serve(async (req) => {
             source_url: url,
             updated_at: new Date().toISOString(),
           };
+
+          if (parsed.brand) productData.brand = parsed.brand;
+          if (parsed.manufacturer) productData.manufacturer = parsed.manufacturer;
+          if (parsed.packaging) productData.packaging = parsed.packaging;
+          if (parsed.pack_quantity) productData.pack_quantity = parsed.pack_quantity;
 
           // Upsert product by cod_intern
           const { data: existingProduct } = await supabase
