@@ -13,6 +13,7 @@ import NewQuote from "./pages/NewQuote";
 import MyQuotes from "./pages/MyQuotes";
 import AdminProducts from "./pages/AdminProducts";
 import AdminDiscounts from "./pages/AdminDiscounts";
+import AdminPriceSheets from "./pages/AdminPriceSheets";
 import RecipeQuote from "./pages/RecipeQuote";
 import NotFound from "./pages/NotFound";
 
@@ -36,6 +37,7 @@ const App = () => (
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
+            <Route path="/admin/price-sheets" element={<ProtectedRoute><AdminPriceSheets /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

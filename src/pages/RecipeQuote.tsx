@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -37,10 +37,12 @@ interface GeneratedLine {
   product_id: string | null;
   cod_intern: string | null;
   product_name: string | null;
+  list_unit_price: number;
   unit_price: number;
   discount_percent: number;
   line_total: number;
   status: "FOUND" | "NOT_FOUND";
+  price_sheet_item_id?: string | null;
 }
 
 type Product = {
@@ -149,8 +151,23 @@ const RecipeQuote = () => {
   const [selectedRecipeId, setSelectedRecipeId] = useState("");
   const [surface, setSurface] = useState("250");
   const [discount, setDiscount] = useState("0");
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [lines, setLines] = useState<GeneratedLine[]>([]);
   const [generated, setGenerated] = useState(false);
+
+  const { data: activePriceSheet } = useQuery({
+    queryKey: ["active-price-sheet"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("price_sheets")
+        .select("id, name, created_at")
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return data?.[0] as { id: string; name: string; created_at: string } | undefined;
+    },
+  });
 
   const { data: recipes = [] } = useQuery({
     queryKey: ["recipes"],
@@ -200,7 +217,8 @@ const RecipeQuote = () => {
       const quantity = mat.consumption_per_m2 * surfaceNum;
       const bestProduct = findBestProduct(mat, products);
 
-      const unitPrice = bestProduct ? Number(bestProduct.pret_lista) : 0;
+      const listUnitPrice = bestProduct ? Number(bestProduct.pret_lista) : 0;
+      const unitPrice = listUnitPrice;
       const lineTotal = quantity * unitPrice * (1 - discountNum / 100);
 
       return {
@@ -212,6 +230,7 @@ const RecipeQuote = () => {
         product_id: bestProduct?.id || null,
         cod_intern: bestProduct?.cod_intern || null,
         product_name: bestProduct?.denumire_completa || null,
+        list_unit_price: listUnitPrice,
         unit_price: unitPrice,
         discount_percent: discountNum,
         line_total: Math.round(lineTotal * 100) / 100,
@@ -225,14 +244,93 @@ const RecipeQuote = () => {
     toast.success(`Ofertă generată: ${found}/${result.length} materiale găsite`);
   };
 
+  const productIdsInLines = useMemo(
+    () => Array.from(new Set(lines.map((l) => l.product_id).filter(Boolean))) as string[],
+    [lines]
+  );
+
+  const { data: specialPriceItems = [] } = useQuery({
+    queryKey: ["special-price-items-recipe", activePriceSheet?.id, productIdsInLines.join("|")],
+    enabled: Boolean(activePriceSheet?.id) && productIdsInLines.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("price_sheet_items")
+        .select("id, product_id, label, unit, price")
+        .eq("price_sheet_id", activePriceSheet!.id)
+        .in("product_id", productIdsInLines)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; product_id: string; label: string | null; unit: string | null; price: number }[];
+    },
+  });
+
+  const specialPriceItemsByProductId = useMemo(() => {
+    const map = new Map<string, { id: string; label: string | null; unit: string | null; price: number }[]>();
+    for (const it of specialPriceItems) {
+      const existing = map.get(it.product_id) || [];
+      existing.push({ id: it.id, label: it.label, unit: it.unit, price: Number(it.price) });
+      map.set(it.product_id, existing);
+    }
+    return map;
+  }, [specialPriceItems]);
+
+  useEffect(() => {
+    if (!generated) return;
+    if (!activePriceSheet?.id) return;
+    if (lines.length === 0) return;
+
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.status !== "FOUND" || !l.product_id) return l;
+        if (l.price_sheet_item_id) return l;
+        const options = specialPriceItemsByProductId.get(l.product_id);
+        if (!options || options.length === 0) return l;
+        const first = options[0];
+        const updated = {
+          ...l,
+          price_sheet_item_id: first.id,
+          unit_price: Number(first.price),
+          discount_percent: 0,
+        };
+        const lineTotal = updated.quantity * updated.unit_price * (1 - updated.discount_percent / 100);
+        return { ...updated, line_total: Math.round(lineTotal * 100) / 100 };
+      })
+    );
+  }, [activePriceSheet?.id, generated, lines.length, specialPriceItemsByProductId]);
+
+  const updateLine = (position: number, patch: Partial<Pick<GeneratedLine, "unit_price" | "discount_percent" | "price_sheet_item_id">>) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.position !== position) return l;
+        const updated = { ...l, ...patch };
+        const lineTotal = updated.quantity * updated.unit_price * (1 - updated.discount_percent / 100);
+        return { ...updated, line_total: Math.round(lineTotal * 100) / 100 };
+      })
+    );
+  };
+
   const totals = useMemo(() => {
     const net = lines.reduce((s, l) => s + l.line_total, 0);
     const tva = net * TVA_RATE;
-    return { net, tva, gross: net + tva };
+    const totalList = lines.reduce((s, l) => s + l.quantity * l.list_unit_price, 0);
+    const overallDiscountPercent = totalList > 0 ? (1 - net / totalList) * 100 : 0;
+    return { net, tva, gross: net + tva, totalList, overallDiscountPercent };
   }, [lines]);
 
   const handleCreateQuote = async () => {
     if (!user) return;
+
+    const maxDiscNum = maxDiscountPercent.trim() === "" ? null : Number(maxDiscountPercent);
+    if (maxDiscNum !== null && (!Number.isFinite(maxDiscNum) || maxDiscNum < 0 || maxDiscNum > 100)) {
+      toast.error("Discount maxim total invalid");
+      return;
+    }
+    if (maxDiscNum !== null && totals.overallDiscountPercent > maxDiscNum + 1e-9) {
+      toast.error(
+        `Discount total (${totals.overallDiscountPercent.toFixed(2)}%) depășește maximul (${maxDiscNum.toFixed(2)}%)`
+      );
+      return;
+    }
 
     const { data: quote, error: qErr } = await supabase
       .from("quotes")
@@ -243,6 +341,7 @@ const RecipeQuote = () => {
         total_net: totals.net,
         total_tva: totals.tva,
         total_gross: totals.gross,
+        max_discount_percent: maxDiscNum,
       })
       .select("id")
       .single();
@@ -315,6 +414,10 @@ const RecipeQuote = () => {
                 <Label>Discount global (%)</Label>
                 <Input type="number" min={0} max={100} step="0.5" value={discount} onChange={(e) => setDiscount(e.target.value)} />
               </div>
+              <div>
+                <Label>Discount maxim total (%)</Label>
+                <Input type="number" min={0} max={100} step="0.5" value={maxDiscountPercent} onChange={(e) => setMaxDiscountPercent(e.target.value)} />
+              </div>
             </div>
             <div className="mt-4">
               <Button onClick={handleGenerate} className="gap-2" size="lg">
@@ -346,6 +449,8 @@ const RecipeQuote = () => {
                         <TableHead className="w-[90px] text-right">Cantitate</TableHead>
                         <TableHead className="w-[50px]">UM</TableHead>
                         <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
+                      <TableHead className="w-[160px]">Listă</TableHead>
+                      <TableHead className="w-[80px] text-right">Disc.%</TableHead>
                         <TableHead className="w-[110px] text-right">Total</TableHead>
                         <TableHead className="w-[40px]"></TableHead>
                       </TableRow>
@@ -374,7 +479,65 @@ const RecipeQuote = () => {
                           </TableCell>
                           <TableCell className="text-right font-medium">{line.quantity}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{line.um}</TableCell>
-                          <TableCell className="text-right">{line.unit_price > 0 ? `${line.unit_price.toFixed(2)}` : "—"}</TableCell>
+                          <TableCell>
+                            {line.status === "FOUND" ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={line.unit_price}
+                                onChange={(e) => updateLine(line.position, { unit_price: parseFloat(e.target.value) || 0, price_sheet_item_id: null })}
+                                className="h-8 text-right"
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {line.status === "FOUND" && line.product_id && specialPriceItemsByProductId.get(line.product_id)?.length ? (
+                              <Select
+                                value={line.price_sheet_item_id || "list"}
+                                onValueChange={(v) => {
+                                  if (v === "list") {
+                                    updateLine(line.position, { price_sheet_item_id: null, unit_price: line.list_unit_price, discount_percent: 0 });
+                                    return;
+                                  }
+                                  const opt = specialPriceItemsByProductId.get(line.product_id!)?.find((o) => o.id === v);
+                                  if (!opt) return;
+                                  updateLine(line.position, { price_sheet_item_id: opt.id, unit_price: Number(opt.price), discount_percent: 0 });
+                                }}
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue placeholder="Alege..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="list">Preț de listă</SelectItem>
+                                  {specialPriceItemsByProductId.get(line.product_id)!.map((opt) => (
+                                    <SelectItem key={opt.id} value={opt.id}>
+                                      {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {line.status === "FOUND" ? (
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.5"
+                                value={line.discount_percent}
+                                onChange={(e) => updateLine(line.position, { discount_percent: parseFloat(e.target.value) || 0, price_sheet_item_id: line.price_sheet_item_id || null })}
+                                className="h-8 w-[70px] text-right text-sm"
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right font-bold">{line.line_total > 0 ? `${line.line_total.toFixed(2)}` : "—"}</TableCell>
                           <TableCell>
                             {line.status === "FOUND" ? (
@@ -394,6 +557,14 @@ const RecipeQuote = () => {
             <Card>
               <CardContent className="pt-4">
                 <div className="flex flex-col items-end gap-1 text-sm">
+                  <div className="flex justify-between w-full max-w-xs">
+                    <span className="text-muted-foreground">Total listă:</span>
+                    <span className="font-medium">{totals.totalList.toFixed(2)} lei</span>
+                  </div>
+                  <div className="flex justify-between w-full max-w-xs">
+                    <span className="text-muted-foreground">Discount total:</span>
+                    <span className="font-medium">{totals.overallDiscountPercent.toFixed(2)}%</span>
+                  </div>
                   <div className="flex justify-between w-full max-w-xs">
                     <span className="text-muted-foreground">Total fără TVA:</span>
                     <span className="font-medium">{totals.net.toFixed(2)} lei</span>

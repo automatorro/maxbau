@@ -12,6 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Trash2, Save, Send, Plus } from "lucide-react";
@@ -25,10 +32,12 @@ interface QuoteItem {
   denumire: string;
   quantity: number;
   unit: string;
+  pret_lista?: number;
   pret_unitar: number;
   discount_percent: number;
   pret_final: number;
   subtotal: number;
+  price_sheet_item_id?: string | null;
 }
 
 function calcLine(item: Partial<QuoteItem>): Pick<QuoteItem, "pret_final" | "subtotal"> {
@@ -38,6 +47,15 @@ function calcLine(item: Partial<QuoteItem>): Pick<QuoteItem, "pret_final" | "sub
   const pret_final = pret * (1 - disc / 100);
   return { pret_final, subtotal: pret_final * qty };
 }
+
+type ProductForQuote = {
+  id: string;
+  cod_intern: string;
+  denumire_completa: string;
+  pret_lista: number;
+  unit: string | null;
+  category_id: string | null;
+};
 
 const NewQuote = () => {
   const { user } = useAuth();
@@ -50,6 +68,7 @@ const NewQuote = () => {
   const [clientPhone, setClientPhone] = useState("");
   const [clientEmail, setClientEmail] = useState("");
   const [projectDesc, setProjectDesc] = useState("");
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [loaded, setLoaded] = useState(!isEdit);
 
@@ -87,6 +106,11 @@ const NewQuote = () => {
       setClientPhone(existingQuote.client_phone || "");
       setClientEmail(existingQuote.client_email || "");
       setProjectDesc(existingQuote.project_description || "");
+      setMaxDiscountPercent(
+        existingQuote.max_discount_percent === null || existingQuote.max_discount_percent === undefined
+          ? ""
+          : String(existingQuote.max_discount_percent)
+      );
       setItems(
         existingItems.map((it) => ({
           tempId: crypto.randomUUID(),
@@ -104,6 +128,69 @@ const NewQuote = () => {
       setLoaded(true);
     }
   }, [isEdit, existingQuote, existingItems, loaded]);
+
+  const { data: activePriceSheet } = useQuery({
+    queryKey: ["active-price-sheet"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("price_sheets")
+        .select("id, name, created_at")
+        .eq("active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return data?.[0] as { id: string; name: string; created_at: string } | undefined;
+    },
+  });
+
+  const productIdsInQuote = useMemo(
+    () => Array.from(new Set(items.map((i) => i.product_id).filter(Boolean))) as string[],
+    [items]
+  );
+
+  const { data: listPrices = [] } = useQuery({
+    queryKey: ["quote-list-prices", productIdsInQuote.join("|")],
+    enabled: productIdsInQuote.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, pret_lista")
+        .in("id", productIdsInQuote);
+      if (error) throw error;
+      return data as { id: string; pret_lista: number }[];
+    },
+  });
+
+  const listPriceByProductId = useMemo(() => {
+    const map = new Map<string, number>();
+    listPrices.forEach((p) => map.set(p.id, Number(p.pret_lista)));
+    return map;
+  }, [listPrices]);
+
+  const { data: specialPriceItems = [] } = useQuery({
+    queryKey: ["special-price-items", activePriceSheet?.id, productIdsInQuote.join("|")],
+    enabled: Boolean(activePriceSheet?.id) && productIdsInQuote.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("price_sheet_items")
+        .select("id, product_id, label, unit, price")
+        .eq("price_sheet_id", activePriceSheet!.id)
+        .in("product_id", productIdsInQuote)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as { id: string; product_id: string; label: string | null; unit: string | null; price: number }[];
+    },
+  });
+
+  const specialPriceItemsByProductId = useMemo(() => {
+    const map = new Map<string, { id: string; label: string | null; unit: string | null; price: number }[]>();
+    for (const it of specialPriceItems) {
+      const existing = map.get(it.product_id) || [];
+      existing.push({ id: it.id, label: it.label, unit: it.unit, price: Number(it.price) });
+      map.set(it.product_id, existing);
+    }
+    return map;
+  }, [specialPriceItems]);
 
   const { data: discountRules = [] } = useQuery({
     queryKey: ["discount-rules-active"],
@@ -141,34 +228,33 @@ const NewQuote = () => {
     [discountRules]
   );
 
-  const addProduct = useCallback(
-    (product: any) => {
-      const existing = items.find((i) => i.product_id === product.id);
-      if (existing) {
-        updateItem(existing.tempId, "quantity", existing.quantity + 1);
-        return;
-      }
-      const autoDiscount = findBestDiscount(product.id, product.category_id, 1);
-      const base: QuoteItem = {
-        tempId: crypto.randomUUID(),
-        product_id: product.id,
-        cod_intern: product.cod_intern,
-        denumire: product.denumire_completa,
-        quantity: 1,
-        unit: product.unit || "buc",
-        pret_unitar: Number(product.pret_lista),
-        discount_percent: autoDiscount,
-        pret_final: 0,
-        subtotal: 0,
-      };
-      const calced = calcLine(base);
-      setItems((prev) => [...prev, { ...base, ...calced }]);
-    },
-    [items, findBestDiscount]
-  );
+  useEffect(() => {
+    if (isEdit) return;
+    if (!activePriceSheet?.id) return;
+    if (items.length === 0) return;
+
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!item.product_id) return item;
+        if (item.price_sheet_item_id) return item;
+        const options = specialPriceItemsByProductId.get(item.product_id);
+        if (!options || options.length === 0) return item;
+        const first = options[0];
+        const updated = {
+          ...item,
+          price_sheet_item_id: first.id,
+          pret_unitar: Number(first.price),
+          unit: (first.unit || item.unit) as string,
+          discount_percent: 0,
+        };
+        const calced = calcLine(updated);
+        return { ...updated, ...calced };
+      })
+    );
+  }, [activePriceSheet?.id, specialPriceItemsByProductId, items.length, isEdit]);
 
   const updateItem = useCallback(
-    (tempId: string, field: keyof QuoteItem, value: number | string) => {
+    (tempId: string, field: keyof QuoteItem, value: number | string | null) => {
       setItems((prev) =>
         prev.map((item) => {
           if (item.tempId !== tempId) return item;
@@ -185,6 +271,33 @@ const NewQuote = () => {
     [findBestDiscount]
   );
 
+  const addProduct = useCallback(
+    (product: ProductForQuote) => {
+      const existing = items.find((i) => i.product_id === product.id);
+      if (existing) {
+        updateItem(existing.tempId, "quantity", existing.quantity + 1);
+        return;
+      }
+      const autoDiscount = findBestDiscount(product.id, product.category_id, 1);
+      const base: QuoteItem = {
+        tempId: crypto.randomUUID(),
+        product_id: product.id,
+        cod_intern: product.cod_intern,
+        denumire: product.denumire_completa,
+        quantity: 1,
+        unit: product.unit || "buc",
+        pret_lista: Number(product.pret_lista),
+        pret_unitar: Number(product.pret_lista),
+        discount_percent: autoDiscount,
+        pret_final: 0,
+        subtotal: 0,
+      };
+      const calced = calcLine(base);
+      setItems((prev) => [...prev, { ...base, ...calced }]);
+    },
+    [items, findBestDiscount, updateItem]
+  );
+
   const removeItem = (tempId: string) => {
     setItems((prev) => prev.filter((i) => i.tempId !== tempId));
   };
@@ -193,13 +306,29 @@ const NewQuote = () => {
     const totalNet = items.reduce((s, i) => s + i.subtotal, 0);
     const totalTva = totalNet * TVA_RATE;
     const totalGross = totalNet + totalTva;
-    return { totalNet, totalTva, totalGross };
-  }, [items]);
+    const totalList = items.reduce((s, i) => {
+      if (!i.product_id) return s;
+      const list = i.pret_lista ?? listPriceByProductId.get(i.product_id) ?? 0;
+      return s + list * i.quantity;
+    }, 0);
+    const overallDiscountPercent = totalList > 0 ? (1 - totalNet / totalList) * 100 : 0;
+    return { totalNet, totalTva, totalGross, totalList, overallDiscountPercent };
+  }, [items, listPriceByProductId]);
 
   const saveMutation = useMutation({
     mutationFn: async (status: "draft" | "sent") => {
       if (!user) throw new Error("Nu sunteți autentificat");
       if (items.length === 0) throw new Error("Adăugați cel puțin un produs");
+
+      const maxDiscNum = maxDiscountPercent.trim() === "" ? null : Number(maxDiscountPercent);
+      if (maxDiscNum !== null && (!Number.isFinite(maxDiscNum) || maxDiscNum < 0 || maxDiscNum > 100)) {
+        throw new Error("Discount maxim total invalid");
+      }
+      if (maxDiscNum !== null && totals.overallDiscountPercent > maxDiscNum + 1e-9) {
+        throw new Error(
+          `Discount total (${totals.overallDiscountPercent.toFixed(2)}%) depășește maximul (${maxDiscNum.toFixed(2)}%)`
+        );
+      }
 
       const quotePayload = {
         user_id: user.id,
@@ -211,6 +340,7 @@ const NewQuote = () => {
         total_net: totals.totalNet,
         total_tva: totals.totalTva,
         total_gross: totals.totalGross,
+        max_discount_percent: maxDiscNum,
       };
 
       let quoteId: string;
@@ -263,8 +393,8 @@ const NewQuote = () => {
       );
       navigate("/quotes");
     },
-    onError: (err: any) => {
-      toast.error(err.message || "Eroare la salvare");
+    onError: (err: unknown) => {
+      toast.error(err instanceof Error ? err.message : "Eroare la salvare");
     },
   });
 
@@ -334,6 +464,7 @@ const NewQuote = () => {
                       <TableHead>Denumire</TableHead>
                       <TableHead className="w-[70px] text-right">Cant.</TableHead>
                       <TableHead className="w-[50px]">UM</TableHead>
+                      <TableHead className="w-[160px]">Listă</TableHead>
                       <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
                       <TableHead className="w-[70px] text-right">Disc.%</TableHead>
                       <TableHead className="w-[90px] text-right">Preț final</TableHead>
@@ -358,6 +489,44 @@ const NewQuote = () => {
                             className="h-8 w-[65px] text-right text-sm" />
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
+                        <TableCell>
+                          {item.product_id && specialPriceItemsByProductId.get(item.product_id)?.length ? (
+                            <Select
+                              value={item.price_sheet_item_id || "list"}
+                              onValueChange={(v) => {
+                                if (v === "list") {
+                                  const list = item.pret_lista ?? listPriceByProductId.get(item.product_id!) ?? 0;
+                                  updateItem(item.tempId, "price_sheet_item_id", null);
+                                  updateItem(item.tempId, "pret_unitar", list);
+                                  updateItem(item.tempId, "discount_percent", 0);
+                                  return;
+                                }
+                                const opt = specialPriceItemsByProductId
+                                  .get(item.product_id!)
+                                  ?.find((o) => o.id === v);
+                                if (!opt) return;
+                                updateItem(item.tempId, "price_sheet_item_id", opt.id);
+                                updateItem(item.tempId, "pret_unitar", Number(opt.price));
+                                if (opt.unit) updateItem(item.tempId, "unit", opt.unit);
+                                updateItem(item.tempId, "discount_percent", 0);
+                              }}
+                            >
+                              <SelectTrigger className="h-8">
+                                <SelectValue placeholder="Alege..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="list">Preț de listă</SelectItem>
+                                {specialPriceItemsByProductId.get(item.product_id)!.map((opt) => (
+                                  <SelectItem key={opt.id} value={opt.id}>
+                                    {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Input type="number" min={0} step="any" value={item.pret_unitar}
                             onChange={(e) => updateItem(item.tempId, "pret_unitar", parseFloat(e.target.value) || 0)}
@@ -389,7 +558,26 @@ const NewQuote = () => {
         {items.length > 0 && (
           <Card>
             <CardContent className="pt-4">
+              <div className="mb-4 max-w-xs">
+                <Label>Discount maxim total (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.5"
+                  value={maxDiscountPercent}
+                  onChange={(e) => setMaxDiscountPercent(e.target.value)}
+                />
+              </div>
               <div className="flex flex-col items-end gap-1 text-sm">
+                <div className="flex justify-between w-full max-w-xs">
+                  <span className="text-muted-foreground">Total listă:</span>
+                  <span className="font-medium">{totals.totalList.toFixed(2)} lei</span>
+                </div>
+                <div className="flex justify-between w-full max-w-xs">
+                  <span className="text-muted-foreground">Discount total:</span>
+                  <span className="font-medium">{totals.overallDiscountPercent.toFixed(2)}%</span>
+                </div>
                 <div className="flex justify-between w-full max-w-xs">
                   <span className="text-muted-foreground">Total fără TVA:</span>
                   <span className="font-medium">{totals.totalNet.toFixed(2)} lei</span>

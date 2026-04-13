@@ -6,6 +6,7 @@ import {
   Tags,
   LogOut,
   Calculator,
+  Table,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -34,6 +35,7 @@ const mainItems = [
 const adminItems = [
   { title: "Produse", url: "/admin/products", icon: Settings },
   { title: "Discounturi", url: "/admin/discounts", icon: Tags },
+  { title: "Liste preț", url: "/admin/price-sheets", icon: Table },
 ];
 
 export function AppSidebar() {

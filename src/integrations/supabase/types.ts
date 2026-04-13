@@ -97,6 +97,78 @@ export type Database = {
           },
         ]
       }
+      price_sheet_items: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          price: number
+          price_sheet_id: string
+          product_id: string
+          unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          price: number
+          price_sheet_id: string
+          product_id: string
+          unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          price?: number
+          price_sheet_id?: string
+          product_id?: string
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "price_sheet_items_price_sheet_id_fkey"
+            columns: ["price_sheet_id"]
+            isOneToOne: false
+            referencedRelation: "price_sheets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "price_sheet_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      price_sheets: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          name: string
+          received_at: string | null
+          source: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name: string
+          received_at?: string | null
+          source?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          name?: string
+          received_at?: string | null
+          source?: string | null
+        }
+        Relationships: []
+      }
       products: {
         Row: {
           brand: string | null
@@ -259,6 +331,7 @@ export type Database = {
           client_phone: string | null
           created_at: string
           id: string
+          max_discount_percent: number | null
           project_description: string | null
           status: Database["public"]["Enums"]["quote_status"]
           total_gross: number | null
@@ -273,6 +346,7 @@ export type Database = {
           client_phone?: string | null
           created_at?: string
           id?: string
+          max_discount_percent?: number | null
           project_description?: string | null
           status?: Database["public"]["Enums"]["quote_status"]
           total_gross?: number | null
@@ -287,6 +361,7 @@ export type Database = {
           client_phone?: string | null
           created_at?: string
           id?: string
+          max_discount_percent?: number | null
           project_description?: string | null
           status?: Database["public"]["Enums"]["quote_status"]
           total_gross?: number | null
