@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ProductPicker } from "@/components/ProductPicker";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { CheckCircle2, Plus, Trash2 } from "lucide-react";
 
@@ -44,6 +45,7 @@ type PickedProduct = {
 
 const AdminPriceSheets = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [selectedSheetId, setSelectedSheetId] = useState<string>("");
 
   const [newSheetName, setNewSheetName] = useState("");
@@ -86,6 +88,27 @@ const AdminPriceSheets = () => {
     },
   });
 
+  const { data: myRoles = [] } = useQuery({
+    queryKey: ["my-roles", user?.id],
+    enabled: Boolean(user?.id),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_roles").select("role").eq("user_id", user!.id);
+      if (error) throw error;
+      return data as { role: "admin" | "moderator" | "user" }[];
+    },
+  });
+
+  const isAdmin = useMemo(() => myRoles.some((r) => r.role === "admin"), [myRoles]);
+
+  const errorToMessage = (e: unknown): string => {
+    if (e instanceof Error) return e.message;
+    if (typeof e === "string") return e;
+    if (typeof e === "object" && e !== null && "message" in e && typeof (e as { message?: unknown }).message === "string") {
+      return (e as { message: string }).message;
+    }
+    return "Eroare";
+  };
+
   const createSheetMutation = useMutation({
     mutationFn: async () => {
       if (!newSheetName.trim()) throw new Error("Introduceți numele listei");
@@ -111,12 +134,13 @@ const AdminPriceSheets = () => {
       queryClient.invalidateQueries({ queryKey: ["price-sheets"] });
     },
     onError: (e) => {
-      toast.error(e instanceof Error ? e.message : "Eroare la creare listă");
+      toast.error(errorToMessage(e) || "Eroare la creare listă");
     },
   });
 
   const activateSheetMutation = useMutation({
     mutationFn: async (sheetId: string) => {
+      if (!isAdmin) throw new Error("Nu ai drepturi admin pentru a activa liste de preț.");
       const { error: clearErr } = await supabase.from("price_sheets").update({ active: false }).eq("active", true);
       if (clearErr) throw clearErr;
       const { error: setErr } = await supabase.from("price_sheets").update({ active: true }).eq("id", sheetId);
@@ -127,7 +151,7 @@ const AdminPriceSheets = () => {
       queryClient.invalidateQueries({ queryKey: ["price-sheets"] });
     },
     onError: (e) => {
-      toast.error(e instanceof Error ? e.message : "Eroare la activare listă");
+      toast.error(errorToMessage(e) || "Eroare la activare listă");
     },
   });
 
@@ -156,7 +180,7 @@ const AdminPriceSheets = () => {
       queryClient.invalidateQueries({ queryKey: ["price-sheet-items", selectedSheetId] });
     },
     onError: (e) => {
-      toast.error(e instanceof Error ? e.message : "Eroare la adăugare linie");
+      toast.error(errorToMessage(e) || "Eroare la adăugare linie");
     },
   });
 
@@ -176,7 +200,7 @@ const AdminPriceSheets = () => {
       queryClient.invalidateQueries({ queryKey: ["price-sheet-items", selectedSheetId] });
     },
     onError: (e) => {
-      toast.error(e instanceof Error ? e.message : "Eroare la editare linie");
+      toast.error(errorToMessage(e) || "Eroare la editare linie");
     },
   });
 
@@ -190,7 +214,7 @@ const AdminPriceSheets = () => {
       queryClient.invalidateQueries({ queryKey: ["price-sheet-items", selectedSheetId] });
     },
     onError: (e) => {
-      toast.error(e instanceof Error ? e.message : "Eroare la ștergere linie");
+      toast.error(errorToMessage(e) || "Eroare la ștergere linie");
     },
   });
 
@@ -201,6 +225,12 @@ const AdminPriceSheets = () => {
           <h1 className="text-2xl font-bold text-foreground">Liste speciale de preț</h1>
           <p className="text-muted-foreground">Import și utilizare în ofertare și rețete</p>
         </div>
+
+        {!isAdmin && (
+          <div className="text-sm text-muted-foreground">
+            Contul curent nu are rol admin, deci nu poate seta lista activă.
+          </div>
+        )}
 
         <Card>
           <CardHeader>
@@ -266,7 +296,7 @@ const AdminPriceSheets = () => {
                             e.stopPropagation();
                             activateSheetMutation.mutate(s.id);
                           }}
-                          disabled={activateSheetMutation.isPending || s.active}
+                          disabled={activateSheetMutation.isPending || s.active || !isAdmin}
                         >
                           Setează activă
                         </Button>

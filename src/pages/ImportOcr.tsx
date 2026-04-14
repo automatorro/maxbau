@@ -133,6 +133,11 @@ function parseDelimitedText(text: string, separator: "\t" | ";" | ","): string[]
   return rows;
 }
 
+function isSpreadsheetFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return name.endsWith(".xlsx") || name.endsWith(".xlsm") || file.type.includes("spreadsheet");
+}
+
 function normalizeMatchText(input: string): string {
   return input
     .normalize("NFD")
@@ -347,6 +352,8 @@ const ImportOcr = () => {
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [sheetFile, setSheetFile] = useState<File | null>(null);
+  const [xlsxSheetNames, setXlsxSheetNames] = useState<string[]>([]);
+  const [xlsxSheetName, setXlsxSheetName] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lang, setLang] = useState<"eng" | "ron">("ron");
   const [running, setRunning] = useState(false);
@@ -416,6 +423,39 @@ const ImportOcr = () => {
     setHeaderRowIndex(0);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSheets = async () => {
+      if (!sheetFile) {
+        setXlsxSheetNames([]);
+        setXlsxSheetName("");
+        return;
+      }
+      if (!isSpreadsheetFile(sheetFile)) {
+        setXlsxSheetNames([]);
+        setXlsxSheetName("");
+        return;
+      }
+
+      try {
+        const buf = await sheetFile.arrayBuffer();
+        if (cancelled) return;
+        const wb = XLSX.read(buf, { type: "array" });
+        const names = wb.SheetNames || [];
+        setXlsxSheetNames(names);
+        setXlsxSheetName((prev) => (names.includes(prev) ? prev : (names[0] || "")));
+      } catch {
+        if (cancelled) return;
+        setXlsxSheetNames([]);
+        setXlsxSheetName("");
+      }
+    };
+    void loadSheets();
+    return () => {
+      cancelled = true;
+    };
+  }, [sheetFile]);
 
   const headerCells = useMemo(() => {
     const row = gridRows[headerRowIndex];
@@ -749,11 +789,11 @@ const ImportOcr = () => {
       const name = sheetFile.name.toLowerCase();
       let rawRows: string[][] = [];
 
-      if (name.endsWith(".xlsx") || name.endsWith(".xlsm") || sheetFile.type.includes("spreadsheet")) {
+      if (isSpreadsheetFile(sheetFile)) {
         const buf = await sheetFile.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
-        const first = wb.SheetNames[0];
-        const sheet = first ? wb.Sheets[first] : undefined;
+        const selected = xlsxSheetName || wb.SheetNames[0] || "";
+        const sheet = selected ? wb.Sheets[selected] : undefined;
         if (!sheet) {
           toast.error("Fișier Excel invalid (nu are foi)");
           return;
@@ -792,6 +832,9 @@ const ImportOcr = () => {
       setSavePricesOpen(false);
       setFile(null);
       setImageUrl("");
+      setSheetFile(null);
+      setXlsxSheetNames([]);
+      setXlsxSheetName("");
       toast.success("Fișier importat");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Eroare la import");
@@ -889,6 +932,23 @@ const ImportOcr = () => {
                   accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   onChange={(e) => setSheetFile(e.target.files?.[0] || null)}
                 />
+                {xlsxSheetNames.length > 0 && (
+                  <div className="mt-2">
+                    <Label>Foaie (Excel)</Label>
+                    <Select value={xlsxSheetName} onValueChange={setXlsxSheetName}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Alege foaia..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {xlsxSheetNames.map((sn) => (
+                          <SelectItem key={sn} value={sn}>
+                            {sn}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" onClick={importSheet} disabled={!sheetFile || sheetRunning}>
