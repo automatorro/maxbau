@@ -8,6 +8,8 @@ import {
   Calculator,
   Table,
   ScanText,
+  Lightbulb,
+  FlaskConical,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -30,12 +32,14 @@ const mainItems = [
   { title: "Catalog", url: "/catalog", icon: Package },
   { title: "Import OCR/Excel", url: "/import", icon: ScanText },
   { title: "Ofertă nouă", url: "/quote/new", icon: FilePlus },
+  { title: "Ofertă din cerere client", url: "/quote/smart", icon: Lightbulb },
   { title: "Generare rețetă", url: "/recipe-quote", icon: Calculator },
   { title: "Ofertele mele", url: "/quotes", icon: FileText },
 ];
 
 const adminItems = [
   { title: "Produse", url: "/admin/products", icon: Settings },
+  { title: "Date tehnice produse", url: "/admin/product-tech", icon: FlaskConical },
   { title: "Discounturi", url: "/admin/discounts", icon: Tags },
   { title: "Liste preț", url: "/admin/price-sheets", icon: Table },
 ];
