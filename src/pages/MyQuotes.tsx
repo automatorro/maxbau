@@ -8,9 +8,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { FileText, Plus, Pencil, Trash2 } from "lucide-react";
+import { FileText, Plus, Pencil, Trash2, Download } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { exportQuoteToExcel } from "@/lib/exportExcel";
 
 const statusLabels: Record<string, string> = {
   draft: "Ciornă",
@@ -42,7 +43,6 @@ const MyQuotes = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (quoteId: string) => {
-      // Delete items first, then the quote
       const { error: iErr } = await supabase.from("quote_items").delete().eq("quote_id", quoteId);
       if (iErr) throw iErr;
       const { error } = await supabase.from("quotes").delete().eq("id", quoteId);
@@ -55,6 +55,75 @@ const MyQuotes = () => {
     onError: () => toast.error("Eroare la ștergere"),
   });
 
+  const handleExport = async (quote: {
+    id: string;
+    client_name?: string | null;
+    client_phone?: string | null;
+    client_email?: string | null;
+    project_description?: string | null;
+    total_net?: number | null;
+    total_tva?: number | null;
+    total_gross?: number | null;
+    created_at: string;
+  }) => {
+    const { data: items, error } = await supabase
+      .from("quote_items")
+      .select("*")
+      .eq("quote_id", quote.id)
+      .order("created_at", { ascending: true });
+
+    if (error || !items) {
+      toast.error("Eroare la încărcarea produselor");
+      return;
+    }
+
+    // Fetch product details for consum/ambalare/similar_cu
+    const productIds = items.map((i) => i.product_id).filter(Boolean) as string[];
+    let productDetails: Record<string, { consum?: string | null; ambalare?: string | null; similar_cu?: string | null }> = {};
+    if (productIds.length > 0) {
+      const { data: prods } = await supabase
+        .from("products")
+        .select("id, consum, ambalare, similar_cu")
+        .in("id", productIds);
+      if (prods) {
+        prods.forEach((p) => { productDetails[p.id] = p; });
+      }
+    }
+
+    exportQuoteToExcel(
+      {
+        nr_oferta: quote.id.slice(0, 8).toUpperCase(),
+        data: new Date(quote.created_at).toLocaleDateString("ro-RO"),
+        client_name: quote.client_name,
+        client_phone: quote.client_phone,
+        client_email: quote.client_email,
+        project_description: quote.project_description,
+        total_net: Number(quote.total_net ?? 0),
+        total_tva: Number(quote.total_tva ?? 0),
+        total_gross: Number(quote.total_gross ?? 0),
+      },
+      items.map((item) => {
+        const prod = item.product_id ? productDetails[item.product_id] : undefined;
+        return {
+          cod_intern: item.cod_intern,
+          denumire: item.denumire,
+          cerere_initiala: (item as Record<string, unknown>).cerere_initiala as string | null | undefined,
+          nota_echivalenta: (item as Record<string, unknown>).nota_echivalenta as string | null | undefined,
+          consum: prod?.consum,
+          ambalare: prod?.ambalare,
+          similar_cu: prod?.similar_cu,
+          quantity: Number(item.quantity),
+          unit: item.unit || "buc",
+          pret_unitar: Number(item.pret_unitar),
+          discount_percent: Number(item.discount_percent ?? 0),
+          pret_final: Number(item.pret_final),
+          subtotal: Number(item.subtotal),
+        };
+      })
+    );
+    toast.success("Fișier Excel descărcat");
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-4">
@@ -63,9 +132,14 @@ const MyQuotes = () => {
             <h1 className="text-2xl font-bold text-foreground">Ofertele mele</h1>
             <p className="text-sm text-muted-foreground">Istoric oferte generate</p>
           </div>
-          <Button onClick={() => navigate("/quote/new")} className="gap-1">
-            <Plus className="h-4 w-4" /> Ofertă nouă
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate("/quote/smart")} className="gap-1">
+              <FileText className="h-4 w-4" /> Ofertă din cerere client
+            </Button>
+            <Button onClick={() => navigate("/quote/new")} className="gap-1">
+              <Plus className="h-4 w-4" /> Ofertă nouă
+            </Button>
+          </div>
         </div>
 
         {isLoading ? (
@@ -75,7 +149,7 @@ const MyQuotes = () => {
         ) : quotes && quotes.length > 0 ? (
           <div className="space-y-3">
             {quotes.map((quote) => {
-              const itemCount = (quote.quote_items as any)?.[0]?.count ?? 0;
+              const itemCount = (quote.quote_items as { count: number }[])?.[0]?.count ?? 0;
               return (
                 <Card key={quote.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="flex items-center justify-between p-4">
@@ -102,6 +176,15 @@ const MyQuotes = () => {
                         </p>
                         <p className="text-xs text-muted-foreground">cu TVA</p>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Exportă Excel"
+                        onClick={() => handleExport(quote)}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8"
                         onClick={() => navigate(`/quote/${quote.id}/edit`)}>
                         <Pencil className="h-4 w-4" />

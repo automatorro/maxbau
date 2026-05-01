@@ -21,9 +21,10 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Trash2, Save, Send, Plus } from "lucide-react";
+import { Trash2, Save, Send, Plus, Download } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_PERCENT, TVA_RATE } from "@/lib/utils";
+import { exportQuoteToExcel } from "@/lib/exportExcel";
 
 interface QuoteItem {
   tempId: string;
@@ -597,6 +598,38 @@ const NewQuote = () => {
 
         {/* Actions */}
         <div className="flex gap-3 justify-end pb-8">
+          <Button
+            variant="outline"
+            disabled={items.length === 0}
+            onClick={() => {
+              exportQuoteToExcel(
+                {
+                  nr_oferta: editId ? editId.slice(0, 8).toUpperCase() : "CIORNĂ",
+                  data: new Date().toLocaleDateString("ro-RO"),
+                  client_name: clientName,
+                  client_phone: clientPhone,
+                  client_email: clientEmail,
+                  project_description: projectDesc,
+                  total_net: totals.totalNet,
+                  total_tva: totals.totalTva,
+                  total_gross: totals.totalGross,
+                },
+                items.map((item) => ({
+                  cod_intern: item.cod_intern,
+                  denumire: item.denumire,
+                  quantity: item.quantity,
+                  unit: item.unit,
+                  pret_unitar: item.pret_unitar,
+                  discount_percent: item.discount_percent,
+                  pret_final: item.pret_final,
+                  subtotal: item.subtotal,
+                }))
+              );
+              toast.success("Fișier Excel descărcat");
+            }}
+          >
+            <Download className="h-4 w-4 mr-1" /> Exportă Excel
+          </Button>
           <Button variant="outline" onClick={() => saveMutation.mutate("draft")}
             disabled={saveMutation.isPending || items.length === 0}>
             <Save className="h-4 w-4 mr-1" /> Salvează ciornă

@@ -16,6 +16,8 @@ import AdminDiscounts from "./pages/AdminDiscounts";
 import AdminPriceSheets from "./pages/AdminPriceSheets";
 import ImportOcr from "./pages/ImportOcr";
 import RecipeQuote from "./pages/RecipeQuote";
+import SmartQuote from "./pages/SmartQuote";
+import AdminProductTechData from "./pages/AdminProductTechData";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,10 +38,12 @@ const App = () => (
             <Route path="/quote/new" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/quote/:id/edit" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/recipe-quote" element={<ProtectedRoute><RecipeQuote /></ProtectedRoute>} />
+            <Route path="/quote/smart" element={<ProtectedRoute><SmartQuote /></ProtectedRoute>} />
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
             <Route path="/admin/price-sheets" element={<ProtectedRoute><AdminPriceSheets /></ProtectedRoute>} />
+            <Route path="/admin/product-tech" element={<ProtectedRoute><AdminProductTechData /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
