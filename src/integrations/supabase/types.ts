@@ -180,8 +180,8 @@ export type Database = {
           id: string
           image_url: string | null
           manufacturer: string | null
-          packaging: string | null
           pack_quantity: string | null
+          packaging: string | null
           pret_lista: number
           source_url: string | null
           specifications: Json | null
@@ -198,8 +198,8 @@ export type Database = {
           id?: string
           image_url?: string | null
           manufacturer?: string | null
-          packaging?: string | null
           pack_quantity?: string | null
+          packaging?: string | null
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null
@@ -216,8 +216,8 @@ export type Database = {
           id?: string
           image_url?: string | null
           manufacturer?: string | null
-          packaging?: string | null
           pack_quantity?: string | null
+          packaging?: string | null
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null
