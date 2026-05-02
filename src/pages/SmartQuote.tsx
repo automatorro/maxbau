@@ -66,7 +66,17 @@ function tokenize(text: string): string[] {
     .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+}
+
+function scoreToken(target: string, token: string): number {
+  if (/^\d+$/.test(token)) {
+    // Numerele trebuie să fie izolate — "5" nu trebuie să potrivească "15" sau "50"
+    return new RegExp(`(?<![0-9])${token}(?![0-9])`).test(target)
+      ? token.length * 4
+      : 0;
+  }
+  return target.includes(token) ? token.length : 0;
 }
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -118,8 +128,9 @@ const SmartQuote = () => {
 
       return (data ?? [])
         .map((p) => {
-          const target = tokenize(`${p.denumire_completa} ${p.cod_intern ?? ""}`);
-          const score = tokens.reduce((s, t) => s + (target.some((w) => w.includes(t)) ? t.length : 0), 0);
+          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+            .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+          const score = tokens.reduce((s, t) => s + scoreToken(target, t), 0);
           return { ...p, score } as SuggestedProduct;
         })
         .filter((p) => p.score > 0)

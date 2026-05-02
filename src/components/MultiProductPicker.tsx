@@ -48,21 +48,41 @@ export function MultiProductPicker({
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["multi-picker-products", search],
     queryFn: async () => {
+      const allTokens = search.trim()
+        .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+
+      const wordTokens = allTokens.filter((t) => !/^\d+$/.test(t));
+      const numTokens = allTokens.filter((t) => /^\d+$/.test(t));
+
       let query = supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, categories(name)")
         .order("denumire_completa")
-        .limit(40);
+        .limit(60);
 
-      const tokens = search.trim().split(/\s+/).filter((t) => t.length >= 2);
-      for (const raw of tokens) {
-        const token = raw.replace(/,/g, "\\,");
+      // AND logic pe cuvinte (fiabil); numerele se verifică client-side cu word-boundary
+      for (const t of wordTokens) {
+        const token = t.replace(/,/g, "\\,");
         query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
       }
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as (PickedProduct & { categories: { name: string } | null })[];
+
+      const results = (data ?? []) as (PickedProduct & { categories: { name: string } | null })[];
+
+      if (numTokens.length === 0) return results;
+
+      // Filtrare word-boundary pentru numere: "5" nu trebuie să potrivească "15" sau "EPS150"
+      return results.filter((p) => {
+        const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+          .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+        return numTokens.every((n) =>
+          new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
+        );
+      });
     },
     enabled: open,
   });
