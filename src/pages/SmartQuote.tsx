@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -19,7 +20,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Download, Save, Send, Search, Sparkles, Loader2, ExternalLink } from "lucide-react";
+import {
+  Trash2, Download, Save, Send, Sparkles, Loader2,
+  ExternalLink, PackageSearch, ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
@@ -47,12 +51,31 @@ interface OfertaItem {
   subtotal: number;
 }
 
+type SuggestedProduct = PickedProduct & { score: number };
+
 function calcLine(item: Partial<OfertaItem>) {
   const pret = item.pret_unitar ?? 0;
   const disc = item.discount_percent ?? 0;
   const qty = item.quantity ?? 1;
   const pret_final = pret * (1 - disc / 100);
   return { pret_final, subtotal: pret_final * qty };
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2);
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
 }
 
 const SmartQuote = () => {
@@ -66,25 +89,79 @@ const SmartQuote = () => {
   const [projectDesc, setProjectDesc] = useState("");
 
   const [cerereText, setCerereText] = useState("");
+  const debouncedCerere = useDebounce(cerereText, 380);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+
   const [pickerOpen, setPickerOpen] = useState(false);
   const [items, setItems] = useState<OfertaItem[]>([]);
   const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [altMatches, setAltMatches] = useState<Record<string, { cod_intern: string; denumire_completa: string } | null>>({});
 
+  // ── Live catalog search ──────────────────────────────────────────────────
+  const tokens = useMemo(() => tokenize(debouncedCerere), [debouncedCerere]);
+
+  const { data: rawSuggestions = [], isFetching: suggestLoading } = useQuery({
+    queryKey: ["smart-catalog-suggest", tokens.join("|")],
+    queryFn: async (): Promise<SuggestedProduct[]> => {
+      if (tokens.length === 0) return [];
+      // OR logic — broad match, score client-side
+      const orFilter = tokens
+        .map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%`)
+        .join(",");
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
+        .or(orFilter)
+        .limit(80);
+      if (error) return [];
+
+      return (data ?? [])
+        .map((p) => {
+          const target = tokenize(`${p.denumire_completa} ${p.cod_intern ?? ""}`);
+          const score = tokens.reduce((s, t) => s + (target.some((w) => w.includes(t)) ? t.length : 0), 0);
+          return { ...p, score } as SuggestedProduct;
+        })
+        .filter((p) => p.score > 0)
+        .sort((a, b) => b.score - a.score);
+    },
+    enabled: tokens.length > 0,
+  });
+
+  // Top 8 shown inline; total count for "caută mai mult" hint
+  const suggestedProducts = rawSuggestions.slice(0, 8);
+  const totalFound = rawSuggestions.length;
+
+  const toggleSuggestion = (id: string) =>
+    setSelectedSuggestions((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const addSuggestedToOffer = () => {
+    if (!cerereText.trim()) {
+      toast.warning("Completați ce a cerut clientul");
+      return;
+    }
+    const toAdd = suggestedProducts.filter((p) => selectedSuggestions.has(p.id));
+    if (toAdd.length === 0) return;
+    handlePickerConfirm(toAdd);
+    setSelectedSuggestions(new Set());
+  };
+
+  // ── AI helpers ───────────────────────────────────────────────────────────
   const lookupAlternatives = useCallback(async (alternatives: string[]) => {
     const unique = [...new Set(alternatives)].filter((a) => a.trim().length > 1);
     if (unique.length === 0) return;
     const results: Record<string, { cod_intern: string; denumire_completa: string } | null> = {};
     await Promise.all(
       unique.map(async (alt) => {
-        const tokens = alt
-          .normalize("NFD").replace(/[̀-ͯ]/g, "")
-          .toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2).slice(0, 4);
-        if (tokens.length === 0) { results[alt] = null; return; }
-        let query = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
-        for (const t of tokens) query = query.ilike("denumire_completa", `%${t}%`);
-        const { data } = await query;
+        const toks = tokenize(alt).slice(0, 4);
+        if (toks.length === 0) { results[alt] = null; return; }
+        let q = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
+        for (const t of toks) q = q.ilike("denumire_completa", `%${t}%`);
+        const { data } = await q;
         results[alt] = data?.[0] ?? null;
       })
     );
@@ -114,6 +191,7 @@ const SmartQuote = () => {
     }
   }, [lookupAlternatives]);
 
+  // ── Offer management ─────────────────────────────────────────────────────
   const handlePickerConfirm = useCallback(
     (picked: PickedProduct[]) => {
       if (!cerereText.trim() && picked.length > 0) {
@@ -139,11 +217,7 @@ const SmartQuote = () => {
           return { ...base, ...calcLine(base) };
         });
 
-      if (nou.length === 0) {
-        toast.info("Produsele selectate sunt deja în ofertă");
-        return;
-      }
-
+      if (nou.length === 0) { toast.info("Produsele selectate sunt deja în ofertă"); return; }
       setItems((prev) => [...prev, ...nou]);
       setCerereText("");
       toast.success(`${nou.length} produs${nou.length > 1 ? "e adăugate" : " adăugat"} în ofertă`);
@@ -171,6 +245,15 @@ const SmartQuote = () => {
     const net = items.reduce((s, i) => s + i.subtotal, 0);
     const tva = net * TVA_RATE;
     return { net, tva, gross: net + tva };
+  }, [items]);
+
+  const groups = useMemo(() => {
+    const map = new Map<string, OfertaItem[]>();
+    for (const item of items) {
+      const key = item.cerere_initiala || "—";
+      map.set(key, [...(map.get(key) ?? []), item]);
+    }
+    return map;
   }, [items]);
 
   const saveMutation = useMutation({
@@ -224,10 +307,7 @@ const SmartQuote = () => {
   });
 
   const handleExport = () => {
-    if (items.length === 0) {
-      toast.error("Adăugați produse înainte de export");
-      return;
-    }
+    if (items.length === 0) { toast.error("Adăugați produse înainte de export"); return; }
     exportQuoteToExcel(
       {
         data: new Date().toLocaleDateString("ro-RO"),
@@ -254,27 +334,18 @@ const SmartQuote = () => {
     toast.success("Fișier Excel descărcat");
   };
 
-  const groups = useMemo(() => {
-    const map = new Map<string, OfertaItem[]>();
-    for (const item of items) {
-      const key = item.cerere_initiala || "—";
-      map.set(key, [...(map.get(key) ?? []), item]);
-    }
-    return map;
-  }, [items]);
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
       <div className="space-y-4 max-w-5xl">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Ofertă din cerere client
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground">Ofertă din cerere client</h1>
           <p className="text-sm text-muted-foreground">
-            Notați ce a cerut clientul, căutați produse echivalente și construiți oferta pas cu pas
+            Notați ce a cerut clientul — catalogul MaxBau se caută automat în timp real
           </p>
         </div>
 
+        {/* Date client */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Date client</CardTitle>
@@ -305,56 +376,141 @@ const SmartQuote = () => {
           </CardContent>
         </Card>
 
+        {/* Căutare live în catalog */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              Adaugă produse echivalente
+              <PackageSearch className="h-4 w-4" />
+              Ce a cerut clientul
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <Label className="text-xs">
-                Ce a cerut clientul{" "}
-                <span className="text-muted-foreground">
-                  (brand, denumire generică, caracteristici — exact cum a spus)
-                </span>
+              <Label className="text-xs text-muted-foreground">
+                Brand, denumire generică, caracteristici — exact cum a spus
               </Label>
               <Input
                 value={cerereText}
-                onChange={(e) => setCerereText(e.target.value)}
+                onChange={(e) => { setCerereText(e.target.value); setSelectedSuggestions(new Set()); }}
                 placeholder='Ex: "Mapei Keraflex S2 25kg" sau "adeziv flexibil C2T pentru exterior"'
                 className="mt-1"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && cerereText.trim()) setPickerOpen(true);
-                }}
               />
             </div>
-            <Button
-              onClick={() => {
-                if (!cerereText.trim()) {
-                  toast.warning("Completați mai întâi ce a cerut clientul");
-                  return;
-                }
-                setPickerOpen(true);
-              }}
-              className="gap-2"
-            >
-              <Search className="h-4 w-4" />
-              Caută produse echivalente în catalog
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Se va deschide catalogul MaxBau — puteți selecta până la 3 produse echivalente simultan
-            </p>
+
+            {/* Rezultate live */}
+            {tokens.length > 0 && (
+              <div className="rounded-lg border border-border/60 overflow-hidden">
+                {/* Header rezultate */}
+                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border/40">
+                  <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    {suggestLoading ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-green-500" />
+                    )}
+                    {suggestLoading
+                      ? "Caut în catalog MaxBau…"
+                      : totalFound === 0
+                      ? "Niciun produs găsit în catalog"
+                      : totalFound > 8
+                      ? `${totalFound} produse găsite — top 8 afișate`
+                      : `${totalFound} produs${totalFound > 1 ? "e" : ""} găsit${totalFound > 1 ? "e" : ""} în catalog`}
+                  </span>
+                  {totalFound > 8 && (
+                    <button
+                      onClick={() => setPickerOpen(true)}
+                      className="text-xs text-primary hover:underline flex items-center gap-0.5"
+                    >
+                      Vezi toate <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Lista produse */}
+                {suggestedProducts.length > 0 && (
+                  <div className="divide-y divide-border/30">
+                    {suggestedProducts.map((p) => {
+                      const alreadyIn = items.some((i) => i.product_id === p.id);
+                      const checked = selectedSuggestions.has(p.id);
+                      return (
+                        <label
+                          key={p.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors
+                            ${alreadyIn ? "opacity-40 cursor-not-allowed bg-muted/20" : "hover:bg-accent/10"}
+                            ${checked ? "bg-primary/5" : ""}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={alreadyIn}
+                            onCheckedChange={() => !alreadyIn && toggleSuggestion(p.id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] font-mono shrink-0 border-primary/30 text-primary">
+                                {p.cod_intern}
+                              </Badge>
+                              <span className="text-sm truncate">{p.denumire_completa}</span>
+                              {alreadyIn && (
+                                <Badge variant="secondary" className="text-[10px] shrink-0">în ofertă</Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-semibold text-primary">
+                              {Number(p.pret_lista).toFixed(2)} lei
+                            </span>
+                            <span className="text-xs text-muted-foreground">/{p.unit || "buc"}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Footer acțiuni */}
+                {suggestedProducts.length > 0 && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t border-border/40">
+                    <span className="text-xs text-muted-foreground">
+                      {selectedSuggestions.size > 0
+                        ? `${selectedSuggestions.size} produs${selectedSuggestions.size > 1 ? "e selectate" : " selectat"}`
+                        : "Bifați produsele potrivite"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setPickerOpen(true)}
+                        className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                      >
+                        Browse catalog complet
+                      </button>
+                      <Button
+                        size="sm"
+                        disabled={selectedSuggestions.size === 0}
+                        onClick={addSuggestedToOffer}
+                        className="h-7 text-xs"
+                      >
+                        Adaugă la ofertă
+                        {selectedSuggestions.size > 0 && ` (${selectedSuggestions.size})`}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tokens.length === 0 && (
+              <p className="text-xs text-muted-foreground italic">
+                Începeți să tastați — produsele din catalogul MaxBau apar automat
+              </p>
+            )}
           </CardContent>
         </Card>
 
+        {/* Tabel ofertă */}
         {items.length > 0 && (
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">
-                Produse în ofertă ({items.length})
-              </CardTitle>
+              <CardTitle className="text-base">Produse în ofertă ({items.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -376,10 +532,7 @@ const SmartQuote = () => {
                   <TableBody>
                     {Array.from(groups.entries()).map(([cerere, groupItems], gi) =>
                       groupItems.map((item, idx) => (
-                        <TableRow
-                          key={item.tempId}
-                          className={gi % 2 === 0 ? "bg-muted/20" : ""}
-                        >
+                        <TableRow key={item.tempId} className={gi % 2 === 0 ? "bg-muted/20" : ""}>
                           <TableCell className="text-xs text-muted-foreground align-top pt-3">
                             {idx === 0 && cerere !== "—" ? (
                               <span className="italic line-clamp-3">{cerere}</span>
@@ -437,6 +590,7 @@ const SmartQuote = () => {
           </Card>
         )}
 
+        {/* Date tehnice AI */}
         {items.length > 0 && (
           <Card>
             <CardHeader className="pb-2">
@@ -451,8 +605,7 @@ const SmartQuote = () => {
                   className="gap-1.5"
                   disabled={aiLoading}
                   onClick={() => {
-                    const ids = items.map((i) => i.product_id);
-                    const uniqueIds = [...new Set(ids)].slice(0, 5);
+                    const uniqueIds = [...new Set(items.map((i) => i.product_id))].slice(0, 5);
                     const lastCerere = items[items.length - 1]?.cerere_initiala || projectDesc || "";
                     fetchAiInfo(uniqueIds, lastCerere);
                   }}
@@ -465,7 +618,7 @@ const SmartQuote = () => {
             <CardContent>
               {Object.keys(aiInfo).length === 0 && !aiLoading && (
                 <p className="text-sm text-muted-foreground italic">
-                  Apasă butonul pentru a obține consum, ambalaj și alternative echivalente de la AI
+                  Apasă butonul pentru consum, ambalaj și alte detalii tehnice generate de AI
                 </p>
               )}
               {Object.keys(aiInfo).length > 0 && (
@@ -501,7 +654,9 @@ const SmartQuote = () => {
                         </div>
                         {info.alternative && info.alternative.length > 0 && (
                           <div className="text-xs">
-                            <span className="text-muted-foreground block mb-1.5">Alternative echivalente:</span>
+                            <span className="text-muted-foreground block mb-1.5">
+                              Produse similare pe piață:
+                            </span>
                             <div className="flex flex-wrap gap-1.5">
                               {info.alternative.map((alt, i) => {
                                 const match = altMatches[alt];
@@ -522,10 +677,9 @@ const SmartQuote = () => {
                                 return (
                                   <a
                                     key={i}
-                                    href={`https://www.google.com/search?q=site%3Amaxbau.ro+${encodeURIComponent(alt)}`}
+                                    href={`https://www.google.com/search?q=${encodeURIComponent(alt + " adeziv echivalent")}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    title="Caută pe maxbau.ro"
                                     className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
                                   >
                                     {alt}
@@ -545,6 +699,7 @@ const SmartQuote = () => {
           </Card>
         )}
 
+        {/* Totaluri */}
         {items.length > 0 && (
           <Card>
             <CardContent className="pt-4">
@@ -559,9 +714,7 @@ const SmartQuote = () => {
                 </div>
                 <div className="flex justify-between w-full max-w-xs border-t pt-1 mt-1">
                   <span className="font-bold">Total cu TVA:</span>
-                  <span className="font-bold text-primary text-lg">
-                    {totals.gross.toFixed(2)} lei
-                  </span>
+                  <span className="font-bold text-primary text-lg">{totals.gross.toFixed(2)} lei</span>
                 </div>
               </div>
             </CardContent>
@@ -578,9 +731,7 @@ const SmartQuote = () => {
               disabled={saveMutation.isPending}>
               <Save className="h-4 w-4 mr-1" /> Salvează ciornă
             </Button>
-            <Button
-              onClick={() => saveMutation.mutate("sent")}
-              disabled={saveMutation.isPending}>
+            <Button onClick={() => saveMutation.mutate("sent")} disabled={saveMutation.isPending}>
               <Send className="h-4 w-4 mr-1" /> Trimite oferta
             </Button>
           </div>
@@ -591,7 +742,7 @@ const SmartQuote = () => {
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         onConfirm={handlePickerConfirm}
-        title={cerereText ? `Echivalente pentru: "${cerereText}"` : "Selectează produse"}
+        title={cerereText ? `Produse pentru: "${cerereText}"` : "Selectează produse"}
         initialSearch={cerereText}
       />
     </DashboardLayout>
