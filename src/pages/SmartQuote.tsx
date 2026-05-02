@@ -19,10 +19,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Download, Save, Send, Search } from "lucide-react";
+import { Plus, Trash2, Download, Save, Send, Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
+
+type AiProductInfo = {
+  consum: string;
+  ambalaj: string;
+  alternative: string[];
+  compatibilitati: string;
+  utilizare: string;
+  updated_at: string;
+};
 
 interface OfertaItem {
   tempId: string;
