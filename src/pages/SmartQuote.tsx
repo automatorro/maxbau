@@ -542,6 +542,7 @@ const SmartQuote = () => {
         onOpenChange={setPickerOpen}
         onConfirm={handlePickerConfirm}
         title={cerereText ? `Echivalente pentru: "${cerereText}"` : "Selectează produse"}
+        initialSearch={cerereText}
       />
     </DashboardLayout>
   );

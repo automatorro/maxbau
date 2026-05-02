@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -28,6 +28,7 @@ interface MultiProductPickerProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: (products: PickedProduct[]) => void;
   title?: string;
+  initialSearch?: string;
 }
 
 export function MultiProductPicker({
@@ -35,9 +36,14 @@ export function MultiProductPicker({
   onOpenChange,
   onConfirm,
   title = "Selectează produse echivalente",
+  initialSearch = "",
 }: MultiProductPickerProps) {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [selected, setSelected] = useState<Map<string, PickedProduct>>(new Map());
+
+  useEffect(() => {
+    if (open) setSearch(initialSearch);
+  }, [open, initialSearch]);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["multi-picker-products", search],
