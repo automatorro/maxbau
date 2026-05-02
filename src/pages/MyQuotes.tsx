@@ -77,16 +77,24 @@ const MyQuotes = () => {
       return;
     }
 
-    // Fetch product details for consum/ambalare/similar_cu
+    // Fetch product details for specifications
     const productIds = items.map((i) => i.product_id).filter(Boolean) as string[];
     let productDetails: Record<string, { consum?: string | null; ambalare?: string | null; similar_cu?: string | null }> = {};
     if (productIds.length > 0) {
       const { data: prods } = await supabase
         .from("products")
-        .select("id, consum, ambalare, similar_cu")
+        .select("id, specifications")
         .in("id", productIds);
       if (prods) {
-        prods.forEach((p) => { productDetails[p.id] = p; });
+        prods.forEach((p) => {
+          const specs = (p.specifications as Record<string, unknown>) || {};
+          const aiInfo = (specs.ai_info as Record<string, unknown>) || {};
+          productDetails[p.id] = {
+            consum: (aiInfo.consum as string) || null,
+            ambalare: (aiInfo.ambalaj as string) || null,
+            similar_cu: (aiInfo.alternative as string[])?.join(", ") || null,
+          };
+        });
       }
     }
 

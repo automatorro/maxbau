@@ -153,6 +153,16 @@ function guessNameColumnIndex(headerCells: string[]): number {
   return bestIdx;
 }
 
+function guessPriceColumnIndex(headerCells: string[]): number {
+  const priceKeywords = ["pret", "price", "tarif", "lei", "eur", "ron", "pv", "pvp", "cost", "valoare"];
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = normalizeMatchText(headerCells[i]);
+    if (priceKeywords.some((kw) => h.includes(kw))) return i;
+  }
+  // fallback: last column (often price)
+  return Math.max(0, headerCells.length - 1);
+}
+
 // --- OCR helpers (unchanged) ---
 function extractLinesFromBlocks(blocks: unknown): OcrLine[] {
   const blockArr = asArray(blocks);
@@ -335,15 +345,14 @@ function InlineProductSearch({
   if (!searchOpen) {
     return (
       <div className="flex items-center gap-1.5">
-        {suggestions.length > 0 ? (
+        {suggestions.filter((pid) => pid && productsById.has(pid)).length > 0 ? (
           <Select onValueChange={(v) => onSelect(v)}>
             <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder={`${suggestions.length} sugestii...`} />
+              <SelectValue placeholder={`${suggestions.filter((pid) => pid && productsById.has(pid)).length} sugestii...`} />
             </SelectTrigger>
             <SelectContent>
-              {suggestions.map((pid) => {
-                const p = productsById.get(pid);
-                if (!p) return null;
+              {suggestions.filter((pid) => pid && productsById.has(pid)).map((pid) => {
+                const p = productsById.get(pid)!;
                 return (
                   <SelectItem key={pid} value={pid} className="text-xs">
                     <span className="font-mono text-primary">{p.cod_intern}</span> — {p.denumire_completa}
@@ -736,6 +745,8 @@ const ImportOcr = () => {
       const headerRow = built[0]?.cells || [];
       const detectedIdx = guessNameColumnIndex(headerRow);
       setMatchNameColIdx(detectedIdx);
+      const detectedPriceIdx = guessPriceColumnIndex(headerRow);
+      setPriceColIdx(detectedPriceIdx);
       
       // Auto-run matching
       const dataRows = built.filter((_, i) => i !== 0);

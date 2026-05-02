@@ -19,10 +19,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Download, Save, Send, Search } from "lucide-react";
+import { Plus, Trash2, Download, Save, Send, Search, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
+
+type AiProductInfo = {
+  consum: string;
+  ambalaj: string;
+  alternative: string[];
+  compatibilitati: string;
+  utilizare: string;
+  updated_at: string;
+};
 
 interface OfertaItem {
   tempId: string;
@@ -59,6 +68,28 @@ const SmartQuote = () => {
   const [cerereText, setCerereText] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [items, setItems] = useState<OfertaItem[]>([]);
+  const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const fetchAiInfo = useCallback(async (productIds: string[], clientRequest: string) => {
+    if (productIds.length === 0) return;
+    setAiLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { product_ids: productIds, client_request: clientRequest },
+      });
+      if (error) throw error;
+      if (data?.success && data.data) {
+        setAiInfo((prev) => ({ ...prev, ...data.data }));
+        toast.success("Date tehnice AI primite");
+      }
+    } catch (e) {
+      console.error("AI info error:", e);
+      toast.error("Eroare la obținerea datelor tehnice AI");
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
 
   const handlePickerConfirm = useCallback(
     (picked: PickedProduct[]) => {
@@ -152,7 +183,6 @@ const SmartQuote = () => {
         discount_percent: i.discount_percent,
         pret_final: i.pret_final,
         subtotal: i.subtotal,
-        cerere_initiala: i.cerere_initiala || null,
       }));
 
       const { error: iErr } = await supabase.from("quote_items").insert(rows);
@@ -378,6 +408,87 @@ const SmartQuote = () => {
                   </TableBody>
                 </Table>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {items.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Detalii tehnice AI
+                </CardTitle>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={aiLoading}
+                  onClick={() => {
+                    const ids = items.map((i) => i.product_id);
+                    const uniqueIds = [...new Set(ids)].slice(0, 5);
+                    const lastCerere = items[items.length - 1]?.cerere_initiala || projectDesc || "";
+                    fetchAiInfo(uniqueIds, lastCerere);
+                  }}
+                >
+                  {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {aiLoading ? "Se încarcă..." : Object.keys(aiInfo).length > 0 ? "Reîncarcă" : "Obține date tehnice"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {Object.keys(aiInfo).length === 0 && !aiLoading && (
+                <p className="text-sm text-muted-foreground italic">
+                  Apasă butonul pentru a obține consum, ambalaj și alternative echivalente de la AI
+                </p>
+              )}
+              {Object.keys(aiInfo).length > 0 && (
+                <div className="space-y-3">
+                  {items.map((item) => {
+                    const info = aiInfo[item.product_id] as AiProductInfo | undefined;
+                    if (!info) return null;
+                    return (
+                      <div key={item.tempId} className="rounded-md border p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary">
+                            {item.cod_intern}
+                          </Badge>
+                          <span className="text-sm font-medium truncate">{item.denumire}</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+                          <div>
+                            <span className="text-muted-foreground block">Consum:</span>
+                            <span className="font-medium">{info.consum}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground block">Ambalaj:</span>
+                            <span className="font-medium">{info.ambalaj}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground block">Utilizare:</span>
+                            <span className="font-medium">{info.utilizare}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground block">Compatibilități:</span>
+                            <span className="font-medium">{info.compatibilitati}</span>
+                          </div>
+                        </div>
+                        {info.alternative && info.alternative.length > 0 && (
+                          <div className="text-xs">
+                            <span className="text-muted-foreground">Alternative echivalente: </span>
+                            {info.alternative.map((alt, i) => (
+                              <Badge key={i} variant="secondary" className="text-[10px] mr-1 mb-1">
+                                {alt}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
