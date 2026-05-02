@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Pencil, CheckCircle2, Circle, Info } from "lucide-react";
+import { Search, Pencil, CheckCircle2, Circle, Info, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 interface Product {
@@ -65,15 +65,16 @@ const AdminProductTechData = () => {
 
   const queryClient = useQueryClient();
 
-  const { data: products = [], isLoading } = useQuery({
+  const { data: products = [], isLoading, error: queryError } = useQuery({
     queryKey: ["admin-tech-products", search],
     queryFn: async () => {
+      // select(*) — nu depinde de existența coloanelor noi
       let query = supabase
         .from("products")
-        .select("id, cod_intern, denumire_completa, unit, pret_lista, consum, ambalare, similar_cu, caracteristici")
+        .select("*")
         .order("cod_intern");
 
-      // Split by whitespace → AND logic per token (ca în AdminProducts)
+      // Split pe spații → AND logic per token
       const tokens = search.trim().split(/\s+/).filter((t) => t.length >= 2);
       for (const raw of tokens) {
         const token = raw.replace(/,/g, "\\,");
@@ -82,9 +83,20 @@ const AdminProductTechData = () => {
         );
       }
 
-      const { data, error } = await query.limit(100);
+      const { data, error } = await query.limit(200);
       if (error) throw error;
-      return data as Product[];
+      // Mapare robustă — coloanele noi pot lipsi dacă migrarea nu a rulat
+      return (data ?? []).map((p: Record<string, unknown>) => ({
+        id: p.id as string,
+        cod_intern: p.cod_intern as string,
+        denumire_completa: p.denumire_completa as string,
+        unit: (p.unit as string) ?? null,
+        pret_lista: Number(p.pret_lista ?? 0),
+        consum: (p.consum as string) ?? null,
+        ambalare: (p.ambalare as string) ?? null,
+        similar_cu: (p.similar_cu as string) ?? null,
+        caracteristici: (p.caracteristici as Record<string, unknown>) ?? null,
+      })) as Product[];
     },
   });
 
@@ -178,6 +190,17 @@ const AdminProductTechData = () => {
           </p>
         </div>
 
+        {/* Eroare query */}
+        {queryError && (
+          <div className="flex items-center gap-2 text-sm p-3 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span>
+              Eroare la încărcarea produselor:{" "}
+              {(queryError as Error).message}
+            </span>
+          </div>
+        )}
+
         {/* Progres completare */}
         {products.length > 0 && (
           <div className="flex items-center gap-3 text-sm p-3 bg-muted rounded-lg">
@@ -234,7 +257,7 @@ const AdminProductTechData = () => {
                     className="text-center py-8 text-muted-foreground"
                   >
                     {search.length > 0
-                      ? "Niciun produs găsit pentru această căutare"
+                      ? `Niciun produs găsit pentru "${search}"`
                       : "Niciun produs în catalog"}
                   </TableCell>
                 </TableRow>
