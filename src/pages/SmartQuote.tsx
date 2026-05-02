@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Download, Save, Send, Search, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Trash2, Download, Save, Send, Search, Sparkles, Loader2, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
@@ -70,6 +70,26 @@ const SmartQuote = () => {
   const [items, setItems] = useState<OfertaItem[]>([]);
   const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
   const [aiLoading, setAiLoading] = useState(false);
+  const [altMatches, setAltMatches] = useState<Record<string, { cod_intern: string; denumire_completa: string } | null>>({});
+
+  const lookupAlternatives = useCallback(async (alternatives: string[]) => {
+    const unique = [...new Set(alternatives)].filter((a) => a.trim().length > 1);
+    if (unique.length === 0) return;
+    const results: Record<string, { cod_intern: string; denumire_completa: string } | null> = {};
+    await Promise.all(
+      unique.map(async (alt) => {
+        const tokens = alt
+          .normalize("NFD").replace(/[̀-ͯ]/g, "")
+          .toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 2).slice(0, 4);
+        if (tokens.length === 0) { results[alt] = null; return; }
+        let query = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
+        for (const t of tokens) query = query.ilike("denumire_completa", `%${t}%`);
+        const { data } = await query;
+        results[alt] = data?.[0] ?? null;
+      })
+    );
+    setAltMatches((prev) => ({ ...prev, ...results }));
+  }, []);
 
   const fetchAiInfo = useCallback(async (productIds: string[], clientRequest: string) => {
     if (productIds.length === 0) return;
@@ -82,6 +102,9 @@ const SmartQuote = () => {
       if (data?.success && data.data) {
         setAiInfo((prev) => ({ ...prev, ...data.data }));
         toast.success("Date tehnice AI primite");
+        const allAlts: string[] = Object.values(data.data as Record<string, AiProductInfo>)
+          .flatMap((info) => info.alternative ?? []);
+        void lookupAlternatives(allAlts);
       }
     } catch (e) {
       console.error("AI info error:", e);
@@ -89,7 +112,7 @@ const SmartQuote = () => {
     } finally {
       setAiLoading(false);
     }
-  }, []);
+  }, [lookupAlternatives]);
 
   const handlePickerConfirm = useCallback(
     (picked: PickedProduct[]) => {
@@ -478,12 +501,39 @@ const SmartQuote = () => {
                         </div>
                         {info.alternative && info.alternative.length > 0 && (
                           <div className="text-xs">
-                            <span className="text-muted-foreground">Alternative echivalente: </span>
-                            {info.alternative.map((alt, i) => (
-                              <Badge key={i} variant="secondary" className="text-[10px] mr-1 mb-1">
-                                {alt}
-                              </Badge>
-                            ))}
+                            <span className="text-muted-foreground block mb-1.5">Alternative echivalente:</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {info.alternative.map((alt, i) => {
+                                const match = altMatches[alt];
+                                if (match) {
+                                  return (
+                                    <Link
+                                      key={i}
+                                      to={`/catalog?q=${encodeURIComponent(match.cod_intern)}`}
+                                      title={match.denumire_completa}
+                                      className="inline-flex items-center gap-1 rounded-full border border-green-400/50 bg-green-50 px-2.5 py-0.5 text-[11px] font-medium text-green-800 hover:bg-green-100 transition-colors"
+                                    >
+                                      <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                                      {alt}
+                                      <span className="text-green-600/70 font-mono">{match.cod_intern}</span>
+                                    </Link>
+                                  );
+                                }
+                                return (
+                                  <a
+                                    key={i}
+                                    href={`https://www.google.com/search?q=site%3Amaxbau.ro+${encodeURIComponent(alt)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Caută pe maxbau.ro"
+                                    className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors"
+                                  >
+                                    {alt}
+                                    <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                  </a>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>

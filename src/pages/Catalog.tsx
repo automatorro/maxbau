@@ -1,5 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CategoryTree } from "@/components/CategoryTree";
@@ -14,9 +15,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 const PAGE_SIZE = 24;
 
 const Catalog = () => {
-  const [search, setSearch] = useState("");
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) { setSearch(q); setPage(0); }
+  }, [searchParams]);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   // Reset page on filter change
