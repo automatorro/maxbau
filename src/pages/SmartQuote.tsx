@@ -68,6 +68,28 @@ const SmartQuote = () => {
   const [cerereText, setCerereText] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [items, setItems] = useState<OfertaItem[]>([]);
+  const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const fetchAiInfo = useCallback(async (productIds: string[], clientRequest: string) => {
+    if (productIds.length === 0) return;
+    setAiLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { product_ids: productIds, client_request: clientRequest },
+      });
+      if (error) throw error;
+      if (data?.success && data.data) {
+        setAiInfo((prev) => ({ ...prev, ...data.data }));
+        toast.success("Date tehnice AI primite");
+      }
+    } catch (e) {
+      console.error("AI info error:", e);
+      toast.error("Eroare la obținerea datelor tehnice AI");
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
 
   const handlePickerConfirm = useCallback(
     (picked: PickedProduct[]) => {
