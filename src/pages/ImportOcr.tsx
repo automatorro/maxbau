@@ -153,6 +153,16 @@ function guessNameColumnIndex(headerCells: string[]): number {
   return bestIdx;
 }
 
+function guessPriceColumnIndex(headerCells: string[]): number {
+  const priceKeywords = ["pret", "price", "tarif", "lei", "eur", "ron", "pv", "pvp", "cost", "valoare"];
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = normalizeMatchText(headerCells[i]);
+    if (priceKeywords.some((kw) => h.includes(kw))) return i;
+  }
+  // fallback: last column (often price)
+  return Math.max(0, headerCells.length - 1);
+}
+
 // --- OCR helpers (unchanged) ---
 function extractLinesFromBlocks(blocks: unknown): OcrLine[] {
   const blockArr = asArray(blocks);
