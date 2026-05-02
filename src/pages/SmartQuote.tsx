@@ -120,8 +120,8 @@ const SmartQuote = () => {
     }
 
     const request: ClientRequest = {
-      descriere: descriere + (tipProdus ? ` ${tipProdus}` : ""),
-      tip_produs: tipProdus || undefined,
+      descriere: descriere + (tipProdus && tipProdus !== "__all__" ? ` ${tipProdus}` : ""),
+      tip_produs: tipProdus !== "__all__" ? tipProdus : undefined,
       suprafata: suprafata ? parseFloat(suprafata) : undefined,
       cantitate: cantitateManual ? parseFloat(cantitateManual) : undefined,
       unitate: unitateManual || undefined,
