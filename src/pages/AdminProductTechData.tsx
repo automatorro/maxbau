@@ -73,8 +73,10 @@ const AdminProductTechData = () => {
         .select("id, cod_intern, denumire_completa, unit, pret_lista, consum, ambalare, similar_cu, caracteristici")
         .order("cod_intern");
 
-      if (search.trim().length >= 2) {
-        const token = search.trim();
+      // Split by whitespace → AND logic per token (ca în AdminProducts)
+      const tokens = search.trim().split(/\s+/).filter((t) => t.length >= 2);
+      for (const raw of tokens) {
+        const token = raw.replace(/,/g, "\\,");
         query = query.or(
           `denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`
         );
@@ -196,7 +198,7 @@ const AdminProductTechData = () => {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Caută produse (minim 2 caractere)..."
+            placeholder="Caută produse (lăsați gol pentru toate)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -231,9 +233,9 @@ const AdminProductTechData = () => {
                     colSpan={9}
                     className="text-center py-8 text-muted-foreground"
                   >
-                    {search.length >= 2
-                      ? "Niciun produs găsit"
-                      : "Introduceți minim 2 caractere pentru căutare"}
+                    {search.length > 0
+                      ? "Niciun produs găsit pentru această căutare"
+                      : "Niciun produs în catalog"}
                   </TableCell>
                 </TableRow>
               ) : (
