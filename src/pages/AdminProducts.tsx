@@ -123,18 +123,19 @@ const AdminProducts = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Administrare produse</h1>
             <p className="text-muted-foreground">Gestionează catalogul de produse</p>
           </div>
-          <Button onClick={handleImport} disabled={importing}>
+          <Button onClick={handleImport} disabled={importing} size="sm">
             {importing ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
               <Upload className="h-4 w-4 mr-2" />
             )}
-            {importing ? "Se importă..." : "Import de pe maxbau.ro"}
+            <span className="hidden sm:inline">{importing ? "Se importă..." : "Import de pe maxbau.ro"}</span>
+            <span className="sm:hidden">{importing ? "..." : "Import"}</span>
           </Button>
         </div>
 
@@ -156,7 +157,8 @@ const AdminProducts = () => {
           />
         </div>
 
-        <div className="rounded-md border">
+        {/* Desktop table */}
+        <div className="hidden md:block rounded-md border overflow-x-auto">
           <Table className="min-w-[1100px]">
             <TableHeader>
               <TableRow>
@@ -203,6 +205,41 @@ const AdminProducts = () => {
               )}
             </TableBody>
           </Table>
+        </div>
+
+        {/* Mobile card list */}
+        <div className="md:hidden space-y-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          ) : products && products.length > 0 ? (
+            products.map((product) => (
+              <div key={product.id} className="rounded-lg border bg-card p-3 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary mb-1">
+                      {product.cod_intern}
+                    </Badge>
+                    <p className="text-sm font-medium leading-snug line-clamp-2">{product.denumire_completa}</p>
+                  </div>
+                  <span className="text-base font-bold text-primary shrink-0">
+                    {Number(product.pret_lista).toFixed(2)} lei
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                  {(product.categories as any)?.name && <span>{(product.categories as any).name}</span>}
+                  {product.brand && <span>{product.brand}</span>}
+                  {product.unit && <span>UM: {product.unit}</span>}
+                  {product.packaging && <span>{product.packaging}</span>}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              Niciun produs. Importați produse de pe maxbau.ro.
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

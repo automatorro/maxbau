@@ -135,17 +135,19 @@ const MyQuotes = () => {
   return (
     <DashboardLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Ofertele mele</h1>
             <p className="text-sm text-muted-foreground">Istoric oferte generate</p>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate("/quote/smart")} className="gap-1">
-              <FileText className="h-4 w-4" /> Ofertă din cerere client
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate("/quote/smart")} className="gap-1">
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">Ofertă din cerere client</span>
             </Button>
-            <Button onClick={() => navigate("/quote/new")} className="gap-1">
-              <Plus className="h-4 w-4" /> Ofertă nouă
+            <Button size="sm" onClick={() => navigate("/quote/new")} className="gap-1">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">Ofertă nouă</span>
             </Button>
           </div>
         </div>
@@ -160,30 +162,32 @@ const MyQuotes = () => {
               const itemCount = (quote.quote_items as { count: number }[])?.[0]?.count ?? 0;
               return (
                 <Card key={quote.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium truncate">
-                          {quote.client_name || "Client nespecificat"}
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <p className="font-medium truncate">
+                            {quote.client_name || "Client nespecificat"}
+                          </p>
+                          <Badge variant={statusVariant[quote.status] || "secondary"}>
+                            {statusLabels[quote.status] || quote.status}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {quote.project_description || "Fără descriere"}
                         </p>
-                        <Badge variant={statusVariant[quote.status] || "secondary"}>
-                          {statusLabels[quote.status] || quote.status}
-                        </Badge>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(quote.created_at).toLocaleDateString("ro-RO")} · {itemCount} produse
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {quote.project_description || "Fără descriere"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {new Date(quote.created_at).toLocaleDateString("ro-RO")} · {itemCount} produse
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3 ml-4 shrink-0">
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <p className="text-lg font-bold text-primary">
                           {Number(quote.total_gross).toFixed(2)} lei
                         </p>
                         <p className="text-xs text-muted-foreground">cu TVA</p>
                       </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-border/40">
                       <Button
                         variant="ghost"
                         size="icon"

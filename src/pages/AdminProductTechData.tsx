@@ -228,7 +228,8 @@ const AdminProductTechData = () => {
           />
         </div>
 
-        <div className="rounded-md border overflow-x-auto">
+        {/* Desktop table */}
+        <div className="hidden md:block rounded-md border overflow-x-auto">
           <Table className="min-w-[900px]">
             <TableHeader>
               <TableRow>
@@ -338,6 +339,61 @@ const AdminProductTechData = () => {
             </TableBody>
           </Table>
         </div>
+
+        {/* Mobile card list */}
+        <div className="md:hidden space-y-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          ) : products.length === 0 ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              {search.length > 0 ? `Niciun produs găsit pentru "${search}"` : "Niciun produs în catalog"}
+            </div>
+          ) : (
+            products.map((product) => {
+              const pct = completenessPercent(product);
+              return (
+                <div key={product.id} className="rounded-lg border bg-card p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary mb-1">
+                        {product.cod_intern}
+                      </Badge>
+                      <p className="text-sm font-medium leading-snug line-clamp-2">{product.denumire_completa}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {pct === 100 ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      ) : pct > 0 ? (
+                        <span className="text-xs text-yellow-600 font-medium">{pct}%</span>
+                      ) : (
+                        <Circle className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(product)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    {product.consum && (
+                      <div><span className="text-muted-foreground">Consum: </span>{product.consum}</div>
+                    )}
+                    {product.ambalare && (
+                      <div><span className="text-muted-foreground">Ambalare: </span>{product.ambalare}</div>
+                    )}
+                    {product.similar_cu && (
+                      <div className="col-span-2"><span className="text-muted-foreground">Similar: </span>{product.similar_cu}</div>
+                    )}
+                    {!product.consum && !product.ambalare && !product.similar_cu && (
+                      <div className="col-span-2 text-muted-foreground italic">Fără date tehnice</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* Dialog editare */}
@@ -351,7 +407,7 @@ const AdminProductTechData = () => {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>
                   Consum orientativ{" "}

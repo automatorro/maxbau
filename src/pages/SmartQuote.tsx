@@ -524,7 +524,8 @@ const SmartQuote = () => {
               <CardTitle className="text-base">Produse în ofertă ({items.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <Table className="min-w-[860px]">
                   <TableHeader>
                     <TableRow>
@@ -596,6 +597,63 @@ const SmartQuote = () => {
                     )}
                   </TableBody>
                 </Table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="md:hidden divide-y divide-border/40">
+                {Array.from(groups.entries()).map(([cerere, groupItems], gi) =>
+                  groupItems.map((item, idx) => (
+                    <div key={item.tempId} className={`p-3 space-y-2 ${gi % 2 === 0 ? "bg-muted/10" : ""}`}>
+                      {idx === 0 && cerere !== "—" && (
+                        <p className="text-xs text-muted-foreground italic line-clamp-2">
+                          Cerere: {cerere}
+                        </p>
+                      )}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary mb-1">
+                            {item.cod_intern}
+                          </Badge>
+                          <p className="text-sm line-clamp-2">{item.denumire}</p>
+                        </div>
+                        <Button variant="ghost" size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
+                          onClick={() => removeItem(item.tempId)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Cant. ({item.unit})</p>
+                          <Input type="number" min={0.01} step="any"
+                            value={item.quantity}
+                            onChange={(e) => updateItem(item.tempId, "quantity", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Preț/UM</p>
+                          <Input type="number" min={0} step="any"
+                            value={item.pret_unitar}
+                            onChange={(e) => updateItem(item.tempId, "pret_unitar", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Disc.%</p>
+                          <Input type="number" min={0} max={100} step="0.5"
+                            value={item.discount_percent}
+                            onChange={(e) => updateItem(item.tempId, "discount_percent", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Preț final: <span className="font-medium text-foreground">{item.pret_final.toFixed(2)} lei</span>
+                        </span>
+                        <span className="text-sm font-bold text-primary">{item.subtotal.toFixed(2)} lei</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

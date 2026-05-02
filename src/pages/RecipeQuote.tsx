@@ -390,8 +390,8 @@ const RecipeQuote = () => {
 
         <Card>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-              <div className="sm:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <div className="sm:col-span-2 lg:col-span-2">
                 <Label>Tip lucrare</Label>
                 <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId}>
                   <SelectTrigger>
@@ -439,7 +439,7 @@ const RecipeQuote = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
+                <div className="hidden md:block overflow-x-auto">
                   <Table className="min-w-[900px]">
                     <TableHeader>
                       <TableRow>
@@ -550,6 +550,97 @@ const RecipeQuote = () => {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+                {/* Mobile card list */}
+                <div className="md:hidden divide-y divide-border/30">
+                  {lines.map((line) => (
+                    <div key={line.position} className={`p-3 space-y-2.5 ${line.status === "NOT_FOUND" ? "bg-destructive/5" : ""}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs text-muted-foreground">#{line.position}</span>
+                            {line.cod_intern ? (
+                              <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+                                {line.cod_intern}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="text-sm font-medium leading-snug line-clamp-2">
+                            {line.product_name || line.description}
+                          </p>
+                          {line.status === "NOT_FOUND" && (
+                            <p className="text-xs text-destructive flex items-center gap-1 mt-0.5">
+                              <AlertTriangle className="h-3 w-3" /> Produs negăsit în catalog
+                            </p>
+                          )}
+                        </div>
+                        <div className="shrink-0">
+                          {line.status === "FOUND" ? (
+                            <CheckCircle2 className="h-4 w-4 text-primary" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-destructive" />
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="text-muted-foreground text-xs">Cant: <strong>{line.quantity} {line.um}</strong></span>
+                        {line.line_total > 0 && (
+                          <span className="ml-auto font-bold text-primary">{line.line_total.toFixed(2)} lei</span>
+                        )}
+                      </div>
+                      {line.status === "FOUND" && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-[10px] text-muted-foreground mb-1">Preț/UM</p>
+                            <Input
+                              type="number" min={0} step="any"
+                              value={line.unit_price}
+                              onChange={(e) => updateLine(line.position, { unit_price: parseFloat(e.target.value) || 0, price_sheet_item_id: null })}
+                              className="h-8 text-right text-sm"
+                            />
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-muted-foreground mb-1">Disc.%</p>
+                            <Input
+                              type="number" min={0} max={100} step="0.5"
+                              value={line.discount_percent}
+                              onChange={(e) => updateLine(line.position, { discount_percent: parseFloat(e.target.value) || 0, price_sheet_item_id: line.price_sheet_item_id || null })}
+                              className="h-8 text-right text-sm"
+                            />
+                          </div>
+                          {line.product_id && specialPriceItemsByProductId.get(line.product_id)?.length ? (
+                            <div className="col-span-2">
+                              <p className="text-[10px] text-muted-foreground mb-1">Listă preț</p>
+                              <Select
+                                value={line.price_sheet_item_id || "list"}
+                                onValueChange={(v) => {
+                                  if (v === "list") {
+                                    updateLine(line.position, { price_sheet_item_id: null, unit_price: line.list_unit_price, discount_percent: 0 });
+                                    return;
+                                  }
+                                  const opt = specialPriceItemsByProductId.get(line.product_id!)?.find((o) => o.id === v);
+                                  if (!opt) return;
+                                  updateLine(line.position, { price_sheet_item_id: opt.id, unit_price: Number(opt.price), discount_percent: 0 });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="Alege..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="list">Preț de listă</SelectItem>
+                                  {specialPriceItemsByProductId.get(line.product_id)!.map((opt) => (
+                                    <SelectItem key={opt.id} value={opt.id}>
+                                      {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>

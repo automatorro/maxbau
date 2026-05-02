@@ -457,7 +457,9 @@ const NewQuote = () => {
                 Niciun produs adăugat. Apasă „Adaugă produs" pentru a începe.
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
                 <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
@@ -550,7 +552,89 @@ const NewQuote = () => {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="md:hidden divide-y divide-border/40">
+                  {items.map((item) => (
+                    <div key={item.tempId} className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary mb-1">
+                            {item.cod_intern}
+                          </Badge>
+                          <p className="text-sm line-clamp-2">{item.denumire}</p>
+                        </div>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
+                          onClick={() => removeItem(item.tempId)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      {item.product_id && specialPriceItemsByProductId.get(item.product_id)?.length ? (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Listă prețuri</p>
+                          <Select
+                            value={item.price_sheet_item_id || "list"}
+                            onValueChange={(v) => {
+                              if (v === "list") {
+                                const list = item.pret_lista ?? listPriceByProductId.get(item.product_id!) ?? 0;
+                                updateItem(item.tempId, "price_sheet_item_id", null);
+                                updateItem(item.tempId, "pret_unitar", list);
+                                updateItem(item.tempId, "discount_percent", 0);
+                                return;
+                              }
+                              const opt = specialPriceItemsByProductId.get(item.product_id!)?.find((o) => o.id === v);
+                              if (!opt) return;
+                              updateItem(item.tempId, "price_sheet_item_id", opt.id);
+                              updateItem(item.tempId, "pret_unitar", Number(opt.price));
+                              if (opt.unit) updateItem(item.tempId, "unit", opt.unit);
+                              updateItem(item.tempId, "discount_percent", 0);
+                            }}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Alege..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="list">Preț de listă</SelectItem>
+                              {specialPriceItemsByProductId.get(item.product_id)!.map((opt) => (
+                                <SelectItem key={opt.id} value={opt.id}>
+                                  {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Cant. ({item.unit})</p>
+                          <Input type="number" min={0.01} step="any" value={item.quantity}
+                            onChange={(e) => updateItem(item.tempId, "quantity", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Preț/UM</p>
+                          <Input type="number" min={0} step="any" value={item.pret_unitar}
+                            onChange={(e) => updateItem(item.tempId, "pret_unitar", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Disc.%</p>
+                          <Input type="number" min={0} max={100} step="0.5" value={item.discount_percent}
+                            onChange={(e) => updateItem(item.tempId, "discount_percent", parseFloat(e.target.value) || 0)}
+                            className="h-8 text-right text-sm" />
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Preț final: <span className="font-medium text-foreground">{item.pret_final.toFixed(2)} lei</span>
+                        </span>
+                        <span className="text-sm font-bold text-primary">{item.subtotal.toFixed(2)} lei</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

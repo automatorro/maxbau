@@ -350,7 +350,8 @@ const AdminPriceSheets = () => {
                 </div>
               </div>
 
-              <div className="rounded-md border">
+              {/* Desktop table */}
+              <div className="hidden md:block rounded-md border overflow-x-auto">
                 <Table className="min-w-[1000px]">
                   <TableHeader>
                     <TableRow>
@@ -430,6 +431,78 @@ const AdminPriceSheets = () => {
                     )}
                   </TableBody>
                 </Table>
+              </div>
+
+              {/* Mobile card list */}
+              <div className="md:hidden space-y-2">
+                {itemsLoading ? (
+                  <div className="flex justify-center py-8">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  </div>
+                ) : items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">Nicio linie.</p>
+                ) : (
+                  items.map((it) => (
+                    <div key={it.id} className="rounded-lg border bg-card p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-mono text-primary">{it.products?.cod_intern || "—"}</span>
+                          <p className="text-sm font-medium leading-snug line-clamp-2 mt-0.5">
+                            {it.products?.denumire_completa || it.product_id}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive shrink-0"
+                          onClick={() => deleteItemMutation.mutate(it.id)}
+                          disabled={deleteItemMutation.isPending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">Etichetă</p>
+                          <Input
+                            defaultValue={it.label || ""}
+                            onBlur={(e) => {
+                              const label = e.target.value.trim() || null;
+                              if (label === it.label) return;
+                              updateItemMutation.mutate({ id: it.id, label, unit: it.unit, price: Number(it.price) });
+                            }}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">UM</p>
+                          <Input
+                            defaultValue={it.unit || ""}
+                            onBlur={(e) => {
+                              const unit = e.target.value.trim() || null;
+                              if (unit === it.unit) return;
+                              updateItemMutation.mutate({ id: it.id, label: it.label, unit, price: Number(it.price) });
+                            }}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1">Preț</p>
+                          <Input
+                            defaultValue={String(it.price)}
+                            onBlur={(e) => {
+                              const priceNum = Number(e.target.value);
+                              if (!Number.isFinite(priceNum) || priceNum <= 0) return;
+                              if (priceNum === Number(it.price)) return;
+                              updateItemMutation.mutate({ id: it.id, label: it.label, unit: it.unit, price: priceNum });
+                            }}
+                            className="h-8 text-xs text-right"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
