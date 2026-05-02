@@ -448,7 +448,7 @@ const SmartQuote = () => {
                     <SelectValue placeholder="Orice tip" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Orice tip</SelectItem>
+                    <SelectItem value="__all__">Orice tip</SelectItem>
                     {TIP_PRODUSE.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
