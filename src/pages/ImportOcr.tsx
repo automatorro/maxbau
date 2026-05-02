@@ -345,15 +345,14 @@ function InlineProductSearch({
   if (!searchOpen) {
     return (
       <div className="flex items-center gap-1.5">
-        {suggestions.length > 0 ? (
+        {suggestions.filter((pid) => pid && productsById.has(pid)).length > 0 ? (
           <Select onValueChange={(v) => onSelect(v)}>
             <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder={`${suggestions.length} sugestii...`} />
+              <SelectValue placeholder={`${suggestions.filter((pid) => pid && productsById.has(pid)).length} sugestii...`} />
             </SelectTrigger>
             <SelectContent>
-              {suggestions.map((pid) => {
-                const p = productsById.get(pid);
-                if (!p) return null;
+              {suggestions.filter((pid) => pid && productsById.has(pid)).map((pid) => {
+                const p = productsById.get(pid)!;
                 return (
                   <SelectItem key={pid} value={pid} className="text-xs">
                     <span className="font-mono text-primary">{p.cod_intern}</span> — {p.denumire_completa}
