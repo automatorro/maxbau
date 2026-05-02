@@ -85,7 +85,7 @@ const SmartQuote = () => {
   const [projectDesc, setProjectDesc] = useState("");
 
   const [descriere, setDescriere] = useState("");
-  const [tipProdus, setTipProdus] = useState("");
+  const [tipProdus, setTipProdus] = useState("__all__");
   const [suprafata, setSuprafata] = useState("");
   const [cantitateManual, setCantitateManual] = useState("");
   const [unitateManual, setUnitateManual] = useState("buc");
@@ -120,8 +120,8 @@ const SmartQuote = () => {
     }
 
     const request: ClientRequest = {
-      descriere: descriere + (tipProdus ? ` ${tipProdus}` : ""),
-      tip_produs: tipProdus || undefined,
+      descriere: descriere + (tipProdus && tipProdus !== "__all__" ? ` ${tipProdus}` : ""),
+      tip_produs: tipProdus !== "__all__" ? tipProdus : undefined,
       suprafata: suprafata ? parseFloat(suprafata) : undefined,
       cantitate: cantitateManual ? parseFloat(cantitateManual) : undefined,
       unitate: unitateManual || undefined,
@@ -448,7 +448,7 @@ const SmartQuote = () => {
                     <SelectValue placeholder="Orice tip" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Orice tip</SelectItem>
+                    <SelectItem value="__all__">Orice tip</SelectItem>
                     {TIP_PRODUSE.map((t) => (
                       <SelectItem key={t} value={t}>
                         {t}
