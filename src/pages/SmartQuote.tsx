@@ -85,7 +85,7 @@ const SmartQuote = () => {
   const [projectDesc, setProjectDesc] = useState("");
 
   const [descriere, setDescriere] = useState("");
-  const [tipProdus, setTipProdus] = useState("");
+  const [tipProdus, setTipProdus] = useState("__all__");
   const [suprafata, setSuprafata] = useState("");
   const [cantitateManual, setCantitateManual] = useState("");
   const [unitateManual, setUnitateManual] = useState("buc");
