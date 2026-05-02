@@ -745,6 +745,8 @@ const ImportOcr = () => {
       const headerRow = built[0]?.cells || [];
       const detectedIdx = guessNameColumnIndex(headerRow);
       setMatchNameColIdx(detectedIdx);
+      const detectedPriceIdx = guessPriceColumnIndex(headerRow);
+      setPriceColIdx(detectedPriceIdx);
       
       // Auto-run matching
       const dataRows = built.filter((_, i) => i !== 0);

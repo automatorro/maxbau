@@ -152,7 +152,6 @@ const SmartQuote = () => {
         discount_percent: i.discount_percent,
         pret_final: i.pret_final,
         subtotal: i.subtotal,
-        cerere_initiala: i.cerere_initiala || null,
       }));
 
       const { error: iErr } = await supabase.from("quote_items").insert(rows);
