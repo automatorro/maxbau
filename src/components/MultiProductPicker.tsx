@@ -48,13 +48,17 @@ export function MultiProductPicker({
   const { data: products = [], isLoading } = useQuery({
     queryKey: ["multi-picker-products", search],
     queryFn: async () => {
-      const allTokens = search.trim()
-        .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+      const norm = search.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const allTokens = norm
         .split(/[^a-z0-9]+/)
         .filter((t) => t.length >= 2 || /^\d+$/.test(t));
 
       const wordTokens = allTokens.filter((t) => !/^\d+$/.test(t));
       const numTokens = allTokens.filter((t) => /^\d+$/.test(t));
+
+      // Phrase variants for code-suffix searches: "AF E" → "af-e", "afe"
+      const phraseVariants = [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
+        .filter((p) => p.length >= 2);
 
       let query = supabase
         .from("products")
@@ -62,27 +66,48 @@ export function MultiProductPicker({
         .order("denumire_completa")
         .limit(60);
 
-      // AND logic pe cuvinte (fiabil); numerele se verifică client-side cu word-boundary
-      for (const t of wordTokens) {
-        const token = t.replace(/,/g, "\\,");
-        query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
+      if (wordTokens.length > 0) {
+        // AND logic pe cuvinte (fiabil); numerele se verifică client-side cu word-boundary
+        for (const t of wordTokens) {
+          const token = t.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
+        }
+      } else if (phraseVariants.length > 0) {
+        // No multi-char word tokens — fall back to OR phrase search (e.g., search is just "E")
+        const phraseOr = phraseVariants
+          .map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%`)
+          .join(",");
+        query = query.or(phraseOr);
       }
 
       const { data, error } = await query;
       if (error) throw error;
 
-      const results = (data ?? []) as (PickedProduct & { categories: { name: string } | null })[];
+      let results = (data ?? []) as (PickedProduct & { categories: { name: string } | null })[];
 
-      if (numTokens.length === 0) return results;
+      // Word-boundary filter for numbers
+      if (numTokens.length > 0) {
+        results = results.filter((p) => {
+          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+            .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+          return numTokens.every((n) =>
+            new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
+          );
+        });
+      }
 
-      // Filtrare word-boundary pentru numere: "5" nu trebuie să potrivească "15" sau "EPS150"
-      return results.filter((p) => {
-        const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
-          .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-        return numTokens.every((n) =>
-          new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
-        );
-      });
+      // Sort: phrase-variant matches first (e.g., "af-e" ranks above generic "af" matches)
+      if (phraseVariants.length > 1) {
+        results = [...results].sort((a, b) => {
+          const ta = `${a.denumire_completa} ${a.cod_intern ?? ""}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+          const tb = `${b.denumire_completa} ${b.cod_intern ?? ""}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+          const sa = phraseVariants.reduce((best, p) => (ta.includes(p) ? Math.max(best, p.length) : best), 0);
+          const sb = phraseVariants.reduce((best, p) => (tb.includes(p) ? Math.max(best, p.length) : best), 0);
+          return sb - sa; // higher phrase score first; ties keep alphabetical order
+        });
+      }
+
+      return results;
     },
     enabled: open,
   });

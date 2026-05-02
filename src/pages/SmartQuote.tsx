@@ -111,14 +111,21 @@ const SmartQuote = () => {
   // ── Live catalog search ──────────────────────────────────────────────────
   const tokens = useMemo(() => tokenize(debouncedCerere), [debouncedCerere]);
 
+  // Phrase variants help with code-like searches: "AF E" → also search "af-e", "afe"
+  const phraseVariants = useMemo(() => {
+    const norm = debouncedCerere.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+    return [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
+      .filter((p) => p.length >= 2);
+  }, [debouncedCerere]);
+
   const { data: rawSuggestions = [], isFetching: suggestLoading } = useQuery({
-    queryKey: ["smart-catalog-suggest", tokens.join("|")],
+    queryKey: ["smart-catalog-suggest", tokens.join("|"), phraseVariants.join("|")],
     queryFn: async (): Promise<SuggestedProduct[]> => {
-      if (tokens.length === 0) return [];
-      // OR logic — broad match, score client-side
-      const orFilter = tokens
-        .map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%`)
-        .join(",");
+      if (tokens.length === 0 && phraseVariants.length === 0) return [];
+      // OR logic — broad match (tokens) + phrase variants for code-suffix searches like "AF E"→"af-e"
+      const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%`);
+      const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%`);
+      const orFilter = [...tokenParts, ...phraseParts].join(",");
       const { data, error } = await supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
@@ -130,13 +137,18 @@ const SmartQuote = () => {
         .map((p) => {
           const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
             .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-          const score = tokens.reduce((s, t) => s + scoreToken(target, t), 0);
-          return { ...p, score } as SuggestedProduct;
+          const tokenScore = tokens.reduce((s, t) => s + scoreToken(target, t), 0);
+          // Phrase match bonus: "af-e" match scores much higher than just "af"
+          const phraseBonus = phraseVariants.reduce(
+            (best, phrase) => (target.includes(phrase) ? Math.max(best, phrase.length * 3) : best),
+            0
+          );
+          return { ...p, score: tokenScore + phraseBonus } as SuggestedProduct;
         })
         .filter((p) => p.score > 0)
         .sort((a, b) => b.score - a.score);
     },
-    enabled: tokens.length > 0,
+    enabled: tokens.length > 0 || phraseVariants.length > 0,
   });
 
   // Top 8 shown inline; total count for "caută mai mult" hint
