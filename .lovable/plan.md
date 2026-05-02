@@ -1,47 +1,114 @@
 
-# Redesign Import OCR/Excel
+# Plan: Fix Import OCR/Excel + AI SmartQuote On-Demand
 
-## Problems identified
+## Etapa 1: Fix Import OCR/Excel
 
-1. **Mobile view shows empty cards** - Each imported row renders as a full card with just "Rând 1", "Nr" (empty), "Cantitate" (empty), and an empty "Alege produs..." dropdown. The user can't see the actual product name from the import.
-2. **No product name visible** - The imported product denomination (from the Excel) is not displayed prominently in each card. You have to know which column index to select.
-3. **Product dropdown is empty** - The Select for "Produs (DB)" only shows suggestions AFTER clicking "Sugerează" per row or "Potrivește produse" globally. Before that, the dropdown is completely empty -- no way to search.
-4. **Endless card list** - With hundreds of rows, scrolling through individual cards is unusable.
-5. **No status overview** - No way to see at a glance how many rows are matched vs unmatched.
+Probleme curente identificate în `ImportOcr.tsx` (1113 linii):
+- Funcționalitatea de bază e implementată dar sunt probleme de UX
+- Sugestiile Select pot avea value gol dacă un product ID nu e găsit în `productsById` (cauza potențială a erorii `Select.Item` cu value gol)
+- Auto-detect coloană preț lipsește (doar coloana denumire e detectată automat)
 
-## Plan
+### Modificări:
 
-### 1. Replace mobile card list with a compact scrollable list
+**1. Fix Select.Item cu value gol** (linia 344-353 în InlineProductSearch)
+- Filtrează sugestiile care nu au un produs valid în `productsById` înainte de render
+- Previne eroarea Radix "Select.Item must have a value prop that is not an empty string"
 
-- Show each row as a single compact line: **row number + product name from import + match status icon** (green check / orange warning).
-- Tapping a row opens an expandable detail panel (accordion) or a bottom sheet with editing fields and product matching.
-- This reduces vertical space from ~200px per card to ~48px per row.
+**2. Auto-detect coloană preț**
+- Adaugă funcție `guessPriceColumnIndex()` care caută keywords: "pret", "price", "tarif", "lei", "eur", "ron"
+- Se aplică automat la import, similar cu `guessNameColumnIndex`
 
-### 2. Show imported product name prominently
+**3. Detectare automată header row**
+- Dacă primul rând conține text tipic de header (nu numere), îl setează ca header
+- Fallback pe rândul 0
 
-- Auto-detect the "denomination" column on import (heuristic: column header containing "denumire", "produs", "material", "articol", or the longest text column).
-- Display the value from that column as the primary label in each row, both mobile and desktop.
+**4. UX improvements**
+- La import, auto-scroll la secțiunea 3 (tabelul)
+- Badge-urile de sugestii să arate și scorul de matching vizual (culoare gradient)
 
-### 3. Replace empty Select with searchable product picker
+Fișiere modificate: `src/pages/ImportOcr.tsx`
 
-- Replace the "Alege produs..." Select (which only shows pre-generated suggestions) with a searchable combo/combobox that queries the DB live as you type.
-- Keep the "Sugerează" button to auto-fill the best match, but the user can also manually search anytime.
-- Reuse the existing `ProductPicker` dialog component pattern for the search.
+---
 
-### 4. Add summary bar and batch actions
+## Etapa 2: AI SmartQuote On-Demand + Cache
 
-- Show a status bar: "Total: 150 rânduri | Potrivite: 23 | Nepotrivite: 127"
-- Add "Potrivește automat toate" button that runs suggestions for all rows AND auto-selects the top match when confidence > 0.85.
-- Add "Arată doar nepotrivite" filter toggle.
+Când operatorul caută echivalente în SmartQuote, AI caută pe internet date tehnice doar pentru produsele candidate.
 
-### 5. Auto-run suggestions on import
+### Arhitectură:
 
-- After Excel import completes, automatically run `generateSuggestionsForAllRows()` so users immediately see match candidates without an extra click.
+```text
+SmartQuote UI → Edge Function "ai-product-info" → Lovable AI Gateway
+                                                  (google/gemini-3-flash-preview)
+                                                  ↓
+                                          Răspuns structurat:
+                                          - consum/mp
+                                          - ambalaj
+                                          - alternative compatibile
+                                          - explicație echivalență
+                                                  ↓
+                                          Cache în products.specifications (JSONB)
+```
 
-### Technical details
+### 1. Edge Function `ai-product-info`
 
-- All changes in `src/pages/ImportOcr.tsx`
-- Mobile view (lines 1174-1282): replace card list with accordion-style compact rows
-- Product matching: add inline search input with debounced Supabase query (similar to ProductPicker)
-- Auto-detect column: add `guessNameColumn(headerCells)` helper
-- Status bar: simple computed values from `bodyRows` and `matchedProductIdByRowId`
+**Fișier:** `supabase/functions/ai-product-info/index.ts`
+
+- Input: `{ product_ids: string[], client_request: string }`
+- Citește produsele din DB (denumire, cod_intern, specifications existente)
+- Verifică cache: dacă `specifications.ai_info` există și e < 30 zile, returnează din cache
+- Dacă nu e cached, trimite la Lovable AI Gateway cu prompt:
+
+```
+Ești expert în materiale de construcții. Pentru produsele de mai jos,
+furnizează date tehnice bazate pe cunoștințele tale:
+- consum estimat per mp (unde se aplică)
+- tip ambalaj și greutate
+- alternative echivalente (branduri/produse similare)
+- compatibilități și utilizare recomandată
+
+Context cerere client: "{client_request}"
+
+Produse: [lista]
+```
+
+- Folosește tool calling pentru structured output (consum, ambalaj, alternative[], compatibilitati)
+- Salvează rezultatul în `products.specifications.ai_info` cu timestamp
+- Returnează datele structurate
+
+### 2. Integrare în SmartQuote
+
+**Fișier:** `src/pages/SmartQuote.tsx`
+
+- După ce operatorul selectează produse din MultiProductPicker, apare buton "Detalii tehnice AI"
+- La click, apelează edge function cu product IDs + cererea clientului
+- Afișează sub tabel: consum, ambalaj, alternative recomandate
+- Dacă AI sugerează alternative care există în catalog, oferă buton "Adaugă în ofertă"
+
+### 3. Îmbunătățire MultiProductPicker
+
+**Fișier:** `src/components/MultiProductPicker.tsx`
+
+- Adaugă afișare `specifications.ai_info` dacă există (cached din apeluri anterioare)
+- Indicator vizual "are date AI" pe produsele care au cache
+
+### Nu se creează coloane noi în DB
+- Se folosește exclusiv câmpul JSONB `specifications` existent
+- Structura: `{ ai_info: { consum, ambalaj, alternative, updated_at } }`
+- matchingEngine.ts rămâne neschimbat (va citi din specifications dacă e populat)
+
+---
+
+## Ordine implementare
+
+1. Fix Import OCR/Excel (etapa 1) — fix-uri punctuale, ~30 min
+2. Edge function `ai-product-info` — creare și deploy
+3. Integrare SmartQuote cu AI — UI + apel edge function
+4. Cache display în MultiProductPicker
+
+## Detalii tehnice
+
+- **Model AI:** `google/gemini-3-flash-preview` (rapid, cost redus)
+- **Auth:** Edge function verifică JWT, citește/scrie DB cu service role
+- **Rate limiting:** Maxim 5 produse per apel, debounce 2s
+- **Cache TTL:** 30 zile în specifications.ai_info.updated_at
+- **Fără coloane noi** — totul în JSONB specifications existent
