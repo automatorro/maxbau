@@ -804,8 +804,8 @@ const ImportOcr = () => {
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
       const base64 = btoa(binary);
 
-      const { data, error } = await supabase.functions.invoke("ocr-whatsapp", {
-        body: { image_base64: base64, mime_type: file.type || "image/jpeg" },
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { action: "ocr-whatsapp", image_base64: base64, mime_type: file.type || "image/jpeg" },
       });
 
       if (error) throw new Error(error.message || "Eroare edge function");

@@ -81,6 +81,106 @@ serve(async (req) => {
     const body = await req.json();
     const action: string = body.action || "tech-info";
 
+    // ── Action: ocr-whatsapp ──────────────────────────────────────────────────
+    if (action === "ocr-whatsapp") {
+      const imageBase64: string = body.image_base64 || "";
+      const mimeType: string = body.mime_type || "image/jpeg";
+
+      if (!imageBase64) {
+        return new Response(JSON.stringify({ error: "image_base64 is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const dataUrl = `data:${mimeType};base64,${imageBase64}`;
+
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-preview",
+          messages: [
+            {
+              role: "system",
+              content: "Ești expert în extragerea datelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, etc.). Extrage TOATE rândurile din tabelul din imagine, inclusiv antetul. Păstrează denumirile exact cum apar. Prețurile sunt numerice fără simbol monedă. UM = unitate de măsură (sac, kg, m2, ml, buc). Ignoră logo-uri și antete de companie.",
+            },
+            {
+              role: "user",
+              content: [
+                { type: "image_url", image_url: { url: dataUrl } },
+                { type: "text", text: "Extrage tabelul din această imagine de listă prețuri. Returnează headers și toate rândurile de date." },
+              ],
+            },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "extract_price_table",
+                description: "Extract structured table data from a price list image",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
+                    rows: {
+                      type: "array",
+                      items: { type: "array", items: { type: "string" } },
+                      description: "All data rows (excluding header), same column count as headers",
+                    },
+                    note: { type: "string", description: "Optional observation about image quality or unclear content" },
+                  },
+                  required: ["headers", "rows"],
+                  additionalProperties: false,
+                },
+              },
+            },
+          ],
+          tool_choice: { type: "function", function: { name: "extract_price_table" } },
+        }),
+      });
+
+      if (!resp.ok) {
+        const status = resp.status;
+        if (status === 429) throw Object.assign(new Error("Rate limit depășit, încearcă mai târziu"), { status: 429 });
+        if (status === 402) throw Object.assign(new Error("Credit AI epuizat"), { status: 402 });
+        const errText = await resp.text();
+        console.error("ocr-whatsapp AI error:", status, errText);
+        throw new Error(`AI gateway error: ${status}`);
+      }
+
+      const aiData = await resp.json();
+      const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+      if (!toolCall?.function?.arguments) {
+        return new Response(JSON.stringify({ error: "Modelul nu a returnat date structurate" }), {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let extracted: { headers: string[]; rows: string[][]; note?: string };
+      try {
+        extracted = JSON.parse(toolCall.function.arguments);
+      } catch {
+        return new Response(JSON.stringify({ error: "Răspuns invalid de la model" }), {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const colCount = extracted.headers.length;
+      const normalizedRows = (extracted.rows || []).map((row) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, headers: extracted.headers, rows: normalizedRows, note: extracted.note || null }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // ── Action: find-equivalent ───────────────────────────────────────────────
     if (action === "find-equivalent") {
       const cerereClient: string = (body.cerere_client || "").trim();
