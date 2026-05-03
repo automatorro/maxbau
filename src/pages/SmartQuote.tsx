@@ -519,20 +519,6 @@ const SmartQuote = () => {
                       : `${totalFound} produs${totalFound > 1 ? "e" : ""} găsit${totalFound > 1 ? "e" : ""} în catalog`}
                   </span>
                   <div className="flex items-center gap-2">
-                    {!suggestLoading && totalFound === 0 && debouncedCerere.length >= 3 && (
-                      <button
-                        onClick={fetchEquivalents}
-                        disabled={equivalentLoading}
-                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium disabled:opacity-50"
-                      >
-                        {equivalentLoading ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Bot className="h-3 w-3" />
-                        )}
-                        {equivalentLoading ? "Caut echivalent…" : "Caută echivalent AI"}
-                      </button>
-                    )}
                     {totalFound > 8 && (
                       <button
                         onClick={() => setPickerOpen(true)}
@@ -587,32 +573,50 @@ const SmartQuote = () => {
                 )}
 
                 {/* Footer acțiuni */}
-                {suggestedProducts.length > 0 && (
-                  <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t border-border/40">
-                    <span className="text-xs text-muted-foreground">
-                      {selectedSuggestions.size > 0
+                <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t border-border/40">
+                  <span className="text-xs text-muted-foreground">
+                    {suggestedProducts.length > 0
+                      ? selectedSuggestions.size > 0
                         ? `${selectedSuggestions.size} produs${selectedSuggestions.size > 1 ? "e selectate" : " selectat"}`
-                        : "Bifați produsele potrivite"}
-                    </span>
-                    <div className="flex items-center gap-2">
+                        : "Bifați produsele potrivite"
+                      : "Produsul nu există în catalog?"}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {debouncedCerere.length >= 3 && (
                       <button
-                        onClick={() => setPickerOpen(true)}
-                        className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                        onClick={fetchEquivalents}
+                        disabled={equivalentLoading}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium disabled:opacity-50"
                       >
-                        Browse catalog complet
+                        {equivalentLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Bot className="h-3 w-3" />
+                        )}
+                        {equivalentLoading ? "Caut echivalent…" : "Caută echivalent AI"}
                       </button>
-                      <Button
-                        size="sm"
-                        disabled={selectedSuggestions.size === 0}
-                        onClick={addSuggestedToOffer}
-                        className="h-7 text-xs"
-                      >
-                        Adaugă la ofertă
-                        {selectedSuggestions.size > 0 && ` (${selectedSuggestions.size})`}
-                      </Button>
-                    </div>
+                    )}
+                    {suggestedProducts.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => setPickerOpen(true)}
+                          className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                        >
+                          Browse catalog complet
+                        </button>
+                        <Button
+                          size="sm"
+                          disabled={selectedSuggestions.size === 0}
+                          onClick={addSuggestedToOffer}
+                          className="h-7 text-xs"
+                        >
+                          Adaugă la ofertă
+                          {selectedSuggestions.size > 0 && ` (${selectedSuggestions.size})`}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             )}
 
