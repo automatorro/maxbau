@@ -201,7 +201,15 @@ const SmartQuote = () => {
       if (error) throw error;
       if (data?.success && data.data) {
         setAiInfo((prev) => ({ ...prev, ...data.data }));
-        toast.success("Date tehnice AI primite");
+        const cachedCount = (data.cached_ids as string[] || []).length;
+        const freshCount = (data.fresh_ids as string[] || []).length;
+        if (freshCount > 0 && cachedCount > 0) {
+          toast.success(`Date AI: ${freshCount} noi, ${cachedCount} din cache`);
+        } else if (cachedCount > 0) {
+          toast.info(`Date tehnice încărcate din cache (${cachedCount} produse)`);
+        } else {
+          toast.success("Date tehnice AI primite");
+        }
         const allAlts: string[] = Object.values(data.data as Record<string, AiProductInfo>)
           .flatMap((info) => info.alternative ?? []);
         void lookupAlternatives(allAlts);

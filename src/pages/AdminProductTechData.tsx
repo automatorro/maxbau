@@ -198,6 +198,7 @@ const AdminProductTechData = () => {
       if (!data?.success) throw new Error(data?.error || "Eroare AI");
 
       const aiResult = data.data?.[editProduct.id] as AiInfo | undefined;
+      const fromCache = (data.cached_ids as string[] || []).includes(editProduct.id);
       if (aiResult) {
         setForm(f => ({
           ...f,
@@ -207,7 +208,7 @@ const AdminProductTechData = () => {
           compatibilitati: aiResult.compatibilitati || f.compatibilitati,
           utilizare: aiResult.utilizare || f.utilizare,
         }));
-        toast.success("Date AI primite — verifică și salvează");
+        toast.success(fromCache ? "Date încărcate din cache — verifică și salvează" : "Date AI noi primite — verifică și salvează");
       } else {
         toast.info("AI nu a returnat date pentru acest produs");
       }
