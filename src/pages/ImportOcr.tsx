@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { FileUp, ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter } from "lucide-react";
+import { FileUp, ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, Sparkles } from "lucide-react";
 import * as XLSX from "xlsx";
 
 type OcrWord = {
@@ -414,6 +414,7 @@ const ImportOcr = () => {
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lang, setLang] = useState<"eng" | "ron">("ron");
   const [running, setRunning] = useState(false);
+  const [visionRunning, setVisionRunning] = useState(false);
   const [sheetRunning, setSheetRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [ocrText, setOcrText] = useState("");
@@ -786,6 +787,66 @@ const ImportOcr = () => {
     }
   };
 
+  const runVisionOcr = async () => {
+    if (!file || visionRunning) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Imaginea e prea mare (max 5 MB). Comprimeaz-o înainte.");
+      return;
+    }
+    setVisionRunning(true);
+    setOcrText(""); setWords([]); setLines([]);
+    setGridRows([]); setHeaderRowIndex(0); setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
+    setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
+    try {
+      const buffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      const base64 = btoa(binary);
+
+      const { data, error } = await supabase.functions.invoke("ocr-whatsapp", {
+        body: { image_base64: base64, mime_type: file.type || "image/jpeg" },
+      });
+
+      if (error) throw new Error(error.message || "Eroare edge function");
+      if (!data?.success) throw new Error(data?.error || "Extragere eșuată");
+
+      const headers: string[] = data.headers || [];
+      const rawRows: string[][] = data.rows || [];
+
+      if (headers.length === 0) {
+        toast.error("Nu s-a putut identifica niciun tabel în imagine");
+        return;
+      }
+
+      const headerRow: GridRow = { id: crypto.randomUUID(), cells: headers };
+      const bodyGridRows: GridRow[] = rawRows.map((cells) => ({ id: crypto.randomUUID(), cells }));
+      const allRows = [headerRow, ...bodyGridRows];
+
+      setGridRows(allRows);
+      setHeaderRowIndex(0);
+
+      const detectedNameIdx = guessNameColumnIndex(headers);
+      const detectedPriceIdx = guessPriceColumnIndex(headers);
+      setMatchNameColIdx(detectedNameIdx);
+      setPriceColIdx(detectedPriceIdx);
+
+      if (data.note) toast.info(data.note);
+
+      setTimeout(() => {
+        if (productsForMatch.length > 0 && bodyGridRows.length > 0) {
+          runAutoMatch(bodyGridRows, detectedNameIdx, productsForMatch);
+        }
+      }, 100);
+
+      toast.success(`AI Vision: ${bodyGridRows.length} rânduri extrase`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare AI Vision");
+    } finally {
+      setVisionRunning(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-4 max-w-6xl">
@@ -798,22 +859,42 @@ const ImportOcr = () => {
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">1) Upload</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {/* Image row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
-                <Label className="text-sm">Imagine (PNG/JPG)</Label>
+                <Label className="text-sm">Imagine (PNG/JPG) — WhatsApp sau scanare</Label>
                 <Input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] || null)} />
               </div>
-              <div>
-                <Label className="text-sm">Limbă OCR</Label>
-                <Select value={lang} onValueChange={(v) => setLang(v as "eng" | "ron")}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ron">Română</SelectItem>
-                    <SelectItem value="eng">Engleză</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div className="flex flex-col gap-1 flex-1">
+                  <Button
+                    onClick={runVisionOcr}
+                    disabled={!file || visionRunning || running}
+                    className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white w-full"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {visionRunning ? "Se analizează..." : "AI Vision"}
+                  </Button>
+                  <p className="text-[10px] text-muted-foreground text-center">Recomandat pt. WhatsApp</p>
+                </div>
+                <div className="flex flex-col gap-1 flex-1">
+                  <div className="flex items-end gap-1">
+                    <Select value={lang} onValueChange={(v) => setLang(v as "eng" | "ron")}>
+                      <SelectTrigger className="h-9 text-xs w-20"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ron">RO</SelectItem>
+                        <SelectItem value="eng">EN</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" onClick={runOcr} disabled={!file || running || visionRunning} className="gap-1 h-9">
+                      <ScanText className="h-4 w-4" />OCR
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground text-center">Tesseract local</p>
+                </div>
               </div>
             </div>
+            {/* Excel row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label className="text-sm">Excel/CSV</Label>
@@ -827,14 +908,12 @@ const ImportOcr = () => {
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div>
                 <Button variant="outline" onClick={importSheet} disabled={!sheetFile || sheetRunning}>Importă fișier</Button>
-                <Button onClick={runOcr} disabled={!file || running} className="gap-1">
-                  <ScanText className="h-4 w-4" />OCR
-                </Button>
               </div>
             </div>
-            {running && <div className="text-sm text-muted-foreground">Procesare OCR: {progress}%</div>}
+            {running && <div className="text-sm text-muted-foreground">Procesare OCR Tesseract: {progress}%</div>}
+            {visionRunning && <div className="text-sm text-violet-600 animate-pulse">Gemini analizează imaginea...</div>}
           </CardContent>
         </Card>
 
