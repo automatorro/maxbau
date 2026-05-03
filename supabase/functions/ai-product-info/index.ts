@@ -224,7 +224,10 @@ Pentru FIECARE produs returnează:
     // Merge cached + new results
     const allResults: Record<string, unknown> = { ...cached, ...aiResults };
 
-    return new Response(JSON.stringify({ success: true, data: allResults }), {
+    const cachedIds = Object.keys(cached);
+    const freshIds = Object.keys(aiResults);
+
+    return new Response(JSON.stringify({ success: true, data: allResults, cached_ids: cachedIds, fresh_ids: freshIds }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
