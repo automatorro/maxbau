@@ -259,8 +259,13 @@ const SmartQuote = () => {
         body: { action: "find-equivalent", cerere_client: cerere },
       });
       if (error) throw error;
-      setEquivalentResults(data as EquivalentSearchResponse);
-      if (data?.echivalente?.length === 0) {
+      const result = data as EquivalentSearchResponse;
+      if (!result?.success || !Array.isArray(result?.echivalente)) {
+        toast.error(result?.error || "Eroare la căutarea echivalentului AI");
+        return;
+      }
+      setEquivalentResults(result);
+      if (result.echivalente.length === 0) {
         toast.info("Nu am găsit echivalente în catalogul MaxBau pentru acest produs");
       }
     } catch (e) {
@@ -638,13 +643,13 @@ const SmartQuote = () => {
                   </div>
                 </div>
 
-                {equivalentResults.echivalente.length === 0 && (
+                {(equivalentResults.echivalente?.length ?? 0) === 0 && (
                   <div className="px-3 py-3 text-xs text-muted-foreground italic">
                     {equivalentResults.message || "Nu am găsit echivalente în catalog pentru această cerere."}
                   </div>
                 )}
 
-                {equivalentResults.echivalente.length > 0 && (
+                {(equivalentResults.echivalente?.length ?? 0) > 0 && (
                   <div className="divide-y divide-border/30">
                     {equivalentResults.echivalente.map((equiv) => {
                       const alreadyIn = items.some((i) => i.product_id === equiv.product_id);
