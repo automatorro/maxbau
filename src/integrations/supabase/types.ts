@@ -266,11 +266,13 @@ export type Database = {
       }
       quote_items: {
         Row: {
+          cerere_initiala: string | null
           cod_intern: string
           created_at: string
           denumire: string
           discount_percent: number | null
           id: string
+          nota_ai: Json | null
           pret_final: number
           pret_unitar: number
           product_id: string | null
@@ -280,11 +282,13 @@ export type Database = {
           unit: string | null
         }
         Insert: {
+          cerere_initiala?: string | null
           cod_intern: string
           created_at?: string
           denumire: string
           discount_percent?: number | null
           id?: string
+          nota_ai?: Json | null
           pret_final?: number
           pret_unitar?: number
           product_id?: string | null
@@ -294,11 +298,13 @@ export type Database = {
           unit?: string | null
         }
         Update: {
+          cerere_initiala?: string | null
           cod_intern?: string
           created_at?: string
           denumire?: string
           discount_percent?: number | null
           id?: string
+          nota_ai?: Json | null
           pret_final?: number
           pret_unitar?: number
           product_id?: string | null
