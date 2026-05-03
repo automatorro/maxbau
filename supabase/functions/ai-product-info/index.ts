@@ -9,6 +9,42 @@ const corsHeaders = {
 
 const CACHE_TTL_DAYS = 30;
 
+async function callAI(
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  toolName: string,
+  toolSchema: Record<string, unknown>
+): Promise<Record<string, unknown> | null> {
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages,
+      tools: [{ type: "function", function: { name: toolName, ...toolSchema } }],
+      tool_choice: { type: "function", function: { name: toolName } },
+    }),
+  });
+
+  if (!resp.ok) {
+    const status = resp.status;
+    if (status === 429) throw Object.assign(new Error("Rate limit exceeded, please try again later"), { status: 429 });
+    if (status === 402) throw Object.assign(new Error("AI credits exhausted. Add funds at Settings > Workspace > Usage"), { status: 402 });
+    const errText = await resp.text();
+    console.error("AI gateway error:", status, errText);
+    throw new Error("AI gateway error");
+  }
+
+  const data = await resp.json();
+  const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+  if (!toolCall?.function?.arguments) return null;
+  try {
+    return JSON.parse(toolCall.function.arguments);
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -21,7 +57,6 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT from authorization header
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing authorization" }), {
@@ -44,6 +79,251 @@ serve(async (req) => {
     }
 
     const body = await req.json();
+    const action: string = body.action || "tech-info";
+
+    // ── Action: find-equivalent ───────────────────────────────────────────────
+    if (action === "find-equivalent") {
+      const cerereClient: string = (body.cerere_client || "").trim();
+      if (cerereClient.length < 3) {
+        return new Response(JSON.stringify({ error: "cerere_client must be at least 3 characters" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Check cache in echivalente_produse
+      const cerareLower = cerereClient.toLowerCase();
+      const { data: cachedRows } = await supabaseAdmin
+        .from("echivalente_produse")
+        .select("product_id, scor_relevanta, nota_echivalenta, products(id, cod_intern, denumire_completa, pret_lista, unit)")
+        .ilike("cerere_text", cerareLower)
+        .order("scor_relevanta", { ascending: false })
+        .limit(3);
+
+      if (cachedRows && cachedRows.length > 0) {
+        const echivalente = cachedRows
+          .filter((r) => r.products)
+          .map((r) => {
+            const p = r.products as { id: string; cod_intern: string; denumire_completa: string; pret_lista: number; unit: string };
+            return {
+              product_id: p.id,
+              cod_intern: p.cod_intern,
+              denumire_completa: p.denumire_completa,
+              pret_lista: p.pret_lista,
+              unit: p.unit,
+              justificare: r.nota_echivalenta || "",
+              scor: r.scor_relevanta,
+            };
+          });
+        if (echivalente.length > 0) {
+          return new Response(JSON.stringify({ success: true, from_cache: true, category: null, echivalente }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // Fetch all categories
+      const { data: categories, error: catErr } = await supabaseAdmin
+        .from("categories")
+        .select("id, name, parent_id");
+      if (catErr || !categories) throw new Error("Failed to fetch categories");
+
+      const catMap = new Map(categories.map((c) => [c.id, c]));
+
+      function getCategoryPath(id: string): string {
+        const cat = catMap.get(id);
+        if (!cat) return "Necunoscut";
+        if (!cat.parent_id) return cat.name;
+        return `${getCategoryPath(cat.parent_id)} > ${cat.name}`;
+      }
+
+      const categoryList = categories.map((c) => ({ id: c.id, path: getCategoryPath(c.id) }));
+
+      // Phase 1 — classify category
+      let classification: { category_id: string; category_path: string; confidence: number; reasoning: string } | null = null;
+      try {
+        const result = await callAI(
+          LOVABLE_API_KEY,
+          [
+            {
+              role: "system",
+              content: "Ești expert în materiale de construcții din România. Clasifică produsul cerut în categoria cea mai specifică din catalog.",
+            },
+            {
+              role: "user",
+              content: `Cerere client: "${cerereClient}"\n\nCategorii disponibile:\n${categoryList.map((c, i) => `${i + 1}. [${c.id}] ${c.path}`).join("\n")}\n\nIdentifică categoria cea mai potrivită. Dacă nu ești sigur de subcategorie, alege categoria părintе mai generală.`,
+            },
+          ],
+          "classify_category",
+          {
+            description: "Identify the product category",
+            parameters: {
+              type: "object",
+              properties: {
+                category_id: { type: "string", description: "UUID of the best matching category" },
+                category_path: { type: "string", description: "Full path of the selected category" },
+                confidence: { type: "number", description: "Confidence score 0-1" },
+                reasoning: { type: "string", description: "Short explanation in Romanian" },
+              },
+              required: ["category_id", "category_path", "confidence", "reasoning"],
+              additionalProperties: false,
+            },
+          }
+        );
+        if (result?.category_id && catMap.has(result.category_id as string)) {
+          classification = result as typeof classification;
+        }
+      } catch (e: unknown) {
+        const err = e as { status?: number; message?: string };
+        if (err.status === 429 || err.status === 402) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: err.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        throw e;
+      }
+
+      if (!classification) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Nu am putut identifica categoria produsului cerut", category: null, echivalente: [] }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Collect descendant category IDs
+      function getDescendantIds(rootId: string): string[] {
+        const ids = [rootId];
+        for (const cat of categories) {
+          if (cat.parent_id === rootId) ids.push(...getDescendantIds(cat.id));
+        }
+        return ids;
+      }
+      const categoryIds = getDescendantIds(classification.category_id);
+
+      // Fetch products in those categories
+      const { data: products, error: prodErr } = await supabaseAdmin
+        .from("products")
+        .select("id, cod_intern, denumire_completa, pret_lista, unit, brand")
+        .in("category_id", categoryIds)
+        .limit(60);
+
+      if (prodErr) throw new Error("Failed to fetch products");
+
+      if (!products || products.length === 0) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            category: { id: classification.category_id, path: classification.category_path, confidence: classification.confidence, reasoning: classification.reasoning },
+            echivalente: [],
+            message: "Categoria a fost identificată dar nu există produse în catalog pentru această categorie",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Phase 2 — rank equivalents
+      const productList = products
+        .map((p, i) => `${i + 1}. [${p.cod_intern}] ${p.denumire_completa} (${p.brand || "-"}, ${p.pret_lista} lei/${p.unit || "buc"})`)
+        .join("\n");
+
+      let ranking: { echivalente: { cod_intern: string; justificare: string; scor: number }[] } = { echivalente: [] };
+      try {
+        const result = await callAI(
+          LOVABLE_API_KEY,
+          [
+            {
+              role: "system",
+              content: "Ești expert în materiale de construcții din România. Selectezi cele mai bune echivalente din catalog pentru cererea unui client.",
+            },
+            {
+              role: "user",
+              content: `Clientul a cerut: "${cerereClient}"\n\nCategorie identificată: "${classification.category_path}"\n\nProduse disponibile în catalog MaxBau:\n${productList}\n\nIdentifică TOP 3 produse echivalente sau substituibile pentru cererea clientului. Ignoră brandul cerut și concentrează-te pe caracteristicile tehnice și aplicația produsului. Dacă mai puțin de 3 produse sunt potrivite, returnează doar cele relevante.`,
+            },
+          ],
+          "rank_equivalents",
+          {
+            description: "Return top equivalent products from the catalog",
+            parameters: {
+              type: "object",
+              properties: {
+                echivalente: {
+                  type: "array",
+                  maxItems: 3,
+                  items: {
+                    type: "object",
+                    properties: {
+                      cod_intern: { type: "string", description: "Product code from the list above" },
+                      justificare: { type: "string", description: "1-2 sentences in Romanian explaining why this product is equivalent" },
+                      scor: { type: "integer", description: "Relevance score 1-100" },
+                    },
+                    required: ["cod_intern", "justificare", "scor"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["echivalente"],
+              additionalProperties: false,
+            },
+          }
+        );
+        if (result?.echivalente) ranking = result as typeof ranking;
+      } catch (e: unknown) {
+        const err = e as { status?: number; message?: string };
+        if (err.status === 429 || err.status === 402) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: err.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        throw e;
+      }
+
+      const echivalente = (ranking.echivalente || [])
+        .map((e) => {
+          const product = products.find((p) => p.cod_intern === e.cod_intern);
+          if (!product) return null;
+          return {
+            product_id: product.id,
+            cod_intern: product.cod_intern,
+            denumire_completa: product.denumire_completa,
+            pret_lista: product.pret_lista,
+            unit: product.unit,
+            justificare: e.justificare,
+            scor: e.scor,
+          };
+        })
+        .filter(Boolean) as { product_id: string; cod_intern: string; denumire_completa: string; pret_lista: number; unit: string; justificare: string; scor: number }[];
+
+      // Cache results in echivalente_produse
+      for (const equiv of echivalente) {
+        await supabaseAdmin.from("echivalente_produse").insert({
+          cerere_text: cerareLower,
+          product_id: equiv.product_id,
+          scor_relevanta: Math.min(100, Math.max(1, equiv.scor)),
+          nota_echivalenta: equiv.justificare,
+          creat_de: user.id,
+        });
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          from_cache: false,
+          category: {
+            id: classification.category_id,
+            path: classification.category_path,
+            confidence: classification.confidence,
+            reasoning: classification.reasoning,
+          },
+          echivalente,
+        }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── Action: tech-info (default) ───────────────────────────────────────────
     const productIds: string[] = body.product_ids;
     const clientRequest: string = body.client_request || "";
 
@@ -54,7 +334,6 @@ serve(async (req) => {
       });
     }
 
-    // Fetch products
     const { data: products, error: pErr } = await supabaseAdmin
       .from("products")
       .select("id, cod_intern, denumire_completa, unit, pret_lista, specifications, brand, category_id")
@@ -67,7 +346,6 @@ serve(async (req) => {
       });
     }
 
-    // Check cache
     const now = Date.now();
     const cached: Record<string, unknown> = {};
     const needsAi: typeof products = [];
@@ -104,133 +382,90 @@ ${clientRequest ? `Context cerere client: "${clientRequest}"` : ""}
 
 Pentru FIECARE produs returnează:
 - consum: consum estimat per mp sau per unitate (ex: "4-6 kg/mp", "1.5 buc/mp") sau "N/A" dacă nu se aplică
-- ambalaj: tip și greutate ambalaj (ex: "sac 25 kg", "galeata 20 kg") 
+- ambalaj: tip și greutate ambalaj (ex: "sac 25 kg", "galeata 20 kg")
 - alternative: lista de maxim 3 produse alternative echivalente (brand + denumire), doar produse reale
 - compatibilitati: cu ce materiale/suporturi e compatibil
 - utilizare: interior/exterior/ambele + aplicații specifice`;
 
-      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
+      let parsed: { products?: { cod_intern: string; consum: string; ambalaj: string; alternative: string[]; compatibilitati: string; utilizare: string }[] } = { products: [] };
+      try {
+        const result = await callAI(
+          LOVABLE_API_KEY,
+          [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "product_tech_info",
-                description: "Return technical info for each product",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    products: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          cod_intern: { type: "string" },
-                          consum: { type: "string", description: "Consumption per sqm or unit" },
-                          ambalaj: { type: "string", description: "Packaging type and weight" },
-                          alternative: {
-                            type: "array",
-                            items: { type: "string" },
-                            description: "Up to 3 equivalent alternative products",
-                          },
-                          compatibilitati: { type: "string" },
-                          utilizare: { type: "string" },
-                        },
-                        required: ["cod_intern", "consum", "ambalaj", "alternative", "compatibilitati", "utilizare"],
-                        additionalProperties: false,
-                      },
+          "product_tech_info",
+          {
+            description: "Return technical info for each product",
+            parameters: {
+              type: "object",
+              properties: {
+                products: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      cod_intern: { type: "string" },
+                      consum: { type: "string", description: "Consumption per sqm or unit" },
+                      ambalaj: { type: "string", description: "Packaging type and weight" },
+                      alternative: { type: "array", items: { type: "string" }, description: "Up to 3 equivalent alternative products" },
+                      compatibilitati: { type: "string" },
+                      utilizare: { type: "string" },
                     },
+                    required: ["cod_intern", "consum", "ambalaj", "alternative", "compatibilitati", "utilizare"],
+                    additionalProperties: false,
                   },
-                  required: ["products"],
-                  additionalProperties: false,
                 },
               },
+              required: ["products"],
+              additionalProperties: false,
             },
-          ],
-          tool_choice: { type: "function", function: { name: "product_tech_info" } },
-        }),
-      });
-
-      if (!aiResponse.ok) {
-        const status = aiResponse.status;
-        if (status === 429) {
-          return new Response(JSON.stringify({ error: "Rate limit exceeded, please try again later" }), {
-            status: 429,
+          }
+        );
+        if (result) parsed = result as typeof parsed;
+      } catch (e: unknown) {
+        const err = e as { status?: number; message?: string };
+        if (err.status === 429 || err.status === 402) {
+          return new Response(JSON.stringify({ error: err.message }), {
+            status: err.status,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        if (status === 402) {
-          return new Response(JSON.stringify({ error: "AI credits exhausted. Add funds at Settings > Workspace > Usage" }), {
-            status: 402,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        const errText = await aiResponse.text();
-        console.error("AI gateway error:", status, errText);
-        throw new Error("AI gateway error");
+        throw e;
       }
 
-      const aiData = await aiResponse.json();
-      const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-      
-      if (toolCall?.function?.arguments) {
-        let parsed;
-        try {
-          parsed = JSON.parse(toolCall.function.arguments);
-        } catch {
-          console.error("Failed to parse AI response");
-          parsed = { products: [] };
-        }
+      for (const aiProd of (parsed.products || [])) {
+        const matchingProduct = needsAi.find((p) => p.cod_intern === aiProd.cod_intern);
+        if (!matchingProduct) continue;
 
-        const aiProducts = parsed.products || [];
-        
-        for (const aiProd of aiProducts) {
-          const matchingProduct = needsAi.find((p) => p.cod_intern === aiProd.cod_intern);
-          if (!matchingProduct) continue;
+        const aiInfo = {
+          consum: aiProd.consum || "N/A",
+          ambalaj: aiProd.ambalaj || "N/A",
+          alternative: aiProd.alternative || [],
+          compatibilitati: aiProd.compatibilitati || "",
+          utilizare: aiProd.utilizare || "",
+          updated_at: new Date().toISOString(),
+        };
 
-          const aiInfo = {
-            consum: aiProd.consum || "N/A",
-            ambalaj: aiProd.ambalaj || "N/A",
-            alternative: aiProd.alternative || [],
-            compatibilitati: aiProd.compatibilitati || "",
-            utilizare: aiProd.utilizare || "",
-            updated_at: new Date().toISOString(),
-          };
+        aiResults[matchingProduct.id] = aiInfo;
 
-          aiResults[matchingProduct.id] = aiInfo;
-
-          // Cache in DB
-          const existingSpecs = (matchingProduct.specifications as Record<string, unknown>) || {};
-          await supabaseAdmin
-            .from("products")
-            .update({
-              specifications: { ...existingSpecs, ai_info: aiInfo },
-            })
-            .eq("id", matchingProduct.id);
-        }
+        const existingSpecs = (matchingProduct.specifications as Record<string, unknown>) || {};
+        await supabaseAdmin
+          .from("products")
+          .update({ specifications: { ...existingSpecs, ai_info: aiInfo } })
+          .eq("id", matchingProduct.id);
       }
     }
 
-    // Merge cached + new results
     const allResults: Record<string, unknown> = { ...cached, ...aiResults };
-
     const cachedIds = Object.keys(cached);
     const freshIds = Object.keys(aiResults);
 
-    return new Response(JSON.stringify({ success: true, data: allResults, cached_ids: cachedIds, fresh_ids: freshIds }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ success: true, data: allResults, cached_ids: cachedIds, fresh_ids: freshIds }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (e) {
     console.error("ai-product-info error:", e);
     return new Response(
