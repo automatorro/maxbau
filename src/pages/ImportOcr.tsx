@@ -196,7 +196,9 @@ function extractLinesFromBlocks(blocks: unknown): OcrLine[] {
           maxX1 = Math.max(maxX1, x1); maxY1 = Math.max(maxY1, y1);
         }
         if (lineWords.length === 0) continue;
-        const sorted = [...lineWords].sort((a, c) => a.bbox.x0 - c.bbox.x0);
+        const realWords = lineWords.filter((w) => !isBorderArtifact(w.text));
+        if (realWords.length === 0) continue;
+        const sorted = [...realWords].sort((a, c) => a.bbox.x0 - c.bbox.x0);
         out.push({ id: crypto.randomUUID(), words: sorted, text: sorted.map((w) => w.text).join(" ").trim(), bbox: { x0: minX0, y0: minY0, x1: maxX1, y1: maxY1 } });
       }
     }
@@ -237,9 +239,24 @@ function extractWordsFromBlocks(blocks: unknown): OcrWord[] {
   return out;
 }
 
+// Characters that are table border artifacts when they appear alone or at word boundaries
+const BORDER_CHARS_RE = /^[\[\]|(){}<>_\-=+*/\\^~`]+$/;
+const BORDER_STRIP_RE = /^[\[\]|(){}<>_\-]+|[\[\]|(){}<>_\-]+$/g;
+
+function isBorderArtifact(text: string): boolean {
+  const t = text.trim();
+  return t.length === 0 || BORDER_CHARS_RE.test(t);
+}
+
+function cleanCellText(text: string): string {
+  return text.replace(BORDER_STRIP_RE, "").trim();
+}
+
 function buildColumnAnchors(lines: OcrLine[], mergePx: number): number[] {
   const xs: number[] = [];
-  for (const line of lines) for (const w of line.words) xs.push(w.bbox.x0);
+  for (const line of lines)
+    for (const w of line.words)
+      if (!isBorderArtifact(w.text)) xs.push(w.bbox.x0);
   xs.sort((a, b) => a - b);
   const anchors: number[] = [];
   let current: { mean: number; count: number } | null = null;
@@ -275,13 +292,15 @@ function buildGrid(lines: OcrLine[], mergePx: number): { anchors: number[]; rows
   const rows: GridRow[] = lines.map((line) => {
     const byCol = new Map<number, OcrWord[]>();
     for (const w of line.words) {
+      if (isBorderArtifact(w.text)) continue;
       const col = nearestAnchorIndex(anchors, w.bbox.x0);
       const list = byCol.get(col);
       if (list) list.push(w); else byCol.set(col, [w]);
     }
     const cells = Array.from({ length: colCount }, () => "");
     for (const [col, ws] of byCol.entries()) {
-      cells[col] = ws.sort((a, b) => a.bbox.x0 - b.bbox.x0).map((w) => w.text).join(" ").trim();
+      const raw = ws.sort((a, b) => a.bbox.x0 - b.bbox.x0).map((w) => w.text).join(" ").trim();
+      cells[col] = cleanCellText(raw);
     }
     return { id: line.id, cells };
   });
