@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/table";
 import {
   Trash2, Download, Save, Send, Sparkles, Loader2,
-  ExternalLink, PackageSearch, ChevronRight,
+  ExternalLink, PackageSearch, ChevronRight, Bot, Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
@@ -52,6 +52,25 @@ interface OfertaItem {
 }
 
 type SuggestedProduct = PickedProduct & { score: number };
+
+type EquivalentResult = {
+  product_id: string;
+  cod_intern: string;
+  denumire_completa: string;
+  pret_lista: number;
+  unit: string;
+  justificare: string;
+  scor: number;
+};
+
+type EquivalentSearchResponse = {
+  success: boolean;
+  from_cache?: boolean;
+  category: { id: string; path: string; confidence: number; reasoning: string } | null;
+  echivalente: EquivalentResult[];
+  message?: string;
+  error?: string;
+};
 
 function calcLine(item: Partial<OfertaItem>) {
   const pret = item.pret_unitar ?? 0;
@@ -107,6 +126,14 @@ const SmartQuote = () => {
   const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [altMatches, setAltMatches] = useState<Record<string, { cod_intern: string; denumire_completa: string } | null>>({});
+
+  const [equivalentLoading, setEquivalentLoading] = useState(false);
+  const [equivalentResults, setEquivalentResults] = useState<EquivalentSearchResponse | null>(null);
+
+  // Reset equivalent results when user changes the search text
+  useEffect(() => {
+    setEquivalentResults(null);
+  }, [cerereText]);
 
   // ── Live catalog search ──────────────────────────────────────────────────
   const tokens = useMemo(() => tokenize(debouncedCerere), [debouncedCerere]);
@@ -221,6 +248,50 @@ const SmartQuote = () => {
       setAiLoading(false);
     }
   }, [lookupAlternatives]);
+
+  const fetchEquivalents = useCallback(async () => {
+    const cerere = cerereText.trim();
+    if (!cerere || cerere.length < 3) return;
+    setEquivalentLoading(true);
+    setEquivalentResults(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-find-equivalent", {
+        body: { cerere_client: cerere },
+      });
+      if (error) throw error;
+      setEquivalentResults(data as EquivalentSearchResponse);
+      if (data?.echivalente?.length === 0) {
+        toast.info("Nu am găsit echivalente în catalogul MaxBau pentru acest produs");
+      }
+    } catch (e) {
+      console.error("Equivalent search error:", e);
+      toast.error("Eroare la căutarea echivalentului AI");
+    } finally {
+      setEquivalentLoading(false);
+    }
+  }, [cerereText]);
+
+  const addEquivalentToOffer = useCallback((equiv: EquivalentResult) => {
+    if (items.some((i) => i.product_id === equiv.product_id)) {
+      toast.info("Produsul este deja în ofertă");
+      return;
+    }
+    const base: OfertaItem = {
+      tempId: crypto.randomUUID(),
+      cerere_initiala: cerereText.trim() || equiv.denumire_completa,
+      product_id: equiv.product_id,
+      cod_intern: equiv.cod_intern,
+      denumire: equiv.denumire_completa,
+      quantity: 1,
+      unit: equiv.unit || "buc",
+      pret_unitar: Number(equiv.pret_lista),
+      discount_percent: 0,
+      pret_final: 0,
+      subtotal: 0,
+    };
+    setItems((prev) => [...prev, { ...base, ...calcLine(base) }]);
+    toast.success("Produs echivalent adăugat în ofertă");
+  }, [cerereText, items]);
 
   // ── Offer management ─────────────────────────────────────────────────────
   const handlePickerConfirm = useCallback(
@@ -437,24 +508,40 @@ const SmartQuote = () => {
                     {suggestLoading ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      <span className="h-2 w-2 rounded-full bg-green-500" />
+                      <span className={`h-2 w-2 rounded-full ${totalFound === 0 ? "bg-amber-400" : "bg-green-500"}`} />
                     )}
                     {suggestLoading
                       ? "Caut în catalog MaxBau…"
                       : totalFound === 0
-                      ? "Niciun produs găsit în catalog"
+                      ? "Niciun produs găsit direct în catalog"
                       : totalFound > 8
                       ? `${totalFound} produse găsite — top 8 afișate`
                       : `${totalFound} produs${totalFound > 1 ? "e" : ""} găsit${totalFound > 1 ? "e" : ""} în catalog`}
                   </span>
-                  {totalFound > 8 && (
-                    <button
-                      onClick={() => setPickerOpen(true)}
-                      className="text-xs text-primary hover:underline flex items-center gap-0.5"
-                    >
-                      Vezi toate <ChevronRight className="h-3 w-3" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {!suggestLoading && totalFound === 0 && debouncedCerere.length >= 3 && (
+                      <button
+                        onClick={fetchEquivalents}
+                        disabled={equivalentLoading}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 font-medium disabled:opacity-50"
+                      >
+                        {equivalentLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Bot className="h-3 w-3" />
+                        )}
+                        {equivalentLoading ? "Caut echivalent…" : "Caută echivalent AI"}
+                      </button>
+                    )}
+                    {totalFound > 8 && (
+                      <button
+                        onClick={() => setPickerOpen(true)}
+                        className="text-xs text-primary hover:underline flex items-center gap-0.5"
+                      >
+                        Vezi toate <ChevronRight className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Lista produse */}
@@ -524,6 +611,67 @@ const SmartQuote = () => {
                         {selectedSuggestions.size > 0 && ` (${selectedSuggestions.size})`}
                       </Button>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rezultate echivalente AI */}
+            {equivalentResults && (
+              <div className="rounded-lg border border-primary/30 overflow-hidden bg-primary/[0.02]">
+                <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-primary/20">
+                  <Bot className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-semibold text-primary">Echivalente AI</span>
+                    {equivalentResults.category && (
+                      <span className="text-xs text-muted-foreground ml-2">
+                        Categorie identificată: <span className="font-medium text-foreground">{equivalentResults.category.path}</span>
+                      </span>
+                    )}
+                    {equivalentResults.from_cache && (
+                      <Badge variant="outline" className="ml-2 text-[10px] border-primary/30 text-primary h-4">din cache</Badge>
+                    )}
+                  </div>
+                </div>
+
+                {equivalentResults.echivalente.length === 0 && (
+                  <div className="px-3 py-3 text-xs text-muted-foreground italic">
+                    {equivalentResults.message || "Nu am găsit echivalente în catalog pentru această cerere."}
+                  </div>
+                )}
+
+                {equivalentResults.echivalente.length > 0 && (
+                  <div className="divide-y divide-border/30">
+                    {equivalentResults.echivalente.map((equiv) => {
+                      const alreadyIn = items.some((i) => i.product_id === equiv.product_id);
+                      return (
+                        <div key={equiv.product_id} className={`px-3 py-2.5 ${alreadyIn ? "opacity-50" : ""}`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="outline" className="text-[10px] font-mono shrink-0 border-primary/30 text-primary">
+                                  {equiv.cod_intern}
+                                </Badge>
+                                <span className="text-sm font-medium truncate">{equiv.denumire_completa}</span>
+                                <span className="text-xs font-semibold text-primary shrink-0">
+                                  {Number(equiv.pret_lista).toFixed(2)} lei/{equiv.unit || "buc"}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{equiv.justificare}</p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant={alreadyIn ? "secondary" : "outline"}
+                              className="h-7 text-xs shrink-0 gap-1"
+                              disabled={alreadyIn}
+                              onClick={() => addEquivalentToOffer(equiv)}
+                            >
+                              {alreadyIn ? "În ofertă" : <><Plus className="h-3 w-3" /> Adaugă</>}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
