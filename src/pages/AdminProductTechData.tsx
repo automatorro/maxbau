@@ -22,8 +22,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Pencil, CheckCircle2, Circle, Info, AlertTriangle } from "lucide-react";
+import { Search, Pencil, CheckCircle2, Circle, Info, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+
+interface AiInfo {
+  consum?: string;
+  ambalaj?: string;
+  alternative?: string[];
+  compatibilitati?: string;
+  utilizare?: string;
+  updated_at?: string;
+}
 
 interface Product {
   id: string;
@@ -31,25 +40,42 @@ interface Product {
   denumire_completa: string;
   unit: string | null;
   pret_lista: number;
-  consum: string | null;
-  ambalare: string | null;
-  similar_cu: string | null;
-  caracteristici: Record<string, unknown> | null;
+  brand: string | null;
+  specifications: Record<string, unknown> | null;
 }
 
 interface EditForm {
   consum: string;
-  ambalare: string;
-  similar_cu: string;
+  ambalaj: string;
+  alternative: string;
+  compatibilitati: string;
+  utilizare: string;
   caracteristici_raw: string;
 }
+
+const getAiInfo = (p: Product): AiInfo | null => {
+  const specs = p.specifications || {};
+  return (specs.ai_info as AiInfo) || null;
+};
+
+const hasData = (p: Product) => {
+  const ai = getAiInfo(p);
+  if (!ai) return false;
+  return Boolean(ai.consum || ai.ambalaj || ai.alternative?.length || ai.compatibilitati || ai.utilizare);
+};
+
+const completenessPercent = (p: Product) => {
+  const ai = getAiInfo(p);
+  if (!ai) return 0;
+  const fields = [ai.consum, ai.ambalaj, ai.alternative?.length ? "yes" : null, ai.compatibilitati, ai.utilizare];
+  const filled = fields.filter(Boolean).length;
+  return Math.round((filled / fields.length) * 100);
+};
 
 const EXAMPLE_CHARS = `{
   "tip": "adeziv",
   "clasa": "C2T",
-  "standard": "EN 12004",
-  "flexibil": true,
-  "uz": "interior"
+  "standard": "EN 12004"
 }`;
 
 const AdminProductTechData = () => {
@@ -57,24 +83,25 @@ const AdminProductTechData = () => {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [form, setForm] = useState<EditForm>({
     consum: "",
-    ambalare: "",
-    similar_cu: "",
+    ambalaj: "",
+    alternative: "",
+    compatibilitati: "",
+    utilizare: "",
     caracteristici_raw: "",
   });
   const [jsonError, setJsonError] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   const queryClient = useQueryClient();
 
   const { data: products = [], isLoading, error: queryError } = useQuery({
     queryKey: ["admin-tech-products", search],
     queryFn: async () => {
-      // select(*) — nu depinde de existența coloanelor noi
       let query = supabase
         .from("products")
-        .select("*")
+        .select("id, cod_intern, denumire_completa, unit, pret_lista, brand, specifications")
         .order("cod_intern");
 
-      // Split pe spații → AND logic per token
       const tokens = search.trim().split(/\s+/).filter((t) => t.length >= 2);
       for (const raw of tokens) {
         const token = raw.replace(/,/g, "\\,");
@@ -85,37 +112,22 @@ const AdminProductTechData = () => {
 
       const { data, error } = await query.limit(200);
       if (error) throw error;
-      // Mapare robustă — coloanele noi pot lipsi dacă migrarea nu a rulat
-      return (data ?? []).map((p: Record<string, unknown>) => ({
-        id: p.id as string,
-        cod_intern: p.cod_intern as string,
-        denumire_completa: p.denumire_completa as string,
-        unit: (p.unit as string) ?? null,
-        pret_lista: Number(p.pret_lista ?? 0),
-        consum: (p.consum as string) ?? null,
-        ambalare: (p.ambalare as string) ?? null,
-        similar_cu: (p.similar_cu as string) ?? null,
-        caracteristici: (p.caracteristici as Record<string, unknown>) ?? null,
-      })) as Product[];
+      return (data ?? []) as Product[];
     },
   });
 
   const saveMutation = useMutation({
-    mutationFn: async ({
-      id,
-      payload,
-    }: {
-      id: string;
-      payload: {
-        consum: string | null;
-        ambalare: string | null;
-        similar_cu: string | null;
-        caracteristici: Record<string, unknown> | null;
+    mutationFn: async ({ id, aiInfo, extraSpecs }: { id: string; aiInfo: AiInfo; extraSpecs: Record<string, unknown> | null }) => {
+      const product = products.find(p => p.id === id);
+      const existingSpecs = (product?.specifications as Record<string, unknown>) || {};
+      const newSpecs = {
+        ...existingSpecs,
+        ai_info: { ...aiInfo, updated_at: new Date().toISOString() },
+        ...(extraSpecs ? extraSpecs : {}),
       };
-    }) => {
       const { error } = await supabase
         .from("products")
-        .update(payload)
+        .update({ specifications: newSpecs })
         .eq("id", id);
       if (error) throw error;
     },
@@ -131,12 +143,18 @@ const AdminProductTechData = () => {
   const openEdit = (product: Product) => {
     setEditProduct(product);
     setJsonError("");
+    const ai = getAiInfo(product);
+    const specs = (product.specifications as Record<string, unknown>) || {};
+    // Remove ai_info from specs for the "extra characteristics" editor
+    const { ai_info, ...restSpecs } = specs;
     setForm({
-      consum: product.consum || "",
-      ambalare: product.ambalare || "",
-      similar_cu: product.similar_cu || "",
-      caracteristici_raw: product.caracteristici
-        ? JSON.stringify(product.caracteristici, null, 2)
+      consum: ai?.consum || "",
+      ambalaj: ai?.ambalaj || "",
+      alternative: ai?.alternative?.join(", ") || "",
+      compatibilitati: ai?.compatibilitati || "",
+      utilizare: ai?.utilizare || "",
+      caracteristici_raw: Object.keys(restSpecs).length > 0
+        ? JSON.stringify(restSpecs, null, 2)
         : "",
     });
   };
@@ -144,10 +162,10 @@ const AdminProductTechData = () => {
   const handleSave = () => {
     if (!editProduct) return;
 
-    let parsedChars: Record<string, unknown> | null = null;
+    let extraSpecs: Record<string, unknown> | null = null;
     if (form.caracteristici_raw.trim()) {
       try {
-        parsedChars = JSON.parse(form.caracteristici_raw);
+        extraSpecs = JSON.parse(form.caracteristici_raw);
         setJsonError("");
       } catch {
         setJsonError("JSON invalid — verificați sintaxa");
@@ -155,24 +173,50 @@ const AdminProductTechData = () => {
       }
     }
 
-    saveMutation.mutate({
-      id: editProduct.id,
-      payload: {
-        consum: form.consum.trim() || null,
-        ambalare: form.ambalare.trim() || null,
-        similar_cu: form.similar_cu.trim() || null,
-        caracteristici: parsedChars,
-      },
-    });
+    const aiInfo: AiInfo = {
+      consum: form.consum.trim() || undefined,
+      ambalaj: form.ambalaj.trim() || undefined,
+      alternative: form.alternative.trim()
+        ? form.alternative.split(",").map(s => s.trim()).filter(Boolean)
+        : [],
+      compatibilitati: form.compatibilitati.trim() || undefined,
+      utilizare: form.utilizare.trim() || undefined,
+    };
+
+    saveMutation.mutate({ id: editProduct.id, aiInfo, extraSpecs });
   };
 
-  const hasData = (p: Product) =>
-    Boolean(p.consum || p.ambalare || p.similar_cu || p.caracteristici);
+  const fetchAiData = async () => {
+    if (!editProduct) return;
+    setAiLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { product_ids: [editProduct.id] },
+      });
 
-  const completenessPercent = (p: Product) => {
-    const fields = [p.consum, p.ambalare, p.similar_cu, p.caracteristici];
-    const filled = fields.filter(Boolean).length;
-    return Math.round((filled / fields.length) * 100);
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Eroare AI");
+
+      const aiResult = data.data?.[editProduct.id] as AiInfo | undefined;
+      if (aiResult) {
+        setForm(f => ({
+          ...f,
+          consum: aiResult.consum || f.consum,
+          ambalaj: aiResult.ambalaj || f.ambalaj,
+          alternative: aiResult.alternative?.join(", ") || f.alternative,
+          compatibilitati: aiResult.compatibilitati || f.compatibilitati,
+          utilizare: aiResult.utilizare || f.utilizare,
+        }));
+        toast.success("Date AI primite — verifică și salvează");
+      } else {
+        toast.info("AI nu a returnat date pentru acest produs");
+      }
+    } catch (e) {
+      console.error("AI fetch error:", e);
+      toast.error("Eroare la obținerea datelor AI");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const totalWithData = products.filter(hasData).length;
@@ -185,35 +229,25 @@ const AdminProductTechData = () => {
             Date tehnice produse
           </h1>
           <p className="text-sm text-muted-foreground">
-            Completați consum, ambalare, similar cu și caracteristici pentru a
-            alimenta modulul de ofertare inteligentă
+            Completați consum, ambalare, alternative și caracteristici — manual sau cu ajutorul AI
           </p>
         </div>
 
-        {/* Eroare query */}
         {queryError && (
           <div className="flex items-center gap-2 text-sm p-3 bg-destructive/10 text-destructive rounded-lg border border-destructive/20">
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span>
-              Eroare la încărcarea produselor:{" "}
-              {(queryError as Error).message}
-            </span>
+            <span>Eroare la încărcarea produselor: {(queryError as Error).message}</span>
           </div>
         )}
 
-        {/* Progres completare */}
         {products.length > 0 && (
           <div className="flex items-center gap-3 text-sm p-3 bg-muted rounded-lg">
             <Info className="h-4 w-4 text-muted-foreground shrink-0" />
             <span>
-              <strong>{totalWithData}</strong> din{" "}
-              <strong>{products.length}</strong> produse afișate au cel puțin o
-              dată tehnică completată
+              <strong>{totalWithData}</strong> din <strong>{products.length}</strong> produse afișate au date tehnice
             </span>
             {totalWithData < products.length && (
-              <Badge variant="secondary">
-                {products.length - totalWithData} incomplete
-              </Badge>
+              <Badge variant="secondary">{products.length - totalWithData} incomplete</Badge>
             )}
           </div>
         )}
@@ -221,7 +255,7 @@ const AdminProductTechData = () => {
         <div className="relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Caută produse (lăsați gol pentru toate)..."
+            placeholder="Caută produse..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -237,9 +271,9 @@ const AdminProductTechData = () => {
                 <TableHead>Denumire</TableHead>
                 <TableHead className="w-[40px]">UM</TableHead>
                 <TableHead className="w-[110px]">Consum</TableHead>
-                <TableHead className="w-[110px]">Ambalare</TableHead>
-                <TableHead className="w-[160px]">Similar cu</TableHead>
-                <TableHead className="w-[90px] text-center">Caractere.</TableHead>
+                <TableHead className="w-[110px]">Ambalaj</TableHead>
+                <TableHead className="w-[160px]">Alternative</TableHead>
+                <TableHead className="w-[70px] text-center">AI</TableHead>
                 <TableHead className="w-[70px] text-center">Complet</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
               </TableRow>
@@ -253,60 +287,45 @@ const AdminProductTechData = () => {
                 </TableRow>
               ) : products.length === 0 ? (
                 <TableRow>
-                  <TableCell
-                    colSpan={9}
-                    className="text-center py-8 text-muted-foreground"
-                  >
-                    {search.length > 0
-                      ? `Niciun produs găsit pentru "${search}"`
-                      : "Niciun produs în catalog"}
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    {search.length > 0 ? `Niciun produs găsit pentru "${search}"` : "Niciun produs în catalog"}
                   </TableCell>
                 </TableRow>
               ) : (
                 products.map((product) => {
+                  const ai = getAiInfo(product);
                   const pct = completenessPercent(product);
                   return (
                     <TableRow key={product.id}>
-                      <TableCell className="font-mono text-xs text-primary">
-                        {product.cod_intern}
-                      </TableCell>
+                      <TableCell className="font-mono text-xs text-primary">{product.cod_intern}</TableCell>
                       <TableCell className="text-sm max-w-[220px]">
-                        <span className="line-clamp-2">
-                          {product.denumire_completa}
-                        </span>
+                        <span className="line-clamp-2">{product.denumire_completa}</span>
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {product.unit || "buc"}
-                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{product.unit || "buc"}</TableCell>
                       <TableCell className="text-xs">
-                        {product.consum ? (
-                          <span className="text-foreground">{product.consum}</span>
+                        {ai?.consum ? (
+                          <span className="text-foreground">{ai.consum}</span>
                         ) : (
                           <span className="text-muted-foreground italic">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-xs">
-                        {product.ambalare ? (
-                          <span className="text-foreground">{product.ambalare}</span>
+                        {ai?.ambalaj ? (
+                          <span className="text-foreground">{ai.ambalaj}</span>
                         ) : (
                           <span className="text-muted-foreground italic">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-xs max-w-[160px]">
-                        {product.similar_cu ? (
-                          <span className="line-clamp-2 text-foreground">
-                            {product.similar_cu}
-                          </span>
+                        {ai?.alternative?.length ? (
+                          <span className="line-clamp-2 text-foreground">{ai.alternative.join(", ")}</span>
                         ) : (
                           <span className="text-muted-foreground italic">—</span>
                         )}
                       </TableCell>
                       <TableCell className="text-center">
-                        {product.caracteristici &&
-                        Object.keys(product.caracteristici).length > 0 ? (
-                          <Badge variant="secondary" className="text-xs">
-                            {Object.keys(product.caracteristici).length} chei
-                          </Badge>
+                        {ai?.updated_at ? (
+                          <Sparkles className="h-4 w-4 text-primary mx-auto" />
                         ) : (
                           <span className="text-muted-foreground text-xs">—</span>
                         )}
@@ -315,20 +334,13 @@ const AdminProductTechData = () => {
                         {pct === 100 ? (
                           <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
                         ) : pct > 0 ? (
-                          <span className="text-xs text-yellow-600 font-medium">
-                            {pct}%
-                          </span>
+                          <span className="text-xs text-yellow-600 font-medium">{pct}%</span>
                         ) : (
                           <Circle className="h-4 w-4 text-muted-foreground mx-auto" />
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => openEdit(product)}
-                        >
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(product)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
@@ -352,14 +364,18 @@ const AdminProductTechData = () => {
             </div>
           ) : (
             products.map((product) => {
+              const ai = getAiInfo(product);
               const pct = completenessPercent(product);
               return (
                 <div key={product.id} className="rounded-lg border bg-card p-3 space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary mb-1">
-                        {product.cod_intern}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+                          {product.cod_intern}
+                        </Badge>
+                        {ai?.updated_at && <Sparkles className="h-3 w-3 text-primary" />}
+                      </div>
                       <p className="text-sm font-medium leading-snug line-clamp-2">{product.denumire_completa}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -376,16 +392,12 @@ const AdminProductTechData = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                    {product.consum && (
-                      <div><span className="text-muted-foreground">Consum: </span>{product.consum}</div>
-                    )}
-                    {product.ambalare && (
-                      <div><span className="text-muted-foreground">Ambalare: </span>{product.ambalare}</div>
-                    )}
-                    {product.similar_cu && (
-                      <div className="col-span-2"><span className="text-muted-foreground">Similar: </span>{product.similar_cu}</div>
-                    )}
-                    {!product.consum && !product.ambalare && !product.similar_cu && (
+                    {ai?.consum && <div><span className="text-muted-foreground">Consum: </span>{ai.consum}</div>}
+                    {ai?.ambalaj && <div><span className="text-muted-foreground">Ambalaj: </span>{ai.ambalaj}</div>}
+                    {ai?.alternative?.length ? (
+                      <div className="col-span-2"><span className="text-muted-foreground">Alternative: </span>{ai.alternative.join(", ")}</div>
+                    ) : null}
+                    {!ai?.consum && !ai?.ambalaj && !ai?.alternative?.length && (
                       <div className="col-span-2 text-muted-foreground italic">Fără date tehnice</div>
                     )}
                   </div>
@@ -407,14 +419,32 @@ const AdminProductTechData = () => {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {/* AI Button */}
+            <div className="flex items-center gap-3 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+              <Sparkles className="h-5 w-5 text-primary shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Completare automată cu AI</p>
+                <p className="text-xs text-muted-foreground">
+                  AI va căuta date tehnice și va completa câmpurile goale
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={fetchAiData}
+                disabled={aiLoading}
+                className="shrink-0"
+              >
+                {aiLoading ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Se caută...</>
+                ) : (
+                  <><Sparkles className="h-3.5 w-3.5 mr-1" /> Obține date AI</>
+                )}
+              </Button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label>
-                  Consum orientativ{" "}
-                  <span className="text-muted-foreground text-xs">
-                    (ex: "3-4 kg/m²")
-                  </span>
-                </Label>
+                <Label>Consum orientativ <span className="text-muted-foreground text-xs">(ex: "3-4 kg/m²")</span></Label>
                 <Input
                   value={form.consum}
                   onChange={(e) => setForm((f) => ({ ...f, consum: e.target.value }))}
@@ -423,15 +453,10 @@ const AdminProductTechData = () => {
                 />
               </div>
               <div>
-                <Label>
-                  Ambalare{" "}
-                  <span className="text-muted-foreground text-xs">
-                    (ex: "sac 25 kg")
-                  </span>
-                </Label>
+                <Label>Ambalaj <span className="text-muted-foreground text-xs">(ex: "sac 25 kg")</span></Label>
                 <Input
-                  value={form.ambalare}
-                  onChange={(e) => setForm((f) => ({ ...f, ambalare: e.target.value }))}
+                  value={form.ambalaj}
+                  onChange={(e) => setForm((f) => ({ ...f, ambalaj: e.target.value }))}
                   placeholder="ex: sac 25 kg"
                   className="mt-1"
                 />
@@ -439,57 +464,49 @@ const AdminProductTechData = () => {
             </div>
 
             <div>
-              <Label>
-                Similar cu{" "}
-                <span className="text-muted-foreground text-xs">
-                  (produse echivalente alte branduri, separate prin virgulă)
-                </span>
-              </Label>
+              <Label>Alternative echivalente <span className="text-muted-foreground text-xs">(separate prin virgulă)</span></Label>
               <Input
-                value={form.similar_cu}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, similar_cu: e.target.value }))
-                }
-                placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel, Ceresit CM 17"
+                value={form.alternative}
+                onChange={(e) => setForm((f) => ({ ...f, alternative: e.target.value }))}
+                placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel"
                 className="mt-1"
               />
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label>Compatibilități</Label>
+                <Input
+                  value={form.compatibilitati}
+                  onChange={(e) => setForm((f) => ({ ...f, compatibilitati: e.target.value }))}
+                  placeholder="ex: beton, zidărie, gips-carton"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Utilizare</Label>
+                <Input
+                  value={form.utilizare}
+                  onChange={(e) => setForm((f) => ({ ...f, utilizare: e.target.value }))}
+                  placeholder="ex: interior/exterior"
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
             <div>
-              <Label>
-                Caracteristici tehnice{" "}
-                <span className="text-muted-foreground text-xs">(JSON)</span>
-              </Label>
+              <Label>Caracteristici suplimentare <span className="text-muted-foreground text-xs">(JSON)</span></Label>
               <Textarea
                 value={form.caracteristici_raw}
                 onChange={(e) => {
-                  setForm((f) => ({
-                    ...f,
-                    caracteristici_raw: e.target.value,
-                  }));
+                  setForm((f) => ({ ...f, caracteristici_raw: e.target.value }));
                   setJsonError("");
                 }}
                 placeholder={EXAMPLE_CHARS}
-                rows={8}
+                rows={6}
                 className="mt-1 font-mono text-xs"
               />
-              {jsonError && (
-                <p className="text-xs text-destructive mt-1">{jsonError}</p>
-              )}
-              <details className="mt-2">
-                <summary className="text-xs text-muted-foreground cursor-pointer">
-                  Câmpuri recunoscute de motorul de matching
-                </summary>
-                <div className="mt-2 text-xs text-muted-foreground space-y-1 pl-2 border-l-2 border-muted">
-                  <p><code>tip</code> — ex: "adeziv", "vopsea", "tencuiala", "chit"</p>
-                  <p><code>clasa</code> — ex: "C1", "C2", "C2T", "C2TE", "C2S1", "TS1", "CG2"</p>
-                  <p><code>standard</code> — ex: "EN 12004", "EN 13888", "EN 998"</p>
-                  <p><code>flexibil</code> — true / false</p>
-                  <p><code>uz</code> — "interior", "exterior"</p>
-                  <p><code>priza_rapida</code> — true / false</p>
-                  <p><code>bio</code> — true / false</p>
-                </div>
-              </details>
+              {jsonError && <p className="text-xs text-destructive mt-1">{jsonError}</p>}
             </div>
           </div>
 
