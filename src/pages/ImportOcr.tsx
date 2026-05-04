@@ -250,6 +250,7 @@ const ImportOcr = () => {
   const [newPriceSheetName, setNewPriceSheetName] = useState("");
   const [savePricesOpen, setSavePricesOpen] = useState(false);
   const [savePricesRunning, setSavePricesRunning] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -503,6 +504,75 @@ const ImportOcr = () => {
       toast.error(e instanceof Error ? e.message : "Eroare la salvare prețuri");
     } finally {
       setSavePricesRunning(false);
+    }
+  };
+
+  const bulkCreateAndSave = async () => {
+    const name = newPriceSheetName.trim();
+    if (!name) { toast.error("Completează numele foii de preț înainte de salvare"); return; }
+    if (bulkRunning) return;
+    setBulkRunning(true);
+
+    try {
+      // 1. Create products for all unmatched rows that have a non-empty name
+      const unmatchedRows = bodyRows.filter((r) => !matchedProductIdByRowId[r.id]);
+      const freshMatched: Record<string, string> = {};
+
+      for (const r of unmatchedRows) {
+        const denumire = (r.cells[matchNameColIdx] || "").trim();
+        if (!denumire) continue;
+        const pretRaw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
+        const pretLista = parsePriceCell(pretRaw) ?? 0;
+        const cod = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        const { data: newProd, error: prodErr } = await supabase
+          .from("products")
+          .insert({ cod_intern: cod, denumire_completa: denumire, pret_lista: pretLista, unit: null })
+          .select("id")
+          .single();
+        if (prodErr) { toast.error(`Eroare la creare "${denumire}": ${prodErr.message}`); continue; }
+        if (newProd?.id) freshMatched[r.id] = newProd.id;
+      }
+
+      // 2. Merge newly created into matched map
+      const allMatched = { ...matchedProductIdByRowId, ...freshMatched };
+      setMatchedProductIdByRowId(allMatched);
+      if (Object.keys(freshMatched).length > 0) {
+        await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
+      }
+
+      // 3. Build price sheet items for ALL rows (matched + newly created)
+      const priceLabel = (headerCells[priceColIdx] || "").trim() || null;
+      const items: { product_id: string; price: number; unit: string | null; label: string | null }[] = [];
+      for (const r of bodyRows) {
+        const productId = allMatched[r.id];
+        if (!productId) continue;
+        const raw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
+        const parsed = parsePriceCell(raw);
+        if (parsed === null) continue;
+        const p = productsById.get(productId);
+        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel });
+      }
+
+      if (items.length === 0) { toast.error("Nu există rânduri cu preț numeric valid"); return; }
+
+      const { data: sheet, error: sErr } = await supabase
+        .from("price_sheets")
+        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false })
+        .select("id")
+        .single();
+      if (sErr) throw sErr;
+
+      const { error: iErr } = await supabase
+        .from("price_sheet_items")
+        .insert(items.map((it) => ({ price_sheet_id: sheet.id, ...it })));
+      if (iErr) throw iErr;
+
+      const newCount = Object.keys(freshMatched).length;
+      toast.success(`Salvat: ${items.length} prețuri${newCount > 0 ? ` (${newCount} produse noi create)` : ""}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare la salvare");
+    } finally {
+      setBulkRunning(false);
     }
   };
 
@@ -771,7 +841,20 @@ const ImportOcr = () => {
                     <Input value={newPriceSheetName} onChange={(e) => setNewPriceSheetName(e.target.value)} placeholder="Ex: Baumit - Mai 2026" className="h-8 text-xs" />
                   </div>
                   <Button variant="outline" size="sm" onClick={ensurePriceOverrides} disabled={bodyRows.length === 0}>Preia prețuri</Button>
-                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0}>Salvează</Button>
+                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning}>
+                    Salvează (doar potrivite)
+                  </Button>
+                  {bodyRows.some((r) => !matchedProductIdByRowId[r.id]) && (
+                    <Button
+                      size="sm"
+                      onClick={bulkCreateAndSave}
+                      disabled={bulkRunning || !newPriceSheetName.trim()}
+                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      title={!newPriceSheetName.trim() ? "Completează mai întâi numele foii de preț" : ""}
+                    >
+                      {bulkRunning ? "Se procesează..." : `Creează produse noi + Salvează tot (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}
+                    </Button>
+                  )}
                 </div>
 
                 {bodyRows.filter((r) => matchedProductIdByRowId[r.id]).length > 0 && (
