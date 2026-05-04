@@ -776,13 +776,18 @@ const ImportOcr = () => {
 
                 {bodyRows.filter((r) => matchedProductIdByRowId[r.id]).length > 0 && (
                   <div className="rounded-md border overflow-auto max-h-[300px]">
+                    <p className="text-[11px] text-amber-600 bg-amber-50 border-b border-amber-200 px-3 py-1.5">
+                      Unitățile de măsură pot diferi între coloana importată și prețul din DB — verificați înainte de salvare.
+                    </p>
                     <Table>
                       <TableHeader className="sticky top-0 bg-background">
                         <TableRow>
                           <TableHead className="text-xs">Produs</TableHead>
-                          <TableHead className="text-xs w-[80px]">Preț import</TableHead>
-                          <TableHead className="text-xs w-[80px]">Preț DB</TableHead>
-                          <TableHead className="text-xs w-[80px]">Preț activ</TableHead>
+                          <TableHead className="text-xs w-[110px]" title={headerCells[priceColIdx] || "Preț import"}>
+                            <span className="block truncate max-w-[100px]">{headerCells[priceColIdx] || "Preț import"}</span>
+                          </TableHead>
+                          <TableHead className="text-xs w-[100px]">Preț listă (DB)</TableHead>
+                          <TableHead className="text-xs w-[100px]">Foaie activă</TableHead>
                           <TableHead className="text-xs w-[100px]">De salvat</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -793,15 +798,25 @@ const ImportOcr = () => {
                           const activeSpecial = activePriceItemByProductId.get(productId);
                           const parsedOcr = parsePriceCell(r.cells[priceColIdx] || "");
                           const override = priceOverridesByRowId[r.id] ?? "";
+                          const dbUnit = product?.unit || "?";
+                          const activeUnit = activeSpecial?.unit || dbUnit;
                           return (
                             <TableRow key={r.id}>
                               <TableCell className="text-xs">
                                 <span className="font-mono text-primary">{product?.cod_intern}</span>
-                                <span className="ml-1 text-muted-foreground">{product?.denumire_completa?.slice(0, 40)}</span>
+                                <span className="ml-1 text-muted-foreground">{product?.denumire_completa?.slice(0, 35)}</span>
                               </TableCell>
                               <TableCell className="text-xs">{parsedOcr !== null ? parsedOcr.toFixed(2) : "-"}</TableCell>
-                              <TableCell className="text-xs">{product?.pret_lista != null ? Number(product.pret_lista).toFixed(2) : "-"}</TableCell>
-                              <TableCell className="text-xs">{activeSpecial ? Number(activeSpecial.price).toFixed(2) : "-"}</TableCell>
+                              <TableCell className="text-xs">
+                                {product?.pret_lista != null
+                                  ? <><span>{Number(product.pret_lista).toFixed(2)}</span><span className="text-muted-foreground ml-1">lei/{dbUnit}</span></>
+                                  : "-"}
+                              </TableCell>
+                              <TableCell className="text-xs">
+                                {activeSpecial
+                                  ? <><span>{Number(activeSpecial.price).toFixed(2)}</span><span className="text-muted-foreground ml-1">lei/{activeUnit}</span></>
+                                  : <span className="text-muted-foreground">—</span>}
+                              </TableCell>
                               <TableCell>
                                 <Input value={override} onChange={(e) => setPriceOverridesByRowId((prev) => ({ ...prev, [r.id]: e.target.value }))} placeholder={parsedOcr !== null ? parsedOcr.toString() : ""} className="h-7 text-xs" />
                               </TableCell>
