@@ -249,7 +249,7 @@ serve(async (req) => {
         {
           role: "system",
           content:
-            "Ești expert în materiale de construcții. Primești o cerere de produs și o listă de produse din catalog. Alege top 3 produse echivalente, ignorând brandul, concentrându-te pe specificații tehnice și utilizare. Scorul e de la 0 la 100.",
+            "Ești expert în materiale de construcții. Primești o cerere de produs și o listă de produse din catalog. Alege top 10 produse echivalente, ignorând brandul, concentrându-te pe specificații tehnice și utilizare. Scorul e de la 0 la 100.",
         },
         {
           role: "user",
@@ -261,7 +261,7 @@ serve(async (req) => {
           type: "function",
           function: {
             name: "rank_equivalents",
-            description: "Clasifică cele mai bune 3 produse echivalente",
+            description: "Clasifică cele mai bune 10 produse echivalente",
             parameters: {
               type: "object",
               properties: {
