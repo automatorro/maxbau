@@ -49,6 +49,7 @@ interface OfertaItem {
   discount_percent: number;
   pret_final: number;
   subtotal: number;
+  is_cerere_speciala?: boolean;
 }
 
 type SuggestedProduct = PickedProduct & { score: number };
@@ -298,6 +299,33 @@ const SmartQuote = () => {
     toast.success("Produs echivalent adăugat în ofertă");
   }, [cerereText, items]);
 
+  const addCerereSpeciala = useCallback(() => {
+    const cerere = cerereText.trim();
+    if (!cerere) return;
+    if (items.some((i) => i.is_cerere_speciala && i.cerere_initiala === cerere)) {
+      toast.info("Această cerere specială e deja în ofertă");
+      return;
+    }
+    const base: OfertaItem = {
+      tempId: crypto.randomUUID(),
+      cerere_initiala: cerere,
+      product_id: "",
+      cod_intern: "—",
+      denumire: cerere,
+      quantity: 1,
+      unit: "buc",
+      pret_unitar: 0,
+      discount_percent: 0,
+      pret_final: 0,
+      subtotal: 0,
+      is_cerere_speciala: true,
+    };
+    setItems((prev) => [...prev, base]);
+    setCerereText("");
+    setEquivalentResults(null);
+    toast.success("Cerere specială adăugată — va fi urmărită separat");
+  }, [cerereText, items]);
+
   // ── Offer management ─────────────────────────────────────────────────────
   const handlePickerConfirm = useCallback(
     (picked: PickedProduct[]) => {
@@ -387,8 +415,8 @@ const SmartQuote = () => {
 
       const rows = items.map((i) => ({
         quote_id: quote.id,
-        product_id: i.product_id,
-        cod_intern: i.cod_intern,
+        product_id: i.product_id || null,
+        cod_intern: i.is_cerere_speciala ? "CERERE" : i.cod_intern,
         denumire: i.denumire,
         quantity: i.quantity,
         unit: i.unit,
@@ -397,11 +425,26 @@ const SmartQuote = () => {
         pret_final: i.pret_final,
         subtotal: i.subtotal,
         cerere_initiala: i.cerere_initiala || null,
-        nota_ai: aiInfo[i.product_id] ?? null,
+        nota_ai: i.is_cerere_speciala ? { cerere_speciala: true } : (aiInfo[i.product_id] ?? null),
       }));
 
       const { error: iErr } = await supabase.from("quote_items").insert(rows);
       if (iErr) throw iErr;
+
+      // Cereri speciale → salvate și în cereri_clienti pentru urmărire
+      const cereriSpeciale = items.filter((i) => i.is_cerere_speciala);
+      if (cereriSpeciale.length > 0) {
+        await supabase.from("cereri_clienti").insert(
+          cereriSpeciale.map((i) => ({
+            user_id: user.id,
+            descriere_client: i.cerere_initiala,
+            cantitate: i.quantity,
+            unitate: i.unit,
+            quote_id: quote.id,
+          }))
+        );
+      }
+
       return quote.id;
     },
     onSuccess: (_, status) => {
@@ -644,8 +687,19 @@ const SmartQuote = () => {
                 </div>
 
                 {(equivalentResults.echivalente?.length ?? 0) === 0 && (
-                  <div className="px-3 py-3 text-xs text-muted-foreground italic">
-                    {equivalentResults.message || "Nu am găsit echivalente în catalog pentru această cerere."}
+                  <div className="px-3 py-3 space-y-2">
+                    <p className="text-xs text-muted-foreground italic">
+                      {equivalentResults.message || "Nu am găsit echivalente în catalogul MaxBau pentru această cerere."}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5 border-amber-400/60 text-amber-700 hover:bg-amber-50"
+                      onClick={addCerereSpeciala}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Adaugă ca cerere specială
+                    </Button>
                   </div>
                 )}
 
@@ -721,7 +775,11 @@ const SmartQuote = () => {
                   <TableBody>
                     {Array.from(groups.entries()).map(([cerere, groupItems], gi) =>
                       groupItems.map((item, idx) => (
-                        <TableRow key={item.tempId} className={gi % 2 === 0 ? "bg-muted/20" : ""}>
+                        <TableRow key={item.tempId} className={
+                          item.is_cerere_speciala
+                            ? "bg-amber-50/50 border-l-2 border-l-amber-400"
+                            : gi % 2 === 0 ? "bg-muted/20" : ""
+                        }>
                           <TableCell className="text-xs text-muted-foreground align-top pt-3">
                             {idx === 0 && cerere !== "—" ? (
                               <span className="italic line-clamp-3">{cerere}</span>
@@ -730,9 +788,15 @@ const SmartQuote = () => {
                             ) : null}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary">
-                              {item.cod_intern}
-                            </Badge>
+                            {item.is_cerere_speciala ? (
+                              <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">
+                                De procurat
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary">
+                                {item.cod_intern}
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell className="text-sm max-w-[180px]">
                             <span className="line-clamp-2">{item.denumire}</span>
@@ -745,22 +809,30 @@ const SmartQuote = () => {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
                           <TableCell>
-                            <Input type="number" min={0} step="any"
-                              value={item.pret_unitar}
-                              onChange={(e) => updateItem(item.tempId, "pret_unitar", parseFloat(e.target.value) || 0)}
-                              className="h-8 w-[85px] text-right text-sm" />
+                            {item.is_cerere_speciala ? (
+                              <span className="text-xs text-muted-foreground px-2">—</span>
+                            ) : (
+                              <Input type="number" min={0} step="any"
+                                value={item.pret_unitar}
+                                onChange={(e) => updateItem(item.tempId, "pret_unitar", parseFloat(e.target.value) || 0)}
+                                className="h-8 w-[85px] text-right text-sm" />
+                            )}
                           </TableCell>
                           <TableCell>
-                            <Input type="number" min={0} max={100} step="0.5"
-                              value={item.discount_percent}
-                              onChange={(e) => updateItem(item.tempId, "discount_percent", parseFloat(e.target.value) || 0)}
-                              className="h-8 w-[60px] text-right text-sm" />
+                            {item.is_cerere_speciala ? (
+                              <span className="text-xs text-muted-foreground px-2">—</span>
+                            ) : (
+                              <Input type="number" min={0} max={100} step="0.5"
+                                value={item.discount_percent}
+                                onChange={(e) => updateItem(item.tempId, "discount_percent", parseFloat(e.target.value) || 0)}
+                                className="h-8 w-[60px] text-right text-sm" />
+                            )}
                           </TableCell>
                           <TableCell className="text-right text-sm font-medium">
-                            {item.pret_final.toFixed(2)}
+                            {item.is_cerere_speciala ? "—" : item.pret_final.toFixed(2)}
                           </TableCell>
                           <TableCell className="text-right text-sm font-bold">
-                            {item.subtotal.toFixed(2)} lei
+                            {item.is_cerere_speciala ? "—" : `${item.subtotal.toFixed(2)} lei`}
                           </TableCell>
                           <TableCell>
                             <Button variant="ghost" size="icon"
