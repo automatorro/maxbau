@@ -81,8 +81,8 @@ serve(async (req) => {
     const body = await req.json();
     const action: string = body.action || "tech-info";
 
-    // ── Action: ocr-whatsapp ──────────────────────────────────────────────────
-    if (action === "ocr-whatsapp") {
+    // ── Action: ocr-image (& legacy ocr-whatsapp) ──────────────────────────
+    if (action === "ocr-image" || action === "ocr-whatsapp") {
       const imageBase64: string = body.image_base64 || "";
       const mimeType: string = body.mime_type || "image/jpeg";
 
@@ -103,13 +103,21 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: "Ești expert în extragerea datelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, etc.). Extrage TOATE rândurile din tabelul din imagine, inclusiv antetul. Păstrează denumirile exact cum apar. Prețurile sunt numerice fără simbol monedă. UM = unitate de măsură (sac, kg, m2, ml, buc). Ignoră logo-uri și antete de companie.",
+              content: `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
+Extrage TOATE rândurile din tabel, inclusiv rândul de antet (header).
+Reguli stricte:
+- Păstrează denumirile produselor exact cum apar în imagine
+- Prețurile sunt valori numerice pure, fără simbol de monedă (ex: 47.50 nu "47,50 lei")
+- UM = unitate de măsură: sac, kg, m2, ml, buc, l, t, set etc.
+- Ignoră logo-uri, anteturi de companie, numere de pagină, ștampile
+- Toate rândurile returnate trebuie să aibă același număr de celule ca header-ul
+- Celulele goale se returnează ca string gol ""`,
             },
             {
               role: "user",
               content: [
                 { type: "image_url", image_url: { url: dataUrl } },
-                { type: "text", text: "Extrage tabelul din această imagine de listă prețuri. Returnează headers și toate rândurile de date." },
+                { type: "text", text: "Extrage tabelul complet din această imagine de listă prețuri. Include rândul de antet și toate rândurile de date." },
               ],
             },
           ],
@@ -118,17 +126,17 @@ serve(async (req) => {
               type: "function",
               function: {
                 name: "extract_price_table",
-                description: "Extract structured table data from a price list image",
+                description: "Structured extraction of a price list table",
                 parameters: {
                   type: "object",
                   properties: {
-                    headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
+                    headers: { type: "array", items: { type: "string" }, description: "Column names from the header row, in Romanian if possible" },
                     rows: {
                       type: "array",
                       items: { type: "array", items: { type: "string" } },
-                      description: "All data rows (excluding header), same column count as headers",
+                      description: "All data rows (excluding header). Each inner array has same length as headers.",
                     },
-                    note: { type: "string", description: "Optional observation about image quality or unclear content" },
+                    note: { type: "string", description: "Optional: observation about image quality or ambiguous content" },
                   },
                   required: ["headers", "rows"],
                   additionalProperties: false,
@@ -145,7 +153,7 @@ serve(async (req) => {
         if (status === 429) throw Object.assign(new Error("Rate limit depășit, încearcă mai târziu"), { status: 429 });
         if (status === 402) throw Object.assign(new Error("Credit AI epuizat"), { status: 402 });
         const errText = await resp.text();
-        console.error("ocr-whatsapp AI error:", status, errText);
+        console.error("ocr-image AI error:", status, errText);
         throw new Error(`AI gateway error: ${status}`);
       }
 
@@ -177,6 +185,75 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({ success: true, headers: extracted.headers, rows: normalizedRows, note: extracted.note || null }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ── Action: ocr-excel ─────────────────────────────────────────────────────
+    if (action === "ocr-excel") {
+      const rawRows: string[][] = body.rows || [];
+      const filename: string = body.filename || "unknown.xlsx";
+
+      if (!Array.isArray(rawRows) || rawRows.length === 0) {
+        return new Response(JSON.stringify({ error: "rows array is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const truncated = rawRows.slice(0, 300);
+
+      const result = await callAI(
+        LOVABLE_API_KEY,
+        [
+          {
+            role: "system",
+            content: `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
+Primești o matrice 2D de strings extrasă dintr-un fișier Excel.
+Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând), curăță rândurile goale sau de separare, normalizează prețurile (format european: virgulă ca separator zecimal → punct), returnează datele curate.`,
+          },
+          {
+            role: "user",
+            content: `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, curăță și returnează tabelul normalizat cu headers și rows.`,
+          },
+        ],
+        "extract_price_table",
+        {
+          description: "Structured extraction of a price list table from Excel data",
+          parameters: {
+            type: "object",
+            properties: {
+              headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
+              rows: {
+                type: "array",
+                items: { type: "array", items: { type: "string" } },
+                description: "All data rows (excluding header). Each inner array has same length as headers.",
+              },
+              note: { type: "string", description: "Optional: observation about data quality" },
+            },
+            required: ["headers", "rows"],
+            additionalProperties: false,
+          },
+        }
+      );
+
+      if (!result || !result.headers) {
+        return new Response(JSON.stringify({ error: "Modelul nu a returnat date structurate" }), {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const headers = result.headers as string[];
+      const colCount = headers.length;
+      const normalizedRows = ((result.rows as string[][]) || []).map((row) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, headers, rows: normalizedRows, note: (result.note as string) || null }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

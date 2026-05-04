@@ -227,6 +227,9 @@ const ImportOcr = () => {
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lang, setLang] = useState<"eng" | "ron">("ron");
+  const [ocrRunning, setOcrRunning] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelRunning, setExcelRunning] = useState(false);
 
   const [gridRows, setGridRows] = useState<GridRow[]>([]);
   const [headerRowIndex, setHeaderRowIndex] = useState(0);
