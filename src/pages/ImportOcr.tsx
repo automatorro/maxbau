@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -22,21 +21,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { FileUp, ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter } from "lucide-react";
-import * as XLSX from "xlsx";
+import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp } from "lucide-react";
 
-type OcrWord = {
-  text: string;
-  confidence: number;
-  bbox: { x0: number; y0: number; x1: number; y1: number };
-};
-
-type OcrLine = {
-  id: string;
-  words: OcrWord[];
-  text: string;
-  bbox: { x0: number; y0: number; x1: number; y1: number };
-};
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 type GridRow = {
   id: string;
@@ -51,56 +38,10 @@ type ProductForMatch = {
   pret_lista?: number;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asArray(value: unknown): unknown[] | null {
-  return Array.isArray(value) ? value : null;
-}
-
-function guessDelimitedSeparator(text: string): "\t" | ";" | "," {
-  const sample = text.split(/\r?\n/).slice(0, 20).join("\n");
-  if (sample.includes("\t")) return "\t";
-  const semi = (sample.match(/;/g) || []).length;
-  const comma = (sample.match(/,/g) || []).length;
-  return semi >= comma ? ";" : ",";
-}
-
-function parseDelimitedText(text: string, separator: "\t" | ";" | ","): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  const pushCell = () => { row.push(current); current = ""; };
-  const pushRow = () => { rows.push(row); row = []; };
-  const input = text.replace(/^\uFEFF/, "");
-  for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i];
-    if (inQuotes) {
-      if (ch === "\"") {
-        if (input[i + 1] === "\"") { current += "\""; i += 1; } else { inQuotes = false; }
-      } else { current += ch; }
-      continue;
-    }
-    if (ch === "\"") { inQuotes = true; continue; }
-    if (ch === separator) { pushCell(); continue; }
-    if (ch === "\n") { pushCell(); pushRow(); continue; }
-    if (ch === "\r") { if (input[i + 1] === "\n") i += 1; pushCell(); pushRow(); continue; }
-    current += ch;
-  }
-  pushCell();
-  if (row.length > 1 || row.some((c) => c.trim() !== "")) pushRow();
-  return rows;
-}
-
-function isSpreadsheetFile(file: File): boolean {
-  const name = file.name.toLowerCase();
-  return name.endsWith(".xlsx") || name.endsWith(".xlsm") || file.type.includes("spreadsheet");
-}
+// ── Helpers kept for product matching & price parsing ─────────────────────────
 
 function normalizeMatchText(input: string): string {
-  return input.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return input.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
 function matchKeywordsFromText(input: string): string[] {
@@ -143,7 +84,6 @@ function guessNameColumnIndex(headerCells: string[]): number {
     const h = normalizeMatchText(headerCells[i]);
     if (nameKeywords.some((kw) => h.includes(kw))) return i;
   }
-  // fallback: longest average text column
   let bestIdx = 0;
   let bestLen = 0;
   for (let i = 0; i < headerCells.length; i++) {
@@ -159,163 +99,19 @@ function guessPriceColumnIndex(headerCells: string[]): number {
     const h = normalizeMatchText(headerCells[i]);
     if (priceKeywords.some((kw) => h.includes(kw))) return i;
   }
-  // fallback: last column (often price)
   return Math.max(0, headerCells.length - 1);
 }
 
-// --- OCR helpers (unchanged) ---
-function extractLinesFromBlocks(blocks: unknown): OcrLine[] {
-  const blockArr = asArray(blocks);
-  if (!blockArr) return [];
-  const out: OcrLine[] = [];
-  for (const b of blockArr) {
-    if (!isRecord(b)) continue;
-    const paragraphs = asArray(b.paragraphs);
-    if (!paragraphs) continue;
-    for (const p of paragraphs) {
-      if (!isRecord(p)) continue;
-      const lines = asArray(p.lines);
-      if (!lines) continue;
-      for (const l of lines) {
-        if (!isRecord(l)) continue;
-        const words = asArray(l.words);
-        if (!words) continue;
-        const lineWords: OcrWord[] = [];
-        let minX0 = Infinity, minY0 = Infinity, maxX1 = -Infinity, maxY1 = -Infinity;
-        for (const w of words) {
-          if (!isRecord(w)) continue;
-          const text = typeof w.text === "string" ? w.text : "";
-          const confidence = typeof w.confidence === "number" ? w.confidence : 0;
-          const bbox = isRecord(w.bbox) ? w.bbox : null;
-          if (!bbox) continue;
-          const { x0, y0, x1, y1 } = bbox as { x0: number; y0: number; x1: number; y1: number };
-          if (typeof x0 !== "number" || typeof y0 !== "number" || typeof x1 !== "number" || typeof y1 !== "number") continue;
-          if (!text) continue;
-          lineWords.push({ text, confidence, bbox: { x0, y0, x1, y1 } });
-          minX0 = Math.min(minX0, x0); minY0 = Math.min(minY0, y0);
-          maxX1 = Math.max(maxX1, x1); maxY1 = Math.max(maxY1, y1);
-        }
-        if (lineWords.length === 0) continue;
-        const realWords = lineWords.filter((w) => !isBorderArtifact(w.text));
-        if (realWords.length === 0) continue;
-        const sorted = [...realWords].sort((a, c) => a.bbox.x0 - c.bbox.x0);
-        out.push({ id: crypto.randomUUID(), words: sorted, text: sorted.map((w) => w.text).join(" ").trim(), bbox: { x0: minX0, y0: minY0, x1: maxX1, y1: maxY1 } });
-      }
-    }
-  }
-  return out.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
-}
+// ── Inline Product Search ─────────────────────────────────────────────────────
 
-function extractWordsFromBlocks(blocks: unknown): OcrWord[] {
-  const blockArr = asArray(blocks);
-  if (!blockArr) return [];
-  const out: OcrWord[] = [];
-  for (const b of blockArr) {
-    if (!isRecord(b)) continue;
-    const paragraphs = asArray(b.paragraphs);
-    if (!paragraphs) continue;
-    for (const p of paragraphs) {
-      if (!isRecord(p)) continue;
-      const lines = asArray(p.lines);
-      if (!lines) continue;
-      for (const l of lines) {
-        if (!isRecord(l)) continue;
-        const words = asArray(l.words);
-        if (!words) continue;
-        for (const w of words) {
-          if (!isRecord(w)) continue;
-          const text = typeof w.text === "string" ? w.text : "";
-          const confidence = typeof w.confidence === "number" ? w.confidence : 0;
-          const bbox = isRecord(w.bbox) ? w.bbox : null;
-          if (!bbox) continue;
-          const { x0, y0, x1, y1 } = bbox as { x0: number; y0: number; x1: number; y1: number };
-          if (typeof x0 !== "number" || typeof y0 !== "number" || typeof x1 !== "number" || typeof y1 !== "number") continue;
-          if (!text) continue;
-          out.push({ text, confidence, bbox: { x0, y0, x1, y1 } });
-        }
-      }
-    }
-  }
-  return out;
-}
-
-// Characters that are table border artifacts when they appear alone or at word boundaries
-const BORDER_CHARS_RE = /^[\[\]|(){}<>_\-=+*/\\^~`]+$/;
-const BORDER_STRIP_RE = /^[\[\]|(){}<>_\-]+|[\[\]|(){}<>_\-]+$/g;
-
-function isBorderArtifact(text: string): boolean {
-  const t = text.trim();
-  return t.length === 0 || BORDER_CHARS_RE.test(t);
-}
-
-function cleanCellText(text: string): string {
-  return text.replace(BORDER_STRIP_RE, "").trim();
-}
-
-function buildColumnAnchors(lines: OcrLine[], mergePx: number): number[] {
-  const xs: number[] = [];
-  for (const line of lines)
-    for (const w of line.words)
-      if (!isBorderArtifact(w.text)) xs.push(w.bbox.x0);
-  xs.sort((a, b) => a - b);
-  const anchors: number[] = [];
-  let current: { mean: number; count: number } | null = null;
-  const threshold = Math.max(1, mergePx);
-  for (const x of xs) {
-    if (!current) { current = { mean: x, count: 1 }; continue; }
-    if (Math.abs(x - current.mean) <= threshold) {
-      const nc = current.count + 1;
-      current.mean = (current.mean * current.count + x) / nc;
-      current.count = nc;
-      continue;
-    }
-    anchors.push(current.mean);
-    current = { mean: x, count: 1 };
-  }
-  if (current) anchors.push(current.mean);
-  return anchors.sort((a, b) => a - b);
-}
-
-function nearestAnchorIndex(anchors: number[], x: number): number {
-  let bestIdx = 0, bestDist = Infinity;
-  for (let i = 0; i < anchors.length; i++) {
-    const d = Math.abs(anchors[i] - x);
-    if (d < bestDist) { bestDist = d; bestIdx = i; }
-  }
-  return bestIdx;
-}
-
-function buildGrid(lines: OcrLine[], mergePx: number): { anchors: number[]; rows: GridRow[] } {
-  const anchors = buildColumnAnchors(lines, mergePx);
-  const colCount = anchors.length;
-  if (colCount === 0) return { anchors: [], rows: [] };
-  const rows: GridRow[] = lines.map((line) => {
-    const byCol = new Map<number, OcrWord[]>();
-    for (const w of line.words) {
-      if (isBorderArtifact(w.text)) continue;
-      const col = nearestAnchorIndex(anchors, w.bbox.x0);
-      const list = byCol.get(col);
-      if (list) list.push(w); else byCol.set(col, [w]);
-    }
-    const cells = Array.from({ length: colCount }, () => "");
-    for (const [col, ws] of byCol.entries()) {
-      const raw = ws.sort((a, b) => a.bbox.x0 - b.bbox.x0).map((w) => w.text).join(" ").trim();
-      cells[col] = cleanCellText(raw);
-    }
-    return { id: line.id, cells };
-  });
-  return { anchors, rows: rows.filter((r) => r.cells.some((c) => c.trim().length > 0)) };
-}
-
-// --- Inline Product Search Component ---
-function InlineProductSearch({ 
-  rowId, 
-  selectedProductId, 
-  suggestions, 
-  productsById, 
-  onSelect, 
+function InlineProductSearch({
+  rowId,
+  selectedProductId,
+  suggestions,
+  productsById,
+  onSelect,
   onClear,
-  importedName 
+  importedName,
 }: {
   rowId: string;
   selectedProductId: string | null;
@@ -327,7 +123,7 @@ function InlineProductSearch({
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
-  
+
   const { data: searchResults = [] } = useQuery({
     queryKey: ["product-search-inline", searchText],
     queryFn: async () => {
@@ -423,26 +219,17 @@ function InlineProductSearch({
   );
 }
 
-// === MAIN COMPONENT ===
+// ── Main Component ────────────────────────────────────────────────────────────
+
 const ImportOcr = () => {
   const queryClient = useQueryClient();
+
   const [file, setFile] = useState<File | null>(null);
-  const [sheetFile, setSheetFile] = useState<File | null>(null);
-  const [xlsxSheetNames, setXlsxSheetNames] = useState<string[]>([]);
-  const [xlsxSheetName, setXlsxSheetName] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lang, setLang] = useState<"eng" | "ron">("ron");
-  const [running, setRunning] = useState(false);
-  const [sheetRunning, setSheetRunning] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [ocrText, setOcrText] = useState("");
-  const [showRawText, setShowRawText] = useState(false);
-  const [mergePx, setMergePx] = useState(22);
-  const [headerRowIndex, setHeaderRowIndex] = useState(0);
-  const [words, setWords] = useState<OcrWord[]>([]);
-  const [lines, setLines] = useState<OcrLine[]>([]);
+
   const [gridRows, setGridRows] = useState<GridRow[]>([]);
-  const [imageNaturalSize, setImageNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [headerRowIndex, setHeaderRowIndex] = useState(0);
 
   const [matchNameColIdx, setMatchNameColIdx] = useState<number>(0);
   const [suggestionsByRowId, setSuggestionsByRowId] = useState<Record<string, string[]>>({});
@@ -461,8 +248,7 @@ const ImportOcr = () => {
   const [savePricesOpen, setSavePricesOpen] = useState(false);
   const [savePricesRunning, setSavePricesRunning] = useState(false);
 
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // ── Queries ────────────────────────────────────────────────────────────────
 
   const { data: productsForMatch = [] } = useQuery({
     queryKey: ["products-for-ocr-match"],
@@ -482,6 +268,8 @@ const ImportOcr = () => {
     },
   });
 
+  // ── Derived state ──────────────────────────────────────────────────────────
+
   const headerCells = useMemo(() => {
     const row = gridRows[headerRowIndex];
     return row ? row.cells : [];
@@ -489,9 +277,7 @@ const ImportOcr = () => {
 
   const bodyRows = useMemo(() => gridRows.filter((_, idx) => idx !== headerRowIndex), [gridRows, headerRowIndex]);
 
-  const matchedCount = useMemo(() => {
-    return bodyRows.filter((r) => matchedProductIdByRowId[r.id]).length;
-  }, [bodyRows, matchedProductIdByRowId]);
+  const matchedCount = useMemo(() => bodyRows.filter((r) => matchedProductIdByRowId[r.id]).length, [bodyRows, matchedProductIdByRowId]);
 
   const filteredRows = useMemo(() => {
     if (!showOnlyUnmatched) return bodyRows;
@@ -526,30 +312,14 @@ const ImportOcr = () => {
     return map;
   }, [productsForMatch]);
 
+  // ── Effects ────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!file) return;
     const url = URL.createObjectURL(file);
     setImageUrl(url);
-    setOcrText(""); setWords([]); setLines([]); setGridRows([]); setProgress(0); setHeaderRowIndex(0);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadSheets = async () => {
-      if (!sheetFile || !isSpreadsheetFile(sheetFile)) { setXlsxSheetNames([]); setXlsxSheetName(""); return; }
-      try {
-        const buf = await sheetFile.arrayBuffer();
-        if (cancelled) return;
-        const wb = XLSX.read(buf, { type: "array" });
-        const names = wb.SheetNames || [];
-        setXlsxSheetNames(names);
-        setXlsxSheetName((prev) => (names.includes(prev) ? prev : (names[0] || "")));
-      } catch { if (!cancelled) { setXlsxSheetNames([]); setXlsxSheetName(""); } }
-    };
-    void loadSheets();
-    return () => { cancelled = true; };
-  }, [sheetFile]);
 
   useEffect(() => {
     const max = Math.max(0, headerCells.length - 1);
@@ -557,39 +327,7 @@ const ImportOcr = () => {
     setPriceColIdx((v) => Math.max(0, Math.min(max, v)));
   }, [headerCells.length]);
 
-  // Canvas overlay for OCR bboxes
-  useEffect(() => {
-    const img = imgRef.current;
-    const canvas = canvasRef.current;
-    if (!img || !canvas || !imageNaturalSize) return;
-    const rect = img.getBoundingClientRect();
-    const dw = Math.max(1, Math.round(rect.width));
-    const dh = Math.max(1, Math.round(rect.height));
-    canvas.width = dw; canvas.height = dh;
-    canvas.style.width = `${dw}px`; canvas.style.height = `${dh}px`;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, dw, dh);
-    if (words.length === 0) return;
-    const sx = dw / imageNaturalSize.width;
-    const sy = dh / imageNaturalSize.height;
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(59, 130, 246, 0.8)";
-    for (const w of words) {
-      const x = Math.round(w.bbox.x0 * sx);
-      const y = Math.round(w.bbox.y0 * sy);
-      const wdt = Math.round((w.bbox.x1 - w.bbox.x0) * sx);
-      const hgt = Math.round((w.bbox.y1 - w.bbox.y0) * sy);
-      if (wdt > 0 && hgt > 0) ctx.strokeRect(x, y, wdt, hgt);
-    }
-  }, [words, imageNaturalSize]);
-
-  const regenerateGrid = () => {
-    if (lines.length === 0) return;
-    const built = buildGrid(lines, mergePx);
-    setGridRows(built.rows);
-    setHeaderRowIndex(0);
-  };
+  // ── Handlers ───────────────────────────────────────────────────────────────
 
   const runAutoMatch = useCallback((rows: GridRow[], nameColIdx: number, products: ProductForMatch[]) => {
     if (rows.length === 0 || products.length === 0) return;
@@ -601,9 +339,7 @@ const ImportOcr = () => {
       const results = suggestProductsForName(name, products, 5);
       if (results.length > 0) {
         nextSuggestions[r.id] = results.map((s) => s.product.id);
-        if (results[0].score >= 0.85) {
-          nextMatched[r.id] = results[0].product.id;
-        }
+        if (results[0].score >= 0.85) nextMatched[r.id] = results[0].product.id;
       }
     }
     setSuggestionsByRowId(nextSuggestions);
@@ -710,7 +446,7 @@ const ImportOcr = () => {
     const text = e.clipboardData.getData("text");
     if (!text || (!text.includes("\t") && !text.includes("\n"))) return;
     e.preventDefault();
-    const pastedRows = text.split(/\r?\n/).filter(line => line.length > 0).map(row => row.split("\t"));
+    const pastedRows = text.split(/\r?\n/).filter((line) => line.length > 0).map((row) => row.split("\t"));
     setGridRows((prev) => {
       const next = [...prev];
       for (let r = 0; r < pastedRows.length; r++) {
@@ -730,144 +466,7 @@ const ImportOcr = () => {
     });
   };
 
-  const importSheet = async () => {
-    if (!sheetFile) { toast.error("Alegeți un fișier Excel/CSV"); return; }
-    if (sheetRunning) return;
-    setSheetRunning(true);
-    try {
-      let rawRows: string[][] = [];
-      if (isSpreadsheetFile(sheetFile)) {
-        const buf = await sheetFile.arrayBuffer();
-        const wb = XLSX.read(buf, { type: "array" });
-        const selected = xlsxSheetName || wb.SheetNames[0] || "";
-        const sheet = selected ? wb.Sheets[selected] : undefined;
-        if (!sheet) { toast.error("Fișier Excel invalid"); return; }
-        const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" }) as unknown[];
-        rawRows = aoa.map((r) => (Array.isArray(r) ? r.map((c) => (c == null ? "" : String(c))) : [String(r ?? "")]));
-      } else {
-        const txt = await sheetFile.text();
-        rawRows = parseDelimitedText(txt, guessDelimitedSeparator(txt)).map((r) => r.map((c) => c ?? ""));
-      }
-      const nonEmpty = rawRows.filter((r) => r.some((c) => String(c).trim() !== ""));
-      const maxCols = nonEmpty.reduce((m, r) => Math.max(m, r.length), 0);
-      if (nonEmpty.length === 0 || maxCols === 0) { toast.error("Fișierul nu conține date"); return; }
-      const built: GridRow[] = nonEmpty.map((r) => ({ id: crypto.randomUUID(), cells: Array.from({ length: maxCols }, (_, i) => String(r[i] ?? "")) }));
-      setGridRows(built);
-      setHeaderRowIndex(0);
-      setOcrText(""); setShowRawText(false); setWords([]); setLines([]); setProgress(0);
-      setSuggestionsByRowId({}); setMatchedProductIdByRowId({}); setPriceOverridesByRowId({});
-      setNewPriceSheetName(""); setSavePricesOpen(false);
-      setFile(null); setImageUrl("");
-      setSheetFile(null); setXlsxSheetNames([]); setXlsxSheetName("");
-      
-      // Auto-detect name column from first row (header)
-      const headerRow = built[0]?.cells || [];
-      const detectedIdx = guessNameColumnIndex(headerRow);
-      setMatchNameColIdx(detectedIdx);
-      const detectedPriceIdx = guessPriceColumnIndex(headerRow);
-      setPriceColIdx(detectedPriceIdx);
-      
-      // Auto-run matching
-      const dataRows = built.filter((_, i) => i !== 0);
-      setTimeout(() => {
-        if (productsForMatch.length > 0 && dataRows.length > 0) {
-          runAutoMatch(dataRows, detectedIdx, productsForMatch);
-        }
-      }, 100);
-      
-      toast.success(`Importat ${built.length} rânduri`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Eroare la import");
-    } finally {
-      setSheetRunning(false);
-    }
-  };
-
-  const preprocessImageForOcr = (sourceFile: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(sourceFile);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        const MIN_WIDTH = 2000;
-        const scale = img.naturalWidth < MIN_WIDTH ? MIN_WIDTH / img.naturalWidth : 1;
-        const w = Math.round(img.naturalWidth * scale);
-        const h = Math.round(img.naturalHeight * scale);
-
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas context unavailable")); return; }
-        ctx.drawImage(img, 0, 0, w, h);
-
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const d = imageData.data;
-
-        // Grayscale + contrast boost
-        for (let i = 0; i < d.length; i += 4) {
-          const gray = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-          const contrasted = Math.min(255, Math.max(0, (gray - 128) * 1.7 + 128));
-          d[i] = contrasted; d[i + 1] = contrasted; d[i + 2] = contrasted;
-        }
-        ctx.putImageData(imageData, 0, 0);
-
-        // Unsharp mask (sharpen): draw scaled copy slightly blurred, then blend
-        const sharp = document.createElement("canvas");
-        sharp.width = w; sharp.height = h;
-        const sCtx = sharp.getContext("2d");
-        if (sCtx) {
-          sCtx.filter = "blur(1px)";
-          sCtx.drawImage(canvas, 0, 0);
-          sCtx.filter = "none";
-          const blurred = sCtx.getImageData(0, 0, w, h);
-          const original = ctx.getImageData(0, 0, w, h);
-          const result = ctx.createImageData(w, h);
-          for (let i = 0; i < original.data.length; i += 4) {
-            for (let c = 0; c < 3; c++) {
-              result.data[i + c] = Math.min(255, Math.max(0, original.data[i + c] * 2 - blurred.data[i + c]));
-            }
-            result.data[i + 3] = 255;
-          }
-          ctx.putImageData(result, 0, 0);
-        }
-
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob); else reject(new Error("toBlob failed"));
-        }, "image/png");
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Image load failed")); };
-      img.src = url;
-    });
-  };
-
-  const runOcr = async () => {
-    if (!file || running) return;
-    setRunning(true); setProgress(0); setOcrText(""); setWords([]); setLines([]);
-    setGridRows([]); setHeaderRowIndex(0); setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
-    setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
-    try {
-      setProgress(2);
-      const processedBlob = await preprocessImageForOcr(file);
-      const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker(lang, 1, {
-        logger: (m: { progress?: number }) => {
-          if (typeof m?.progress === "number") setProgress(5 + Math.round(m.progress * 95));
-        },
-      });
-      const ret = await worker.recognize(processedBlob, {}, { blocks: true });
-      const text = ret.data?.text || "";
-      const extractedLines = extractLinesFromBlocks(ret.data?.blocks);
-      const built = buildGrid(extractedLines, mergePx);
-      setOcrText(text); setLines(extractedLines); setGridRows(built.rows); setWords(extractWordsFromBlocks(ret.data?.blocks));
-      await worker.terminate();
-      toast.success("OCR finalizat");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Eroare OCR");
-    } finally {
-      setRunning(false);
-    }
-  };
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <DashboardLayout>
@@ -895,42 +494,38 @@ const ImportOcr = () => {
                     <SelectItem value="eng">EN</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button onClick={runOcr} disabled={!file || running} className="gap-1.5">
-                  <ScanText className="h-4 w-4" />
-                  {running ? `OCR ${progress}%` : "Scanează"}
+                <Button disabled className="gap-1.5 opacity-50 cursor-not-allowed" title="Implementare în curs">
+                  <ScanText className="h-4 w-4" />Scanează
                 </Button>
               </div>
             </div>
+
             {/* Excel row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label className="text-sm">Excel/CSV</Label>
-                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setSheetFile(e.target.files?.[0] || null)} />
-                {xlsxSheetNames.length > 0 && (
-                  <div className="mt-2">
-                    <Select value={xlsxSheetName} onValueChange={setXlsxSheetName}>
-                      <SelectTrigger><SelectValue placeholder="Alege foaia..." /></SelectTrigger>
-                      <SelectContent>{xlsxSheetNames.map((sn) => (<SelectItem key={sn} value={sn}>{sn}</SelectItem>))}</SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
               </div>
               <div>
-                <Button variant="outline" onClick={importSheet} disabled={!sheetFile || sheetRunning}>Importă fișier</Button>
+                <Button variant="outline" disabled className="opacity-50 cursor-not-allowed gap-1.5" title="Implementare în curs">
+                  <FileUp className="h-4 w-4" />Importă fișier
+                </Button>
               </div>
             </div>
-            {running && <div className="text-sm text-muted-foreground">Preprocesare + OCR: {progress}%</div>}
+
+            <p className="text-xs text-muted-foreground italic">
+              Integrarea cu Claude AI pentru extragere automată este în curs de implementare.
+            </p>
           </CardContent>
         </Card>
 
-        {/* OCR Image Preview */}
+        {/* Image Preview */}
         {imageUrl && (
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">2) Examinare imagine</CardTitle></CardHeader>
             <CardContent>
               <div className="relative w-full overflow-auto rounded-md border max-h-[400px]">
-                <img ref={imgRef} src={imageUrl} alt="Upload" className="block max-w-full h-auto" onLoad={(e) => { const el = e.currentTarget; setImageNaturalSize({ width: el.naturalWidth || 1, height: el.naturalHeight || 1 }); }} />
-                <canvas ref={canvasRef} className="absolute left-0 top-0 pointer-events-none" />
+                <img src={imageUrl} alt="Upload" className="block max-w-full h-auto" />
               </div>
             </CardContent>
           </Card>
@@ -973,18 +568,6 @@ const ImportOcr = () => {
                   <Filter className="h-3 w-3" />
                   {showOnlyUnmatched ? "Toate" : "Doar nepotrivite"}
                 </Button>
-                {lines.length > 0 && (
-                  <>
-                    <div className="min-w-[100px]">
-                      <Label className="text-xs">Merge px</Label>
-                      <Input type="number" min={1} value={mergePx} onChange={(e) => setMergePx(Math.max(1, Number(e.target.value || 1)))} className="h-8 text-xs" />
-                    </div>
-                    <Button variant="outline" size="sm" onClick={regenerateGrid}>Regenerează</Button>
-                  </>
-                )}
-                <Button variant="outline" size="sm" onClick={() => setShowRawText((v) => !v)}>
-                  {showRawText ? "Ascunde text" : "Text OCR"}
-                </Button>
               </div>
 
               {/* Desktop Table */}
@@ -1010,7 +593,7 @@ const ImportOcr = () => {
                         <TableCell className="text-xs text-muted-foreground">{rowIdx + 1}</TableCell>
                         {r.cells.map((c, colIdx) => (
                           <TableCell key={colIdx}>
-                            <Input value={c} onChange={(e) => updateCell(r.id, colIdx, e.target.value)} onPaste={(e) => { const ai = gridRows.findIndex(gr => gr.id === r.id); if (ai >= 0) handlePaste(e, ai, colIdx); }} className="h-7 text-xs" />
+                            <Input value={c} onChange={(e) => updateCell(r.id, colIdx, e.target.value)} onPaste={(e) => { const ai = gridRows.findIndex((gr) => gr.id === r.id); if (ai >= 0) handlePaste(e, ai, colIdx); }} className="h-7 text-xs" />
                           </TableCell>
                         ))}
                         <TableCell className="min-w-[280px] sticky right-0 bg-background">
@@ -1045,7 +628,6 @@ const ImportOcr = () => {
 
                       return (
                         <div key={r.id} className={`border rounded-md ${isMatched ? "border-green-300 bg-green-50/30" : "border-border"}`}>
-                          {/* Compact row header - always visible */}
                           <button
                             onClick={() => setExpandedRowId(isExpanded ? null : r.id)}
                             className="w-full flex items-center gap-2 px-3 py-2 text-left"
@@ -1067,10 +649,8 @@ const ImportOcr = () => {
                             )}
                           </button>
 
-                          {/* Expanded detail */}
                           {isExpanded && (
                             <div className="px-3 pb-3 space-y-2 border-t">
-                              {/* Show all cells */}
                               <div className="grid grid-cols-2 gap-2 pt-2">
                                 {r.cells.map((c, ci) => (
                                   <div key={ci} className="space-y-0.5">
@@ -1079,7 +659,6 @@ const ImportOcr = () => {
                                   </div>
                                 ))}
                               </div>
-                              {/* Product matching */}
                               <div className="pt-1 space-y-1">
                                 <Label className="text-xs font-medium">Produs (DB)</Label>
                                 <InlineProductSearch
@@ -1104,8 +683,6 @@ const ImportOcr = () => {
                 </ScrollArea>
               </div>
 
-              {showRawText && <Textarea value={ocrText} onChange={(e) => setOcrText(e.target.value)} rows={8} placeholder="Text OCR" />}
-
               {/* Price comparison & save section */}
               <div className="rounded-md border p-3 space-y-3 mt-4">
                 <h4 className="text-sm font-medium">Prețuri & Salvare</h4>
@@ -1125,7 +702,6 @@ const ImportOcr = () => {
                   <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0}>Salvează</Button>
                 </div>
 
-                {/* Only show price rows for matched products */}
                 {bodyRows.filter((r) => matchedProductIdByRowId[r.id]).length > 0 && (
                   <div className="rounded-md border overflow-auto max-h-[300px]">
                     <Table>
