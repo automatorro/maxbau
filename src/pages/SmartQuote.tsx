@@ -255,8 +255,8 @@ const SmartQuote = () => {
     setEquivalentLoading(true);
     setEquivalentResults(null);
     try {
-      const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "find-equivalent", cerere_client: cerere },
+      const { data, error } = await supabase.functions.invoke("ai-find-equivalent", {
+        body: { cerere_client: cerere },
       });
       if (error) throw error;
       const result = data as EquivalentSearchResponse;
