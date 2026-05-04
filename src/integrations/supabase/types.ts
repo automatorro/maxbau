@@ -97,6 +97,54 @@ export type Database = {
           },
         ]
       }
+      echivalente_produse: {
+        Row: {
+          category_id: string | null
+          category_path: string | null
+          cerere_text: string
+          cod_intern: string | null
+          creat_de: string | null
+          created_at: string
+          denumire_completa: string | null
+          id: string
+          nota_echivalenta: string | null
+          pret_lista: number | null
+          product_id: string
+          scor_relevanta: number | null
+          unit: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          category_path?: string | null
+          cerere_text: string
+          cod_intern?: string | null
+          creat_de?: string | null
+          created_at?: string
+          denumire_completa?: string | null
+          id?: string
+          nota_echivalenta?: string | null
+          pret_lista?: number | null
+          product_id: string
+          scor_relevanta?: number | null
+          unit?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          category_path?: string | null
+          cerere_text?: string
+          cod_intern?: string | null
+          creat_de?: string | null
+          created_at?: string
+          denumire_completa?: string | null
+          id?: string
+          nota_echivalenta?: string | null
+          pret_lista?: number | null
+          product_id?: string
+          scor_relevanta?: number | null
+          unit?: string | null
+        }
+        Relationships: []
+      }
       price_sheet_items: {
         Row: {
           created_at: string
@@ -438,6 +486,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
