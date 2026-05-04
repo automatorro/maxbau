@@ -434,7 +434,7 @@ const SmartQuote = () => {
       // Cereri speciale → salvate și în cereri_clienti pentru urmărire
       const cereriSpeciale = items.filter((i) => i.is_cerere_speciala);
       if (cereriSpeciale.length > 0) {
-        await supabase.from("cereri_clienti").insert(
+        await (supabase as any).from("cereri_clienti").insert(
           cereriSpeciale.map((i) => ({
             user_id: user.id,
             descriere_client: i.cerere_initiala,

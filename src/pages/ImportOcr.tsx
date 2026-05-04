@@ -227,6 +227,9 @@ const ImportOcr = () => {
   const [file, setFile] = useState<File | null>(null);
   const [imageUrl, setImageUrl] = useState<string>("");
   const [lang, setLang] = useState<"eng" | "ron">("ron");
+  const [ocrRunning, setOcrRunning] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelRunning, setExcelRunning] = useState(false);
 
   const [gridRows, setGridRows] = useState<GridRow[]>([]);
   const [headerRowIndex, setHeaderRowIndex] = useState(0);
@@ -328,6 +331,79 @@ const ImportOcr = () => {
   }, [headerCells.length]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  const fileToBase64 = async (f: File): Promise<string> => {
+    const buf = await f.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  };
+
+  const resetTableState = () => {
+    setGridRows([]); setHeaderRowIndex(0);
+    setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
+    setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
+  };
+
+  const loadAiResult = (headers: string[], rows: string[][], note?: string | null) => {
+    if (headers.length === 0) { toast.error("Nu s-a identificat niciun tabel"); return; }
+    const headerRow: GridRow = { id: crypto.randomUUID(), cells: headers };
+    const bodyGridRows: GridRow[] = rows.map((cells) => ({ id: crypto.randomUUID(), cells }));
+    setGridRows([headerRow, ...bodyGridRows]);
+    setHeaderRowIndex(0);
+    const nameIdx = guessNameColumnIndex(headers);
+    const priceIdx = guessPriceColumnIndex(headers);
+    setMatchNameColIdx(nameIdx);
+    setPriceColIdx(priceIdx);
+    if (note) toast.info(note);
+    setTimeout(() => {
+      if (productsForMatch.length > 0 && bodyGridRows.length > 0)
+        runAutoMatch(bodyGridRows, nameIdx, productsForMatch);
+    }, 100);
+  };
+
+  const runImageOcr = async () => {
+    if (!file || ocrRunning) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error("Imaginea depășește 5 MB — comprimă-o înainte"); return; }
+    setOcrRunning(true);
+    resetTableState();
+    try {
+      const base64 = await fileToBase64(file);
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { action: "ocr-image", image_base64: base64, mime_type: file.type || "image/jpeg" }
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Extragere eșuată");
+      loadAiResult(data.headers, data.rows, data.note);
+      toast.success(`${data.rows.length} rânduri extrase din imagine`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare scanare imagine"); }
+    finally { setOcrRunning(false); }
+  };
+
+  const runExcelImport = async () => {
+    if (!excelFile || excelRunning) return;
+    setExcelRunning(true);
+    resetTableState();
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await excelFile.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
+      const rawRows: string[][] = (XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" }) as unknown[][])
+        .map((r) => (r as unknown[]).map((c) => String(c ?? "")));
+      if (rawRows.length === 0) { toast.error("Fișierul nu conține date"); setExcelRunning(false); return; }
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name }
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
+      loadAiResult(data.headers, data.rows, data.note);
+      toast.success(`${data.rows.length} rânduri importate din Excel`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
+    finally { setExcelRunning(false); }
+  };
 
   const runAutoMatch = useCallback((rows: GridRow[], nameColIdx: number, products: ProductForMatch[]) => {
     if (rows.length === 0 || products.length === 0) return;
@@ -494,8 +570,8 @@ const ImportOcr = () => {
                     <SelectItem value="eng">EN</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button disabled className="gap-1.5 opacity-50 cursor-not-allowed" title="Implementare în curs">
-                  <ScanText className="h-4 w-4" />Scanează
+                <Button onClick={runImageOcr} disabled={!file || ocrRunning} className="gap-1.5">
+                  <ScanText className="h-4 w-4" />{ocrRunning ? "Se analizează..." : "Scanează"}
                 </Button>
               </div>
             </div>
@@ -504,18 +580,14 @@ const ImportOcr = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label className="text-sm">Excel/CSV</Label>
-                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} />
               </div>
               <div>
-                <Button variant="outline" disabled className="opacity-50 cursor-not-allowed gap-1.5" title="Implementare în curs">
-                  <FileUp className="h-4 w-4" />Importă fișier
+                <Button variant="outline" onClick={runExcelImport} disabled={!excelFile || excelRunning} className="gap-1.5">
+                  <FileUp className="h-4 w-4" />{excelRunning ? "Se procesează..." : "Importă fișier"}
                 </Button>
               </div>
             </div>
-
-            <p className="text-xs text-muted-foreground italic">
-              Integrarea cu Claude AI pentru extragere automată este în curs de implementare.
-            </p>
           </CardContent>
         </Card>
 
