@@ -734,7 +734,7 @@ const ImportOcr = () => {
                 <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} />
               </div>
               <div>
-                <Button variant="outline" onClick={runExcelImport} disabled={!excelFile || excelRunning} className="gap-1.5">
+                <Button variant="outline" onClick={() => runExcelImport()} disabled={!excelFile || excelRunning} className="gap-1.5">
                   <FileUp className="h-4 w-4" />{excelRunning ? "Se procesează..." : "Importă fișier"}
                 </Button>
               </div>
