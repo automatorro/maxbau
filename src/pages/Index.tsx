@@ -96,13 +96,7 @@ const adminFeatures = [
     icon: FlaskConical,
     badge: "NOU",
   },
-  {
-    title: "Liste de prețuri",
-    subtitle: "Gestionare prețuri speciale",
-    url: "/admin/price-sheets",
-    icon: Table,
-    badge: "NOU",
-  },
+
   {
     title: "Produse",
     subtitle: "Catalog admin",

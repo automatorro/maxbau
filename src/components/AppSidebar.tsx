@@ -43,7 +43,7 @@ const adminItems = [
   { title: "Date tehnice produse", url: "/admin/product-tech", icon: FlaskConical },
   { title: "Furnizori", url: "/admin/suppliers", icon: Building2 },
   { title: "Discounturi", url: "/admin/discounts", icon: Tags },
-  { title: "Liste preț", url: "/admin/price-sheets", icon: Table },
+
 ];
 
 export function AppSidebar() {
