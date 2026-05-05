@@ -155,19 +155,7 @@ const RecipeQuote = () => {
   const [lines, setLines] = useState<GeneratedLine[]>([]);
   const [generated, setGenerated] = useState(false);
 
-  const { data: activePriceSheet } = useQuery({
-    queryKey: ["active-price-sheet"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("price_sheets")
-        .select("id, name, created_at")
-        .eq("active", true)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data?.[0] as { id: string; name: string; created_at: string } | undefined;
-    },
-  });
+
 
   const { data: recipes = [] } = useQuery({
     queryKey: ["recipes"],

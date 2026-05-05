@@ -38,8 +38,7 @@ interface QuoteItem {
   discount_percent: number;
   pret_final: number;
   subtotal: number;
-  price_sheet_item_id?: string | null;
-}
+  subtotal: number;
 
 function calcLine(item: Partial<QuoteItem>): Pick<QuoteItem, "pret_final" | "subtotal"> {
   const pret = item.pret_unitar ?? 0;
@@ -130,19 +129,6 @@ const NewQuote = () => {
     }
   }, [isEdit, existingQuote, existingItems, loaded]);
 
-  const { data: activePriceSheet } = useQuery({
-    queryKey: ["active-price-sheet"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("price_sheets")
-        .select("id, name, created_at")
-        .eq("active", true)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return data?.[0] as { id: string; name: string; created_at: string } | undefined;
-    },
-  });
 
   const productIdsInQuote = useMemo(
     () => Array.from(new Set(items.map((i) => i.product_id).filter(Boolean))) as string[],
@@ -168,30 +154,7 @@ const NewQuote = () => {
     return map;
   }, [listPrices]);
 
-  const { data: specialPriceItems = [] } = useQuery({
-    queryKey: ["special-price-items", activePriceSheet?.id, productIdsInQuote.join("|")],
-    enabled: Boolean(activePriceSheet?.id) && productIdsInQuote.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("price_sheet_items")
-        .select("id, product_id, label, unit, price")
-        .eq("price_sheet_id", activePriceSheet!.id)
-        .in("product_id", productIdsInQuote)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data as { id: string; product_id: string; label: string | null; unit: string | null; price: number }[];
-    },
-  });
 
-  const specialPriceItemsByProductId = useMemo(() => {
-    const map = new Map<string, { id: string; label: string | null; unit: string | null; price: number }[]>();
-    for (const it of specialPriceItems) {
-      const existing = map.get(it.product_id) || [];
-      existing.push({ id: it.id, label: it.label, unit: it.unit, price: Number(it.price) });
-      map.set(it.product_id, existing);
-    }
-    return map;
-  }, [specialPriceItems]);
 
   const { data: discountRules = [] } = useQuery({
     queryKey: ["discount-rules-active"],
@@ -229,30 +192,7 @@ const NewQuote = () => {
     [discountRules]
   );
 
-  useEffect(() => {
-    if (isEdit) return;
-    if (!activePriceSheet?.id) return;
-    if (items.length === 0) return;
 
-    setItems((prev) =>
-      prev.map((item) => {
-        if (!item.product_id) return item;
-        if (item.price_sheet_item_id) return item;
-        const options = specialPriceItemsByProductId.get(item.product_id);
-        if (!options || options.length === 0) return item;
-        const first = options[0];
-        const updated = {
-          ...item,
-          price_sheet_item_id: first.id,
-          pret_unitar: Number(first.price),
-          unit: (first.unit || item.unit) as string,
-          discount_percent: 0,
-        };
-        const calced = calcLine(updated);
-        return { ...updated, ...calced };
-      })
-    );
-  }, [activePriceSheet?.id, specialPriceItemsByProductId, items.length, isEdit]);
 
   const updateItem = useCallback(
     (tempId: string, field: keyof QuoteItem, value: number | string | null) => {
@@ -493,42 +433,7 @@ const NewQuote = () => {
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
                         <TableCell>
-                          {item.product_id && specialPriceItemsByProductId.get(item.product_id)?.length ? (
-                            <Select
-                              value={item.price_sheet_item_id || "list"}
-                              onValueChange={(v) => {
-                                if (v === "list") {
-                                  const list = item.pret_lista ?? listPriceByProductId.get(item.product_id!) ?? 0;
-                                  updateItem(item.tempId, "price_sheet_item_id", null);
-                                  updateItem(item.tempId, "pret_unitar", list);
-                                  updateItem(item.tempId, "discount_percent", 0);
-                                  return;
-                                }
-                                const opt = specialPriceItemsByProductId
-                                  .get(item.product_id!)
-                                  ?.find((o) => o.id === v);
-                                if (!opt) return;
-                                updateItem(item.tempId, "price_sheet_item_id", opt.id);
-                                updateItem(item.tempId, "pret_unitar", Number(opt.price));
-                                if (opt.unit) updateItem(item.tempId, "unit", opt.unit);
-                                updateItem(item.tempId, "discount_percent", 0);
-                              }}
-                            >
-                              <SelectTrigger className="h-8">
-                                <SelectValue placeholder="Alege..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="list">Preț de listă</SelectItem>
-                                {specialPriceItemsByProductId.get(item.product_id)!.map((opt) => (
-                                  <SelectItem key={opt.id} value={opt.id}>
-                                    {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
+                          <span className="text-xs text-muted-foreground">—</span>
                         </TableCell>
                         <TableCell>
                           <Input type="number" min={0} step="any" value={item.pret_unitar}
@@ -570,41 +475,7 @@ const NewQuote = () => {
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                      {item.product_id && specialPriceItemsByProductId.get(item.product_id)?.length ? (
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Listă prețuri</p>
-                          <Select
-                            value={item.price_sheet_item_id || "list"}
-                            onValueChange={(v) => {
-                              if (v === "list") {
-                                const list = item.pret_lista ?? listPriceByProductId.get(item.product_id!) ?? 0;
-                                updateItem(item.tempId, "price_sheet_item_id", null);
-                                updateItem(item.tempId, "pret_unitar", list);
-                                updateItem(item.tempId, "discount_percent", 0);
-                                return;
-                              }
-                              const opt = specialPriceItemsByProductId.get(item.product_id!)?.find((o) => o.id === v);
-                              if (!opt) return;
-                              updateItem(item.tempId, "price_sheet_item_id", opt.id);
-                              updateItem(item.tempId, "pret_unitar", Number(opt.price));
-                              if (opt.unit) updateItem(item.tempId, "unit", opt.unit);
-                              updateItem(item.tempId, "discount_percent", 0);
-                            }}
-                          >
-                            <SelectTrigger className="h-8">
-                              <SelectValue placeholder="Alege..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="list">Preț de listă</SelectItem>
-                              {specialPriceItemsByProductId.get(item.product_id)!.map((opt) => (
-                                <SelectItem key={opt.id} value={opt.id}>
-                                  {(opt.label || "standard") + ` • ${Number(opt.price).toFixed(2)}`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : null}
+
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground mb-1">Cant. ({item.unit})</p>

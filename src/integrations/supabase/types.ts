@@ -248,6 +248,7 @@ export type Database = {
           created_at: string
           denumire_completa: string
           description: string | null
+          grile_pret: Json | null
           id: string
           image_url: string | null
           manufacturer: string | null
@@ -267,6 +268,7 @@ export type Database = {
           created_at?: string
           denumire_completa: string
           description?: string | null
+          grile_pret?: Json | null
           id?: string
           image_url?: string | null
           manufacturer?: string | null
@@ -286,6 +288,7 @@ export type Database = {
           created_at?: string
           denumire_completa?: string
           description?: string | null
+          grile_pret?: Json | null
           id?: string
           image_url?: string | null
           manufacturer?: string | null

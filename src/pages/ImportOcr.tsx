@@ -262,7 +262,6 @@ const ImportOcr = () => {
 
   const [priceColIdx, setPriceColIdx] = useState<number>(0);
   const [priceOverridesByRowId, setPriceOverridesByRowId] = useState<Record<string, string>>({});
-  const [newPriceSheetName, setNewPriceSheetName] = useState("");
   const [savePricesOpen, setSavePricesOpen] = useState(false);
   const [savePricesRunning, setSavePricesRunning] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -289,14 +288,6 @@ const ImportOcr = () => {
 
   const selectedSupplier = useMemo(() => suppliers.find((s) => s.id === selectedSupplierId), [suppliers, selectedSupplierId]);
 
-  const { data: activePriceSheet } = useQuery({
-    queryKey: ["active-price-sheet-ocr"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("price_sheets").select("id, name, created_at").eq("active", true).order("created_at", { ascending: false }).limit(1);
-      if (error) throw error;
-      return data?.[0] as { id: string; name: string; created_at: string } | undefined;
-    },
-  });
 
   // ── Derived state ──────────────────────────────────────────────────────────
 
@@ -320,21 +311,6 @@ const ImportOcr = () => {
     return Array.from(ids);
   }, [matchedProductIdByRowId]);
 
-  const { data: activePriceItems = [] } = useQuery({
-    queryKey: ["active-price-items-ocr", activePriceSheet?.id, matchedProductIds.join("|")],
-    enabled: Boolean(activePriceSheet?.id) && matchedProductIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("price_sheet_items").select("id, product_id, label, unit, price").eq("price_sheet_id", activePriceSheet!.id).in("product_id", matchedProductIds).order("created_at", { ascending: true });
-      if (error) throw error;
-      return data as { id: string; product_id: string; label: string | null; unit: string | null; price: number }[];
-    },
-  });
-
-  const activePriceItemByProductId = useMemo(() => {
-    const map = new Map<string, { id: string; label: string | null; unit: string | null; price: number }>();
-    for (const it of activePriceItems) { if (!map.has(it.product_id)) map.set(it.product_id, { id: it.id, label: it.label, unit: it.unit, price: Number(it.price) }); }
-    return map;
-  }, [activePriceItems]);
 
   const productsById = useMemo(() => {
     const map = new Map<string, ProductForMatch>();
@@ -370,7 +346,7 @@ const ImportOcr = () => {
   const resetTableState = () => {
     setGridRows([]); setHeaderRowIndex(0);
     setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
-    setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
+    setPriceOverridesByRowId({}); setSavePricesOpen(false);
     setAiColumnMap(null); setCategoryRows([]);
   };
 
@@ -556,55 +532,41 @@ const ImportOcr = () => {
     });
   };
 
-  const savePricesToNewPriceSheet = async () => {
-    const name = newPriceSheetName.trim();
-    if (!name) { toast.error("Numele foii de preț este obligatoriu"); return; }
+  const updateCatalogPrices = async () => {
     if (savePricesRunning) return;
-    const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string; extra_data?: Record<string, string> }[] = [];
+    const updates: { id: string; pret_lista: number; grile_pret: Record<string, string> | null; supplier_id?: string | null }[] = [];
     for (const r of bodyRows) {
       const productId = matchedProductIdByRowId[r.id];
       if (!productId) continue;
       const raw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
       const parsed = parsePriceCell(raw);
       if (parsed === null) continue;
-      const p = productsById.get(productId);
+      
       const extraItem: Record<string, string | undefined> = {};
       if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
       if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
       if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
-      items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: (headerCells[priceColIdx] || "").trim() || null, ...extraItem });
-    }
-    if (items.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
-    setSavePricesRunning(true);
-    try {
-      const { data: sheet, error: sErr } = await supabase.from("price_sheets").insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null }).select("id").single();
-      if (sErr) throw sErr;
-      if (!sheet?.id) throw new Error("Eroare la creare price sheet");
-      const payload = items.map((it) => ({ price_sheet_id: sheet.id, product_id: it.product_id, price: it.price, unit: it.unit, label: it.label }));
-      const { error: iErr } = await supabase.from("price_sheet_items").insert(payload);
-      if (iErr) throw iErr;
-      toast.success(`Salvat: ${items.length} prețuri`);
-      setSavePricesOpen(false);
+      const grile_pret = Object.keys(extraItem).length > 0 ? extraItem as Record<string, string> : null;
 
-      // Auto-set supplier_id pe produsele matched care nu au furnizor setat
-      if (selectedSupplierId) {
-        const matchedIds = items.map((it) => it.product_id);
-        await supabase
-          .from("products")
-          .update({ supplier_id: selectedSupplierId })
-          .in("id", matchedIds)
-          .is("supplier_id", null);
-      }
+      updates.push({ id: productId, pret_lista: parsed, grile_pret, ...(selectedSupplierId ? { supplier_id: selectedSupplierId } : {}) });
+    }
+    
+    if (updates.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
+    setSavePricesRunning(true);
+    
+    try {
+      await Promise.all(updates.map(u => supabase.from("products").update(u).eq("id", u.id)));
+      toast.success(`Catalog actualizat: ${updates.length} prețuri`);
+      setSavePricesOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Eroare la salvare prețuri");
+      toast.error(e instanceof Error ? e.message : "Eroare la actualizare catalog");
     } finally {
       setSavePricesRunning(false);
     }
   };
 
-  const bulkCreateAndSave = async () => {
-    const name = newPriceSheetName.trim();
-    if (!name) { toast.error("Completează numele foii de preț înainte de salvare"); return; }
+  const bulkUpdateCatalog = async () => {
     if (bulkRunning) return;
     setBulkRunning(true);
 
@@ -619,9 +581,16 @@ const ImportOcr = () => {
         const pretRaw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
         const pretLista = parsePriceCell(pretRaw) ?? 0;
         const cod = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        
+        const extraItem: Record<string, string | undefined> = {};
+        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+        if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
+        if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
+        const grile_pret = Object.keys(extraItem).length > 0 ? extraItem : null;
+
         const { data: newProd, error: prodErr } = await supabase
           .from("products")
-          .insert({ cod_intern: cod, denumire_completa: denumire, pret_lista: pretLista, unit: null, supplier_id: selectedSupplierId || null })
+          .insert({ cod_intern: cod, denumire_completa: denumire, pret_lista: pretLista, unit: null, supplier_id: selectedSupplierId || null, grile_pret })
           .select("id")
           .single();
         if (prodErr) { toast.error(`Eroare la creare "${denumire}": ${prodErr.message}`); continue; }
@@ -631,54 +600,35 @@ const ImportOcr = () => {
       // 2. Merge newly created into matched map
       const allMatched = { ...matchedProductIdByRowId, ...freshMatched };
       setMatchedProductIdByRowId(allMatched);
-      if (Object.keys(freshMatched).length > 0) {
-        await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
-      }
-
-      // 3. Build price sheet items for ALL rows (matched + newly created)
-      const priceLabel = (headerCells[priceColIdx] || "").trim() || null;
-      const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string }[] = [];
+      
+      // 3. Update existing matched rows
+      const updates = [];
       for (const r of bodyRows) {
         const productId = allMatched[r.id];
-        if (!productId) continue;
+        if (!productId || freshMatched[r.id]) continue; // skip new products, already saved
+        
         const raw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
         const parsed = parsePriceCell(raw);
         if (parsed === null) continue;
-        const p = productsById.get(productId);
+        
         const extraItem: Record<string, string | undefined> = {};
         if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
         if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
         if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
-        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel, ...extraItem });
+        const grile_pret = Object.keys(extraItem).length > 0 ? extraItem as Record<string, string> : null;
+
+        updates.push({ id: productId, pret_lista: parsed, grile_pret, ...(selectedSupplierId ? { supplier_id: selectedSupplierId } : {}) });
       }
 
-      if (items.length === 0) { toast.error("Nu există rânduri cu preț numeric valid"); return; }
-
-      const { data: sheet, error: sErr } = await supabase
-        .from("price_sheets")
-        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null })
-        .select("id")
-        .single();
-      if (sErr) throw sErr;
-
-      const { error: iErr } = await supabase
-        .from("price_sheet_items")
-        .insert(items.map((it) => ({ price_sheet_id: sheet.id, ...it })));
-      if (iErr) throw iErr;
+      if (updates.length > 0) {
+        await Promise.all(updates.map(u => supabase.from("products").update(u).eq("id", u.id)));
+      }
 
       const newCount = Object.keys(freshMatched).length;
-      toast.success(`Salvat: ${items.length} prețuri${newCount > 0 ? ` (${newCount} produse noi create)` : ""}`);
-
-      // Auto-set supplier_id pe produsele matched care nu au furnizor setat
-      if (selectedSupplierId) {
-        const allProductIds = items.map((it) => it.product_id);
-        await supabase
-          .from("products")
-          .update({ supplier_id: selectedSupplierId })
-          .in("id", allProductIds)
-          .is("supplier_id", null);
-      }    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Eroare la salvare");
+      toast.success(`Catalog actualizat: ${updates.length + newCount} produse prelucrate${newCount > 0 ? ` (${newCount} produse noi)` : ""}`);
+      await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare la actualizare catalog");
     } finally {
       setBulkRunning(false);
     }
@@ -1003,23 +953,18 @@ const ImportOcr = () => {
                       <SelectContent>{headerCells.map((h, i) => (<SelectItem key={i} value={i.toString()}>{h || `Col ${i + 1}`}</SelectItem>))}</SelectContent>
                     </Select>
                   </div>
-                  <div className="min-w-[200px]">
-                    <Label className="text-xs">Nume price sheet</Label>
-                    <Input value={newPriceSheetName} onChange={(e) => setNewPriceSheetName(e.target.value)} placeholder="Ex: Baumit - Mai 2026" className="h-8 text-xs" />
-                  </div>
                   <Button variant="outline" size="sm" onClick={ensurePriceOverrides} disabled={bodyRows.length === 0}>Preia prețuri</Button>
                   <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning}>
-                    Salvează (doar potrivite)
+                    Actualizează Catalogul (doar potrivite)
                   </Button>
                   {bodyRows.some((r) => !matchedProductIdByRowId[r.id]) && (
                     <Button
                       size="sm"
-                      onClick={bulkCreateAndSave}
-                      disabled={bulkRunning || !newPriceSheetName.trim()}
+                      onClick={bulkUpdateCatalog}
+                      disabled={bulkRunning}
                       className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      title={!newPriceSheetName.trim() ? "Completează mai întâi numele foii de preț" : ""}
                     >
-                      {bulkRunning ? "Se procesează..." : `Creează produse noi + Salvează tot (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}
+                      {bulkRunning ? "Se procesează..." : `Creează produse noi + Actualizează Catalog (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}
                     </Button>
                   )}
                 </div>
@@ -1036,20 +981,17 @@ const ImportOcr = () => {
                           <TableHead className="text-xs w-[110px]" title={headerCells[priceColIdx] || "Preț import"}>
                             <span className="block truncate max-w-[100px]">{headerCells[priceColIdx] || "Preț import"}</span>
                           </TableHead>
-                          <TableHead className="text-xs w-[100px]">Preț listă (DB)</TableHead>
-                          <TableHead className="text-xs w-[100px]">Foaie activă</TableHead>
-                          <TableHead className="text-xs w-[100px]">De salvat</TableHead>
+                          <TableHead className="text-xs w-[100px]">Preț Vechi (DB)</TableHead>
+                          <TableHead className="text-xs w-[100px]">Preț Nou</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {bodyRows.filter((r) => matchedProductIdByRowId[r.id]).map((r) => {
                           const productId = matchedProductIdByRowId[r.id]!;
                           const product = productsById.get(productId);
-                          const activeSpecial = activePriceItemByProductId.get(productId);
                           const parsedOcr = parsePriceCell(r.cells[priceColIdx] || "");
                           const override = priceOverridesByRowId[r.id] ?? "";
                           const dbUnit = product?.unit || "?";
-                          const activeUnit = activeSpecial?.unit || dbUnit;
                           return (
                             <TableRow key={r.id}>
                               <TableCell className="text-xs">
@@ -1061,11 +1003,6 @@ const ImportOcr = () => {
                                 {product?.pret_lista != null
                                   ? <><span>{Number(product.pret_lista).toFixed(2)}</span><span className="text-muted-foreground ml-1">lei/{dbUnit}</span></>
                                   : "-"}
-                              </TableCell>
-                              <TableCell className="text-xs">
-                                {activeSpecial
-                                  ? <><span>{Number(activeSpecial.price).toFixed(2)}</span><span className="text-muted-foreground ml-1">lei/{activeUnit}</span></>
-                                  : <span className="text-muted-foreground">—</span>}
                               </TableCell>
                               <TableCell>
                                 <Input value={override} onChange={(e) => setPriceOverridesByRowId((prev) => ({ ...prev, [r.id]: e.target.value }))} placeholder={parsedOcr !== null ? parsedOcr.toString() : ""} className="h-7 text-xs" />
@@ -1105,12 +1042,12 @@ const ImportOcr = () => {
         <AlertDialog open={savePricesOpen} onOpenChange={setSavePricesOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Salvezi prețurile?</AlertDialogTitle>
-              <AlertDialogDescription>Se creează o foaie nouă cu rândurile care au produs selectat + preț numeric.</AlertDialogDescription>
+              <AlertDialogTitle>Actualizare Catalog</AlertDialogTitle>
+              <AlertDialogDescription>Se vor actualiza direct în baza de date prețurile rândurilor care au produs selectat.</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={savePricesRunning}>Anulează</AlertDialogCancel>
-              <AlertDialogAction onClick={savePricesToNewPriceSheet} disabled={savePricesRunning}>Salvează</AlertDialogAction>
+              <AlertDialogAction onClick={updateCatalogPrices} disabled={savePricesRunning}>Actualizează Catalogul</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
