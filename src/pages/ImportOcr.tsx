@@ -627,7 +627,7 @@ const ImportOcr = () => {
 
       // 3. Build price sheet items for ALL rows (matched + newly created)
       const priceLabel = (headerCells[priceColIdx] || "").trim() || null;
-      const items: { product_id: string; price: number; unit: string | null; label: string | null }[] = [];
+      const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string }[] = [];
       for (const r of bodyRows) {
         const productId = allMatched[r.id];
         if (!productId) continue;
@@ -635,7 +635,11 @@ const ImportOcr = () => {
         const parsed = parsePriceCell(raw);
         if (parsed === null) continue;
         const p = productsById.get(productId);
-        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel });
+        const extraItem: Record<string, string | undefined> = {};
+        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+        if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
+        if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
+        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel, ...extraItem });
       }
 
       if (items.length === 0) { toast.error("Nu există rânduri cu preț numeric valid"); return; }
