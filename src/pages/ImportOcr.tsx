@@ -560,7 +560,7 @@ const ImportOcr = () => {
     const name = newPriceSheetName.trim();
     if (!name) { toast.error("Numele foii de preț este obligatoriu"); return; }
     if (savePricesRunning) return;
-    const items: { product_id: string; price: number; unit: string | null; label: string | null }[] = [];
+    const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string; extra_data?: Record<string, string> }[] = [];
     for (const r of bodyRows) {
       const productId = matchedProductIdByRowId[r.id];
       if (!productId) continue;
