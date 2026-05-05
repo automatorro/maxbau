@@ -21,7 +21,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp } from "lucide-react";
+import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp, Building2, Plus } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -231,6 +232,20 @@ const ImportOcr = () => {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelRunning, setExcelRunning] = useState(false);
 
+  // Supplier state
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
+  // Multi-sheet state
+  const [excelSheetNames, setExcelSheetNames] = useState<string[]>([]);
+  const [selectedSheetName, setSelectedSheetName] = useState<string>("");
+  const [excelWorkbook, setExcelWorkbook] = useState<any>(null);
+
+  // AI column_map state
+  const [aiColumnMap, setAiColumnMap] = useState<Record<string, number> | null>(null);
+  const [categoryRows, setCategoryRows] = useState<{ row_index: number; category_name: string }[]>([]);
+
   const [gridRows, setGridRows] = useState<GridRow[]>([]);
   const [headerRowIndex, setHeaderRowIndex] = useState(0);
 
@@ -262,6 +277,17 @@ const ImportOcr = () => {
       return data as ProductForMatch[];
     },
   });
+
+  const { data: suppliers = [], refetch: refetchSuppliers } = useQuery({
+    queryKey: ["suppliers-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("suppliers").select("id, name, ai_column_map, notes, updated_at").order("name");
+      if (error) throw error;
+      return data as { id: string; name: string; ai_column_map: Record<string, string> | null; notes: string | null; updated_at: string }[];
+    },
+  });
+
+  const selectedSupplier = useMemo(() => suppliers.find((s) => s.id === selectedSupplierId), [suppliers, selectedSupplierId]);
 
   const { data: activePriceSheet } = useQuery({
     queryKey: ["active-price-sheet-ocr"],
@@ -345,23 +371,53 @@ const ImportOcr = () => {
     setGridRows([]); setHeaderRowIndex(0);
     setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
     setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
+    setAiColumnMap(null); setCategoryRows([]);
   };
 
-  const loadAiResult = (headers: string[], rows: string[][], note?: string | null) => {
+  const createSupplier = async () => {
+    const name = newSupplierName.trim();
+    if (!name) return;
+    setCreatingSupplier(true);
+    try {
+      const { data, error } = await supabase.from("suppliers").insert({ name }).select("id").single();
+      if (error) throw error;
+      if (data?.id) { setSelectedSupplierId(data.id); setNewSupplierName(""); await refetchSuppliers(); toast.success(`Furnizor "${name}" creat`); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare la creare furnizor"); }
+    finally { setCreatingSupplier(false); }
+  };
+
+  const loadAiResult = (headers: string[], rows: string[][], note?: string | null, columnMap?: Record<string, number> | null, catRows?: { row_index: number; category_name: string }[]) => {
     if (headers.length === 0) { toast.error("Nu s-a identificat niciun tabel"); return; }
     const headerRow: GridRow = { id: crypto.randomUUID(), cells: headers };
     const bodyGridRows: GridRow[] = rows.map((cells) => ({ id: crypto.randomUUID(), cells }));
     setGridRows([headerRow, ...bodyGridRows]);
     setHeaderRowIndex(0);
-    const nameIdx = guessNameColumnIndex(headers);
-    const priceIdx = guessPriceColumnIndex(headers);
+
+    // Use AI column_map if available, otherwise guess
+    const nameIdx = columnMap?.denumire != null && columnMap.denumire >= 0 ? columnMap.denumire : guessNameColumnIndex(headers);
+    const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
     setPriceColIdx(priceIdx);
+
+    if (columnMap) setAiColumnMap(columnMap);
+    if (catRows && catRows.length > 0) {
+      setCategoryRows(catRows);
+      toast.info(`${catRows.length} categorii detectate în tabel`);
+    }
+
     if (note) toast.info(note);
     setTimeout(() => {
       if (productsForMatch.length > 0 && bodyGridRows.length > 0)
         runAutoMatch(bodyGridRows, nameIdx, productsForMatch);
     }, 100);
+  };
+
+  const saveSupplierColumnMap = async (columnMap: Record<string, number>) => {
+    if (!selectedSupplierId) return;
+    try {
+      await supabase.from("suppliers").update({ ai_column_map: columnMap }).eq("id", selectedSupplierId);
+      await refetchSuppliers();
+    } catch { /* silent */ }
   };
 
   const runImageOcr = async () => {
@@ -382,26 +438,51 @@ const ImportOcr = () => {
     finally { setOcrRunning(false); }
   };
 
-  const runExcelImport = async () => {
+  const handleExcelFileSelect = async (f: File) => {
+    setExcelFile(f);
+    setExcelSheetNames([]);
+    setSelectedSheetName("");
+    setExcelWorkbook(null);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      setExcelWorkbook(wb);
+      setExcelSheetNames(wb.SheetNames);
+      setSelectedSheetName(wb.SheetNames[0] || "");
+      if (wb.SheetNames.length > 1) toast.info(`${wb.SheetNames.length} foi detectate — selectează foaia dorită`);
+    } catch { /* will be caught on import */ }
+  };
+
+  const runExcelImport = async (sheetOverride?: string) => {
     if (!excelFile || excelRunning) return;
     setExcelRunning(true);
     resetTableState();
     try {
       const XLSX = await import("xlsx");
-      const buf = await excelFile.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const sheetName = wb.SheetNames[0];
+      const wb = excelWorkbook || (() => { throw new Error("Workbook not loaded"); })();
+      const sheetName = sheetOverride || selectedSheetName || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
+      if (!sheet) { toast.error(`Foaia "${sheetName}" nu există`); setExcelRunning(false); return; }
       const rawRows: string[][] = (XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" }) as unknown[][])
         .map((r) => (r as unknown[]).map((c) => String(c ?? "")));
-      if (rawRows.length === 0) { toast.error("Fișierul nu conține date"); setExcelRunning(false); return; }
+      if (rawRows.length === 0) { toast.error("Foaia nu conține date"); setExcelRunning(false); return; }
+
+      const supplierColumnMap = selectedSupplier?.ai_column_map || null;
       const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name }
+        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name, supplier_column_map: supplierColumnMap }
       });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
-      loadAiResult(data.headers, data.rows, data.note);
-      toast.success(`${data.rows.length} rânduri importate din Excel`);
+      loadAiResult(data.headers, data.rows, data.note, data.column_map, data.category_rows);
+
+      // Auto-save column_map to supplier if first import
+      if (data.column_map && selectedSupplierId && (!supplierColumnMap || Object.keys(supplierColumnMap).length === 0)) {
+        await saveSupplierColumnMap(data.column_map);
+        toast.info("Profilul furnizorului a fost salvat automat");
+      }
+
+      toast.success(`${data.rows.length} rânduri importate din "${sheetName}"`);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
     finally { setExcelRunning(false); }
   };
@@ -479,7 +560,7 @@ const ImportOcr = () => {
     const name = newPriceSheetName.trim();
     if (!name) { toast.error("Numele foii de preț este obligatoriu"); return; }
     if (savePricesRunning) return;
-    const items: { product_id: string; price: number; unit: string | null; label: string | null }[] = [];
+    const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string; extra_data?: Record<string, string> }[] = [];
     for (const r of bodyRows) {
       const productId = matchedProductIdByRowId[r.id];
       if (!productId) continue;
@@ -487,12 +568,16 @@ const ImportOcr = () => {
       const parsed = parsePriceCell(raw);
       if (parsed === null) continue;
       const p = productsById.get(productId);
-      items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: (headerCells[priceColIdx] || "").trim() || null });
+      const extraItem: Record<string, string | undefined> = {};
+      if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+      if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
+      if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
+      items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: (headerCells[priceColIdx] || "").trim() || null, ...extraItem });
     }
     if (items.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
     setSavePricesRunning(true);
     try {
-      const { data: sheet, error: sErr } = await supabase.from("price_sheets").insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false }).select("id").single();
+      const { data: sheet, error: sErr } = await supabase.from("price_sheets").insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null }).select("id").single();
       if (sErr) throw sErr;
       if (!sheet?.id) throw new Error("Eroare la creare price sheet");
       const payload = items.map((it) => ({ price_sheet_id: sheet.id, product_id: it.product_id, price: it.price, unit: it.unit, label: it.label }));
@@ -542,7 +627,7 @@ const ImportOcr = () => {
 
       // 3. Build price sheet items for ALL rows (matched + newly created)
       const priceLabel = (headerCells[priceColIdx] || "").trim() || null;
-      const items: { product_id: string; price: number; unit: string | null; label: string | null }[] = [];
+      const items: { product_id: string; price: number; unit: string | null; label: string | null; cod_furnizor?: string; cantitate_palet?: string; consum?: string }[] = [];
       for (const r of bodyRows) {
         const productId = allMatched[r.id];
         if (!productId) continue;
@@ -550,14 +635,18 @@ const ImportOcr = () => {
         const parsed = parsePriceCell(raw);
         if (parsed === null) continue;
         const p = productsById.get(productId);
-        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel });
+        const extraItem: Record<string, string | undefined> = {};
+        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+        if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
+        if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
+        items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: priceLabel, ...extraItem });
       }
 
       if (items.length === 0) { toast.error("Nu există rânduri cu preț numeric valid"); return; }
 
       const { data: sheet, error: sErr } = await supabase
         .from("price_sheets")
-        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false })
+        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null })
         .select("id")
         .single();
       if (sErr) throw sErr;
@@ -622,10 +711,37 @@ const ImportOcr = () => {
           <p className="text-sm text-muted-foreground">Încarcă imagine sau Excel, potrivește produse și salvează prețuri</p>
         </div>
 
-        {/* Upload Section */}
+        {/* Supplier + Upload Section */}
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">1) Upload</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">1) Furnizor & Upload</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {/* Supplier selector */}
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="min-w-[200px]">
+                <Label className="text-xs flex items-center gap-1"><Building2 className="h-3 w-3" /> Furnizor</Label>
+                <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selectează furnizor..." /></SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-1 items-end">
+                <div>
+                  <Label className="text-xs">Sau creează nou</Label>
+                  <Input value={newSupplierName} onChange={(e) => setNewSupplierName(e.target.value)} placeholder="Nume furnizor..." className="h-9 text-xs w-40" />
+                </div>
+                <Button variant="outline" size="sm" onClick={createSupplier} disabled={!newSupplierName.trim() || creatingSupplier} className="h-9">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+              {selectedSupplier?.ai_column_map && Object.keys(selectedSupplier.ai_column_map).length > 0 && (
+                <Badge variant="secondary" className="text-[10px]">Profil AI salvat</Badge>
+              )}
+            </div>
+
             {/* Image row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
@@ -650,14 +766,46 @@ const ImportOcr = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label className="text-sm">Excel/CSV</Label>
-                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} />
+                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleExcelFileSelect(f); else setExcelFile(null); }} />
               </div>
-              <div>
-                <Button variant="outline" onClick={runExcelImport} disabled={!excelFile || excelRunning} className="gap-1.5">
+              <div className="flex gap-2 items-end">
+                {excelSheetNames.length > 1 && (
+                  <div className="min-w-[140px]">
+                    <Label className="text-[10px]">Foaie Excel</Label>
+                    <Select value={selectedSheetName} onValueChange={setSelectedSheetName}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {excelSheetNames.map((sn) => (
+                          <SelectItem key={sn} value={sn} className="text-xs">{sn}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <Button variant="outline" onClick={() => runExcelImport()} disabled={!excelFile || excelRunning} className="gap-1.5">
                   <FileUp className="h-4 w-4" />{excelRunning ? "Se procesează..." : "Importă fișier"}
                 </Button>
               </div>
             </div>
+
+            {/* AI Column Map info */}
+            {aiColumnMap && (
+              <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1">
+                <span className="font-medium">Coloane detectate AI:</span>
+                {aiColumnMap.denumire != null && aiColumnMap.denumire >= 0 && <Badge variant="outline" className="text-[10px]">Denumire: col {aiColumnMap.denumire + 1}</Badge>}
+                {aiColumnMap.pret != null && aiColumnMap.pret >= 0 && <Badge variant="outline" className="text-[10px]">Preț: col {aiColumnMap.pret + 1}</Badge>}
+                {aiColumnMap.um != null && aiColumnMap.um >= 0 && <Badge variant="outline" className="text-[10px]">UM: col {aiColumnMap.um + 1}</Badge>}
+                {aiColumnMap.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0 && <Badge variant="outline" className="text-[10px]">Cod furnizor: col {aiColumnMap.cod_furnizor + 1}</Badge>}
+                {aiColumnMap.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0 && <Badge variant="outline" className="text-[10px]">Palet: col {aiColumnMap.cantitate_palet + 1}</Badge>}
+                {aiColumnMap.consum != null && aiColumnMap.consum >= 0 && <Badge variant="outline" className="text-[10px]">Consum: col {aiColumnMap.consum + 1}</Badge>}
+              </div>
+            )}
+            {categoryRows.length > 0 && (
+              <div className="flex flex-wrap gap-1 text-[10px]">
+                <span className="text-muted-foreground font-medium">Categorii detectate:</span>
+                {categoryRows.map((cr, i) => <Badge key={i} variant="secondary" className="text-[10px]">{cr.category_name}</Badge>)}
+              </div>
+            )}
           </CardContent>
         </Card>
 

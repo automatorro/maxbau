@@ -147,7 +147,11 @@ export type Database = {
       }
       price_sheet_items: {
         Row: {
+          cantitate_palet: string | null
+          cod_furnizor: string | null
+          consum: string | null
           created_at: string
+          extra_data: Json | null
           id: string
           label: string | null
           price: number
@@ -156,7 +160,11 @@ export type Database = {
           unit: string | null
         }
         Insert: {
+          cantitate_palet?: string | null
+          cod_furnizor?: string | null
+          consum?: string | null
           created_at?: string
+          extra_data?: Json | null
           id?: string
           label?: string | null
           price: number
@@ -165,7 +173,11 @@ export type Database = {
           unit?: string | null
         }
         Update: {
+          cantitate_palet?: string | null
+          cod_furnizor?: string | null
+          consum?: string | null
           created_at?: string
+          extra_data?: Json | null
           id?: string
           label?: string | null
           price?: number
@@ -198,6 +210,7 @@ export type Database = {
           name: string
           received_at: string | null
           source: string | null
+          supplier_id: string | null
         }
         Insert: {
           active?: boolean
@@ -206,6 +219,7 @@ export type Database = {
           name: string
           received_at?: string | null
           source?: string | null
+          supplier_id?: string | null
         }
         Update: {
           active?: boolean
@@ -214,8 +228,17 @@ export type Database = {
           name?: string
           received_at?: string | null
           source?: string | null
+          supplier_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "price_sheets_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       products: {
         Row: {
@@ -453,6 +476,33 @@ export type Database = {
           recipe_name?: string
           status?: string | null
           unit?: string | null
+        }
+        Relationships: []
+      }
+      suppliers: {
+        Row: {
+          ai_column_map: Json | null
+          created_at: string
+          id: string
+          name: string
+          notes: string | null
+          updated_at: string
+        }
+        Insert: {
+          ai_column_map?: Json | null
+          created_at?: string
+          id?: string
+          name: string
+          notes?: string | null
+          updated_at?: string
+        }
+        Update: {
+          ai_column_map?: Json | null
+          created_at?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          updated_at?: string
         }
         Relationships: []
       }

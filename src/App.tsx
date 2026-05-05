@@ -18,6 +18,7 @@ import ImportOcr from "./pages/ImportOcr";
 import RecipeQuote from "./pages/RecipeQuote";
 import SmartQuote from "./pages/SmartQuote";
 import AdminProductTechData from "./pages/AdminProductTechData";
+import AdminSuppliers from "./pages/AdminSuppliers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -44,6 +45,7 @@ const App = () => (
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
             <Route path="/admin/price-sheets" element={<ProtectedRoute><AdminPriceSheets /></ProtectedRoute>} />
             <Route path="/admin/product-tech" element={<ProtectedRoute><AdminProductTechData /></ProtectedRoute>} />
+            <Route path="/admin/suppliers" element={<ProtectedRoute><AdminSuppliers /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
