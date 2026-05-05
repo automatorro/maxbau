@@ -577,7 +577,7 @@ const ImportOcr = () => {
     if (items.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
     setSavePricesRunning(true);
     try {
-      const { data: sheet, error: sErr } = await supabase.from("price_sheets").insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false }).select("id").single();
+      const { data: sheet, error: sErr } = await supabase.from("price_sheets").insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null }).select("id").single();
       if (sErr) throw sErr;
       if (!sheet?.id) throw new Error("Eroare la creare price sheet");
       const payload = items.map((it) => ({ price_sheet_id: sheet.id, product_id: it.product_id, price: it.price, unit: it.unit, label: it.label }));
