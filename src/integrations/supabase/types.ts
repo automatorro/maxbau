@@ -256,6 +256,7 @@ export type Database = {
           pret_lista: number
           source_url: string | null
           specifications: Json | null
+          supplier_id: string | null
           unit: string | null
           updated_at: string
         }
@@ -274,6 +275,7 @@ export type Database = {
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null
+          supplier_id?: string | null
           unit?: string | null
           updated_at?: string
         }
@@ -292,6 +294,7 @@ export type Database = {
           pret_lista?: number
           source_url?: string | null
           specifications?: Json | null
+          supplier_id?: string | null
           unit?: string | null
           updated_at?: string
         }
@@ -301,6 +304,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]

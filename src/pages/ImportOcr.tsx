@@ -527,7 +527,7 @@ const ImportOcr = () => {
     if (createProductRunning) return;
     setCreateProductRunning(true);
     try {
-      const { data, error } = await supabase.from("products").insert({ cod_intern: cod, denumire_completa: name, unit: unit || null, pret_lista: 0 }).select("id").single();
+      const { data, error } = await supabase.from("products").insert({ cod_intern: cod, denumire_completa: name, unit: unit || null, pret_lista: 0, supplier_id: selectedSupplierId || null }).select("id").single();
       if (error) throw error;
       if (!data?.id) throw new Error("Eroare la creare produs");
       setMatchedProductForRow(createProductRowId, data.id);
@@ -585,6 +585,16 @@ const ImportOcr = () => {
       if (iErr) throw iErr;
       toast.success(`Salvat: ${items.length} prețuri`);
       setSavePricesOpen(false);
+
+      // Auto-set supplier_id pe produsele matched care nu au furnizor setat
+      if (selectedSupplierId) {
+        const matchedIds = items.map((it) => it.product_id);
+        await supabase
+          .from("products")
+          .update({ supplier_id: selectedSupplierId })
+          .in("id", matchedIds)
+          .is("supplier_id", null);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Eroare la salvare prețuri");
     } finally {
@@ -611,7 +621,7 @@ const ImportOcr = () => {
         const cod = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
         const { data: newProd, error: prodErr } = await supabase
           .from("products")
-          .insert({ cod_intern: cod, denumire_completa: denumire, pret_lista: pretLista, unit: null })
+          .insert({ cod_intern: cod, denumire_completa: denumire, pret_lista: pretLista, unit: null, supplier_id: selectedSupplierId || null })
           .select("id")
           .single();
         if (prodErr) { toast.error(`Eroare la creare "${denumire}": ${prodErr.message}`); continue; }
@@ -658,7 +668,16 @@ const ImportOcr = () => {
 
       const newCount = Object.keys(freshMatched).length;
       toast.success(`Salvat: ${items.length} prețuri${newCount > 0 ? ` (${newCount} produse noi create)` : ""}`);
-    } catch (e) {
+
+      // Auto-set supplier_id pe produsele matched care nu au furnizor setat
+      if (selectedSupplierId) {
+        const allProductIds = items.map((it) => it.product_id);
+        await supabase
+          .from("products")
+          .update({ supplier_id: selectedSupplierId })
+          .in("id", allProductIds)
+          .is("supplier_id", null);
+      }    } catch (e) {
       toast.error(e instanceof Error ? e.message : "Eroare la salvare");
     } finally {
       setBulkRunning(false);
