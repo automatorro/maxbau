@@ -38,7 +38,7 @@ interface QuoteItem {
   discount_percent: number;
   pret_final: number;
   subtotal: number;
-  subtotal: number;
+}
 
 function calcLine(item: Partial<QuoteItem>): Pick<QuoteItem, "pret_final" | "subtotal"> {
   const pret = item.pret_unitar ?? 0;
