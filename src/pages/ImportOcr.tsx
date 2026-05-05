@@ -568,7 +568,11 @@ const ImportOcr = () => {
       const parsed = parsePriceCell(raw);
       if (parsed === null) continue;
       const p = productsById.get(productId);
-      items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: (headerCells[priceColIdx] || "").trim() || null });
+      const extraItem: Record<string, string | undefined> = {};
+      if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+      if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
+      if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
+      items.push({ product_id: productId, price: parsed, unit: p?.unit ?? null, label: (headerCells[priceColIdx] || "").trim() || null, ...extraItem });
     }
     if (items.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
     setSavePricesRunning(true);
