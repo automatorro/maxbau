@@ -703,10 +703,37 @@ const ImportOcr = () => {
           <p className="text-sm text-muted-foreground">Încarcă imagine sau Excel, potrivește produse și salvează prețuri</p>
         </div>
 
-        {/* Upload Section */}
+        {/* Supplier + Upload Section */}
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">1) Upload</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">1) Furnizor & Upload</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {/* Supplier selector */}
+            <div className="flex flex-wrap gap-2 items-end">
+              <div className="min-w-[200px]">
+                <Label className="text-xs flex items-center gap-1"><Building2 className="h-3 w-3" /> Furnizor</Label>
+                <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selectează furnizor..." /></SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-1 items-end">
+                <div>
+                  <Label className="text-xs">Sau creează nou</Label>
+                  <Input value={newSupplierName} onChange={(e) => setNewSupplierName(e.target.value)} placeholder="Nume furnizor..." className="h-9 text-xs w-40" />
+                </div>
+                <Button variant="outline" size="sm" onClick={createSupplier} disabled={!newSupplierName.trim() || creatingSupplier} className="h-9">
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </div>
+              {selectedSupplier?.ai_column_map && Object.keys(selectedSupplier.ai_column_map).length > 0 && (
+                <Badge variant="secondary" className="text-[10px]">Profil AI salvat</Badge>
+              )}
+            </div>
+
             {/* Image row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
@@ -731,14 +758,46 @@ const ImportOcr = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
               <div className="md:col-span-2">
                 <Label className="text-sm">Excel/CSV</Label>
-                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => setExcelFile(e.target.files?.[0] || null)} />
+                <Input type="file" accept=".xlsx,.xlsm,.csv,.tsv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleExcelFileSelect(f); else setExcelFile(null); }} />
               </div>
-              <div>
+              <div className="flex gap-2 items-end">
+                {excelSheetNames.length > 1 && (
+                  <div className="min-w-[140px]">
+                    <Label className="text-[10px]">Foaie Excel</Label>
+                    <Select value={selectedSheetName} onValueChange={setSelectedSheetName}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {excelSheetNames.map((sn) => (
+                          <SelectItem key={sn} value={sn} className="text-xs">{sn}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <Button variant="outline" onClick={() => runExcelImport()} disabled={!excelFile || excelRunning} className="gap-1.5">
                   <FileUp className="h-4 w-4" />{excelRunning ? "Se procesează..." : "Importă fișier"}
                 </Button>
               </div>
             </div>
+
+            {/* AI Column Map info */}
+            {aiColumnMap && (
+              <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1">
+                <span className="font-medium">Coloane detectate AI:</span>
+                {aiColumnMap.denumire != null && aiColumnMap.denumire >= 0 && <Badge variant="outline" className="text-[10px]">Denumire: col {aiColumnMap.denumire + 1}</Badge>}
+                {aiColumnMap.pret != null && aiColumnMap.pret >= 0 && <Badge variant="outline" className="text-[10px]">Preț: col {aiColumnMap.pret + 1}</Badge>}
+                {aiColumnMap.um != null && aiColumnMap.um >= 0 && <Badge variant="outline" className="text-[10px]">UM: col {aiColumnMap.um + 1}</Badge>}
+                {aiColumnMap.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0 && <Badge variant="outline" className="text-[10px]">Cod furnizor: col {aiColumnMap.cod_furnizor + 1}</Badge>}
+                {aiColumnMap.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0 && <Badge variant="outline" className="text-[10px]">Palet: col {aiColumnMap.cantitate_palet + 1}</Badge>}
+                {aiColumnMap.consum != null && aiColumnMap.consum >= 0 && <Badge variant="outline" className="text-[10px]">Consum: col {aiColumnMap.consum + 1}</Badge>}
+              </div>
+            )}
+            {categoryRows.length > 0 && (
+              <div className="flex flex-wrap gap-1 text-[10px]">
+                <span className="text-muted-foreground font-medium">Categorii detectate:</span>
+                {categoryRows.map((cr, i) => <Badge key={i} variant="secondary" className="text-[10px]">{cr.category_name}</Badge>)}
+              </div>
+            )}
           </CardContent>
         </Card>
 
