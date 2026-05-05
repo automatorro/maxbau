@@ -289,6 +289,7 @@ const ImportOcr = () => {
 
   const selectedSupplier = useMemo(() => suppliers.find((s) => s.id === selectedSupplierId), [suppliers, selectedSupplierId]);
 
+  const { data: activePriceSheet } = useQuery({
     queryKey: ["active-price-sheet-ocr"],
     queryFn: async () => {
       const { data, error } = await supabase.from("price_sheets").select("id, name, created_at").eq("active", true).order("created_at", { ascending: false }).limit(1);
