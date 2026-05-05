@@ -18,6 +18,7 @@ import ImportOcr from "./pages/ImportOcr";
 import RecipeQuote from "./pages/RecipeQuote";
 import SmartQuote from "./pages/SmartQuote";
 import AdminProductTechData from "./pages/AdminProductTechData";
+import AdminSuppliers from "./pages/AdminSuppliers";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
