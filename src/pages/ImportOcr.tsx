@@ -485,8 +485,6 @@ const ImportOcr = () => {
       toast.success(`${data.rows.length} rânduri importate din "${sheetName}"`);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
     finally { setExcelRunning(false); }
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
-    finally { setExcelRunning(false); }
   };
 
   const runAutoMatch = useCallback((rows: GridRow[], nameColIdx: number, products: ProductForMatch[]) => {
