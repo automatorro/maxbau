@@ -278,7 +278,17 @@ const ImportOcr = () => {
     },
   });
 
-  const { data: activePriceSheet } = useQuery({
+  const { data: suppliers = [], refetch: refetchSuppliers } = useQuery({
+    queryKey: ["suppliers-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("suppliers").select("id, name, ai_column_map, notes, updated_at").order("name");
+      if (error) throw error;
+      return data as { id: string; name: string; ai_column_map: Record<string, string> | null; notes: string | null; updated_at: string }[];
+    },
+  });
+
+  const selectedSupplier = useMemo(() => suppliers.find((s) => s.id === selectedSupplierId), [suppliers, selectedSupplierId]);
+
     queryKey: ["active-price-sheet-ocr"],
     queryFn: async () => {
       const { data, error } = await supabase.from("price_sheets").select("id, name, created_at").eq("active", true).order("created_at", { ascending: false }).limit(1);
