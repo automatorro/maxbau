@@ -646,7 +646,7 @@ const ImportOcr = () => {
 
       const { data: sheet, error: sErr } = await supabase
         .from("price_sheets")
-        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false })
+        .insert({ name, source: "ocr", received_at: new Date().toISOString(), active: false, supplier_id: selectedSupplierId || null })
         .select("id")
         .single();
       if (sErr) throw sErr;
