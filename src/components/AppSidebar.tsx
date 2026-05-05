@@ -41,6 +41,7 @@ const mainItems = [
 const adminItems = [
   { title: "Produse", url: "/admin/products", icon: Settings },
   { title: "Date tehnice produse", url: "/admin/product-tech", icon: FlaskConical },
+  { title: "Furnizori", url: "/admin/suppliers", icon: Building2 },
   { title: "Discounturi", url: "/admin/discounts", icon: Tags },
   { title: "Liste preț", url: "/admin/price-sheets", icon: Table },
 ];
