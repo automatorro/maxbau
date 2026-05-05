@@ -232,6 +232,20 @@ const ImportOcr = () => {
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [excelRunning, setExcelRunning] = useState(false);
 
+  // Supplier state
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+
+  // Multi-sheet state
+  const [excelSheetNames, setExcelSheetNames] = useState<string[]>([]);
+  const [selectedSheetName, setSelectedSheetName] = useState<string>("");
+  const [excelWorkbook, setExcelWorkbook] = useState<any>(null);
+
+  // AI column_map state
+  const [aiColumnMap, setAiColumnMap] = useState<Record<string, number> | null>(null);
+  const [categoryRows, setCategoryRows] = useState<{ row_index: number; category_name: string }[]>([]);
+
   const [gridRows, setGridRows] = useState<GridRow[]>([]);
   const [headerRowIndex, setHeaderRowIndex] = useState(0);
 
