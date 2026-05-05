@@ -371,23 +371,53 @@ const ImportOcr = () => {
     setGridRows([]); setHeaderRowIndex(0);
     setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
     setPriceOverridesByRowId({}); setNewPriceSheetName(""); setSavePricesOpen(false);
+    setAiColumnMap(null); setCategoryRows([]);
   };
 
-  const loadAiResult = (headers: string[], rows: string[][], note?: string | null) => {
+  const createSupplier = async () => {
+    const name = newSupplierName.trim();
+    if (!name) return;
+    setCreatingSupplier(true);
+    try {
+      const { data, error } = await supabase.from("suppliers").insert({ name }).select("id").single();
+      if (error) throw error;
+      if (data?.id) { setSelectedSupplierId(data.id); setNewSupplierName(""); await refetchSuppliers(); toast.success(`Furnizor "${name}" creat`); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare la creare furnizor"); }
+    finally { setCreatingSupplier(false); }
+  };
+
+  const loadAiResult = (headers: string[], rows: string[][], note?: string | null, columnMap?: Record<string, number> | null, catRows?: { row_index: number; category_name: string }[]) => {
     if (headers.length === 0) { toast.error("Nu s-a identificat niciun tabel"); return; }
     const headerRow: GridRow = { id: crypto.randomUUID(), cells: headers };
     const bodyGridRows: GridRow[] = rows.map((cells) => ({ id: crypto.randomUUID(), cells }));
     setGridRows([headerRow, ...bodyGridRows]);
     setHeaderRowIndex(0);
-    const nameIdx = guessNameColumnIndex(headers);
-    const priceIdx = guessPriceColumnIndex(headers);
+
+    // Use AI column_map if available, otherwise guess
+    const nameIdx = columnMap?.denumire != null && columnMap.denumire >= 0 ? columnMap.denumire : guessNameColumnIndex(headers);
+    const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
     setPriceColIdx(priceIdx);
+
+    if (columnMap) setAiColumnMap(columnMap);
+    if (catRows && catRows.length > 0) {
+      setCategoryRows(catRows);
+      toast.info(`${catRows.length} categorii detectate în tabel`);
+    }
+
     if (note) toast.info(note);
     setTimeout(() => {
       if (productsForMatch.length > 0 && bodyGridRows.length > 0)
         runAutoMatch(bodyGridRows, nameIdx, productsForMatch);
     }, 100);
+  };
+
+  const saveSupplierColumnMap = async (columnMap: Record<string, number>) => {
+    if (!selectedSupplierId) return;
+    try {
+      await supabase.from("suppliers").update({ ai_column_map: columnMap }).eq("id", selectedSupplierId);
+      await refetchSuppliers();
+    } catch { /* silent */ }
   };
 
   const runImageOcr = async () => {
@@ -408,26 +438,53 @@ const ImportOcr = () => {
     finally { setOcrRunning(false); }
   };
 
-  const runExcelImport = async () => {
+  const handleExcelFileSelect = async (f: File) => {
+    setExcelFile(f);
+    setExcelSheetNames([]);
+    setSelectedSheetName("");
+    setExcelWorkbook(null);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      setExcelWorkbook(wb);
+      setExcelSheetNames(wb.SheetNames);
+      setSelectedSheetName(wb.SheetNames[0] || "");
+      if (wb.SheetNames.length > 1) toast.info(`${wb.SheetNames.length} foi detectate — selectează foaia dorită`);
+    } catch { /* will be caught on import */ }
+  };
+
+  const runExcelImport = async (sheetOverride?: string) => {
     if (!excelFile || excelRunning) return;
     setExcelRunning(true);
     resetTableState();
     try {
       const XLSX = await import("xlsx");
-      const buf = await excelFile.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const sheetName = wb.SheetNames[0];
+      const wb = excelWorkbook || (() => { throw new Error("Workbook not loaded"); })();
+      const sheetName = sheetOverride || selectedSheetName || wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
+      if (!sheet) { toast.error(`Foaia "${sheetName}" nu există`); setExcelRunning(false); return; }
       const rawRows: string[][] = (XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: "" }) as unknown[][])
         .map((r) => (r as unknown[]).map((c) => String(c ?? "")));
-      if (rawRows.length === 0) { toast.error("Fișierul nu conține date"); setExcelRunning(false); return; }
+      if (rawRows.length === 0) { toast.error("Foaia nu conține date"); setExcelRunning(false); return; }
+
+      const supplierColumnMap = selectedSupplier?.ai_column_map || null;
       const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name }
+        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name, supplier_column_map: supplierColumnMap }
       });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
-      loadAiResult(data.headers, data.rows, data.note);
-      toast.success(`${data.rows.length} rânduri importate din Excel`);
+      loadAiResult(data.headers, data.rows, data.note, data.column_map, data.category_rows);
+
+      // Auto-save column_map to supplier if first import
+      if (data.column_map && selectedSupplierId && (!supplierColumnMap || Object.keys(supplierColumnMap).length === 0)) {
+        await saveSupplierColumnMap(data.column_map);
+        toast.info("Profilul furnizorului a fost salvat automat");
+      }
+
+      toast.success(`${data.rows.length} rânduri importate din "${sheetName}"`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
+    finally { setExcelRunning(false); }
     } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
     finally { setExcelRunning(false); }
   };
