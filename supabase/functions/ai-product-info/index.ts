@@ -193,6 +193,7 @@ Reguli stricte:
     if (action === "ocr-excel") {
       const rawRows: string[][] = body.rows || [];
       const filename: string = body.filename || "unknown.xlsx";
+      const supplierProfile: Record<string, string> | null = body.supplier_column_map || null;
 
       if (!Array.isArray(rawRows) || rawRows.length === 0) {
         return new Response(JSON.stringify({ error: "rows array is required" }), {
@@ -203,6 +204,11 @@ Reguli stricte:
 
       const truncated = rawRows.slice(0, 300);
 
+      let supplierHint = "";
+      if (supplierProfile && Object.keys(supplierProfile).length > 0) {
+        supplierHint = `\n\nProfil furnizor cunoscut (mapping coloane din importuri anterioare): ${JSON.stringify(supplierProfile)}. Folosește acest profil ca referință pentru a identifica coloanele, dar verifică dacă se potrivește cu datele actuale.`;
+      }
+
       const result = await callAI(
         LOVABLE_API_KEY,
         [
@@ -210,16 +216,18 @@ Reguli stricte:
             role: "system",
             content: `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
 Primești o matrice 2D de strings extrasă dintr-un fișier Excel.
-Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând), curăță rândurile goale sau de separare, normalizează prețurile (format european: virgulă ca separator zecimal → punct), returnează datele curate.`,
+Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând), curăță rândurile goale sau de separare, normalizează prețurile (format european: virgulă ca separator zecimal → punct), returnează datele curate.
+IMPORTANT: Identifică și returnează un column_map care specifică ce coloană corespunde fiecărui tip de informație (denumire, preț, um, cod_furnizor, cantitate_palet, consum, etc.).
+Dacă tabelul conține rânduri de categorie/grupă (bold, fără preț, text mai mare), marchează-le în câmpul category_rows.`,
           },
           {
             role: "user",
-            content: `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, curăță și returnează tabelul normalizat cu headers și rows.`,
+            content: `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, curăță și returnează tabelul normalizat cu headers, rows, column_map și category_rows.${supplierHint}`,
           },
         ],
         "extract_price_table",
         {
-          description: "Structured extraction of a price list table from Excel data",
+          description: "Structured extraction of a price list table from Excel data with column mapping",
           parameters: {
             type: "object",
             properties: {
@@ -229,9 +237,32 @@ Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând),
                 items: { type: "array", items: { type: "string" } },
                 description: "All data rows (excluding header). Each inner array has same length as headers.",
               },
+              column_map: {
+                type: "object",
+                properties: {
+                  denumire: { type: "number", description: "Index (0-based) of the product name column" },
+                  pret: { type: "number", description: "Index of the price column" },
+                  um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
+                  cod_furnizor: { type: "number", description: "Index of the supplier product code column, or -1 if not present" },
+                  cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
+                  consum: { type: "number", description: "Index of consumption column, or -1 if not present" },
+                },
+                description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found.",
+              },
+              category_rows: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    row_index: { type: "number", description: "0-based index in the rows array" },
+                    category_name: { type: "string", description: "Category/group name extracted" },
+                  },
+                },
+                description: "Rows that represent category/group headers, not actual products",
+              },
               note: { type: "string", description: "Optional: observation about data quality" },
             },
-            required: ["headers", "rows"],
+            required: ["headers", "rows", "column_map"],
             additionalProperties: false,
           },
         }
@@ -253,7 +284,14 @@ Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând),
       });
 
       return new Response(
-        JSON.stringify({ success: true, headers, rows: normalizedRows, note: (result.note as string) || null }),
+        JSON.stringify({
+          success: true,
+          headers,
+          rows: normalizedRows,
+          column_map: result.column_map || null,
+          category_rows: result.category_rows || [],
+          note: (result.note as string) || null,
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
