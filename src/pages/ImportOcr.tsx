@@ -37,12 +37,34 @@ type ProductForMatch = {
   denumire_completa: string;
   unit: string | null;
   pret_lista?: number;
+  supplier_id?: string | null;
 };
 
 // ── Helpers kept for product matching & price parsing ─────────────────────────
 
 function normalizeMatchText(input: string): string {
   return input.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+function getBrandFromName(name: string): string | null {
+  const lower = name.toLowerCase();
+  if (lower.includes("swisspor")) return "swisspor";
+  if (lower.includes("baumit")) return "baumit";
+  if (lower.includes("austrotherm")) return "austrotherm";
+  if (lower.includes("hirsch")) return "hirsch";
+  if (lower.includes("ceresit")) return "ceresit";
+  if (lower.includes("brikston")) return "brikston";
+  if (lower.includes("ytong")) return "ytong";
+  if (lower.includes("porotherm")) return "porotherm";
+  if (lower.includes("sika")) return "sika";
+  if (lower.includes("isover")) return "isover";
+  if (lower.includes("ursa")) return "ursa";
+  if (lower.includes("knauf")) return "knauf";
+  if (lower.includes("hasit")) return "hasit";
+  if (lower.includes("weber")) return "weber";
+  if (lower.includes("caparol")) return "caparol";
+  if (lower.includes("maco")) return "maco";
+  return null;
 }
 
 function matchKeywordsFromText(input: string): string[] {
@@ -271,7 +293,7 @@ const ImportOcr = () => {
   const { data: productsForMatch = [] } = useQuery({
     queryKey: ["products-for-ocr-match"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("products").select("id, cod_intern, denumire_completa, unit, pret_lista");
+      const { data, error } = await supabase.from("products").select("id, cod_intern, denumire_completa, unit, pret_lista, supplier_id");
       if (error) throw error;
       return data as ProductForMatch[];
     },
@@ -467,10 +489,28 @@ const ImportOcr = () => {
     if (rows.length === 0 || products.length === 0) return;
     const nextSuggestions: Record<string, string[]> = {};
     const nextMatched: Record<string, string | null> = {};
+
+    const supplierNameText = selectedSupplier?.name || newSupplierName || "";
+    const importBrand = getBrandFromName(supplierNameText);
+
+    // Filter out products that belong to a DIFFERENT supplier or have a clashing brand
+    const validProducts = products.filter(p => {
+      // Rule 1: Strict supplier_id check if available
+      if (p.supplier_id && selectedSupplierId && p.supplier_id !== selectedSupplierId) return false;
+      
+      // Rule 2: Brand clash check
+      const productBrand = getBrandFromName(p.denumire_completa) || (p.brand ? getBrandFromName(p.brand) : null);
+      if (productBrand && importBrand && productBrand !== importBrand) {
+        return false; // The product is from a different known brand!
+      }
+
+      return true; 
+    });
+
     for (const r of rows) {
       const name = (r.cells[nameColIdx] || "").trim();
       if (!name) continue;
-      const results = suggestProductsForName(name, products, 5);
+      const results = suggestProductsForName(name, validProducts, 5);
       if (results.length > 0) {
         nextSuggestions[r.id] = results.map((s) => s.product.id);
         if (results[0].score >= 0.85) nextMatched[r.id] = results[0].product.id;
@@ -480,7 +520,7 @@ const ImportOcr = () => {
     setMatchedProductIdByRowId(nextMatched);
     const autoCount = Object.values(nextMatched).filter(Boolean).length;
     toast.success(`Potrivire automată: ${autoCount}/${rows.length} rânduri`);
-  }, []);
+  }, [selectedSupplierId, selectedSupplier?.name, newSupplierName]);
 
   const setMatchedProductForRow = (rowId: string, productId: string | null) => {
     setMatchedProductIdByRowId((prev) => ({ ...prev, [rowId]: productId }));

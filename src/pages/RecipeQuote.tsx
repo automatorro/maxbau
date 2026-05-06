@@ -43,6 +43,7 @@ interface GeneratedLine {
   line_total: number;
   status: "FOUND" | "NOT_FOUND";
   price_sheet_item_id?: string | null;
+  alternatives: Product[];
 }
 
 type Product = {
@@ -81,68 +82,58 @@ function umCompatible(recipeUM: string, productUM: string | null): boolean {
 }
 
 /**
- * Improved matching: 
- * 1. If material has cod_intern → exact match (highest priority)
- * 2. Fuzzy: ALL keywords must match (AND logic), filtered by UM compatibility
- * 3. Score threshold: reject matches below 60%
+ * Improved matching:
+ * 1. If material has cod_intern → exact match
+ * 2. Break down keywords into individual words, filter by length > 2
+ * 3. Match at least 60% of the words
+ * 4. Boost score if UM matches
  */
-function findBestProduct(
+function findCandidateProducts(
   mat: RecipeMaterial,
   products: Product[]
-): Product | null {
-  // Priority 1: exact cod_intern match
-  if (mat.cod_intern) {
-    const exact = products.find(
-      (p) => p.cod_intern === mat.cod_intern
-    );
-    if (exact) return exact;
-  }
+): Product[] {
+  const rawKeywords = mat.keywords.flatMap(k => k.split(/[\s+]+/)).map(k => k.toLowerCase());
+  const keywords = Array.from(new Set(rawKeywords.filter(k => k.length > 2)));
+  
+  if (keywords.length === 0 && !mat.cod_intern) return [];
 
-  // Priority 2: fuzzy keyword search with AND logic + UM filter
-  const keywords = mat.keywords.map((k) => k.toLowerCase());
-  if (keywords.length === 0) return null;
+  const candidates = products.map(p => {
+    // Priority 1: Exact code match gets maximum score
+    if (mat.cod_intern && p.cod_intern === mat.cod_intern) {
+      return { p, score: 999999 };
+    }
 
-  let bestProduct: Product | null = null;
-  let bestScore = 0;
+    if (keywords.length === 0) return { p, score: 0 };
 
-  for (const p of products) {
-    // UM filter
-    if (!umCompatible(mat.um, p.unit)) continue;
-
-    const target = `${p.denumire_completa} ${p.cod_intern}`.toLowerCase();
-
-    // All keywords must match (AND logic)
-    let allMatch = true;
-    let matchedLength = 0;
+    const targetNoSpace = `${p.denumire_completa}${p.cod_intern}`.toLowerCase().replace(/[\s+]+/g, '');
+    let score = 0;
+    let matchedKeywords = 0;
+    
     for (const kw of keywords) {
-      if (target.includes(kw)) {
-        matchedLength += kw.length;
-      } else {
-        allMatch = false;
-        break;
+      const kwNoSpace = kw.replace(/[\s+]+/g, '');
+      if (kwNoSpace.length > 0 && targetNoSpace.includes(kwNoSpace)) {
+        score += kw.length;
+        matchedKeywords++;
       }
     }
 
-    if (!allMatch) continue;
+    // Relaxed threshold: require at least 40% of keywords to match to allow broad alternatives
+    const matchRatio = matchedKeywords / keywords.length;
+    if (matchRatio < 0.4) return { p, score: 0 };
 
-    // Score = matched keyword length / total possible
-    const totalKwLength = keywords.reduce((s, k) => s + k.length, 0);
-    const score = totalKwLength > 0 ? matchedLength / totalKwLength : 0;
-
-    // Minimum threshold 60%
-    if (score < 0.6) continue;
-
-    // Prefer higher price products (more likely to be the real/quality product)
-    // and longer keyword matches
-    const finalScore = matchedLength + (Number(p.pret_lista) > 0 ? 0.1 : 0);
-
-    if (finalScore > bestScore) {
-      bestScore = finalScore;
-      bestProduct = p;
+    if (umCompatible(mat.um, p.unit)) {
+      score *= 1.5;
+    } else {
+      score *= 0.5;
     }
-  }
 
-  return bestProduct;
+    if (Number(p.pret_lista) > 0) score += 5;
+
+    return { p, score };
+  }).filter(c => c.score > 0).sort((a, b) => b.score - a.score);
+
+  // Return top 15 alternatives to give user plenty of choices
+  return candidates.map(c => c.p).slice(0, 15);
 }
 
 const RecipeQuote = () => {
@@ -178,11 +169,20 @@ const RecipeQuote = () => {
   const { data: products = [] } = useQuery({
     queryKey: ["all-products-for-recipe"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id");
-      if (error) throw error;
-      return data as Product[];
+      let allProducts: Product[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (error) throw error;
+        if (data) allProducts = [...allProducts, ...data];
+        if (!data || data.length < pageSize) break;
+        page++;
+      }
+      return allProducts;
     },
   });
 
@@ -203,7 +203,8 @@ const RecipeQuote = () => {
 
     const result: GeneratedLine[] = materials.map((mat) => {
       const quantity = mat.consumption_per_m2 * surfaceNum;
-      const bestProduct = findBestProduct(mat, products);
+      const alternatives = findCandidateProducts(mat, products);
+      const bestProduct = alternatives.length > 0 ? alternatives[0] : null;
 
       const listUnitPrice = bestProduct ? Number(bestProduct.pret_lista) : 0;
       const unitPrice = listUnitPrice;
@@ -223,6 +224,7 @@ const RecipeQuote = () => {
         discount_percent: discountNum,
         line_total: Math.round(lineTotal * 100) / 100,
         status: bestProduct ? "FOUND" : "NOT_FOUND",
+        alternatives,
       };
     });
 
@@ -248,6 +250,29 @@ const RecipeQuote = () => {
         return { ...updated, line_total: Math.round(lineTotal * 100) / 100 };
       })
     );
+  };
+
+  const handleAlternativeChange = (position: number, newProductId: string) => {
+    setLines((prev) => prev.map(l => {
+      if (l.position !== position) return l;
+      const newProduct = l.alternatives.find(p => p.id === newProductId);
+      if (!newProduct) return l;
+      
+      const listUnitPrice = Number(newProduct.pret_lista) || 0;
+      const unitPrice = listUnitPrice;
+      const lineTotal = l.quantity * unitPrice * (1 - l.discount_percent / 100);
+      
+      return {
+        ...l,
+        product_id: newProduct.id,
+        cod_intern: newProduct.cod_intern,
+        product_name: newProduct.denumire_completa,
+        list_unit_price: listUnitPrice,
+        unit_price: unitPrice,
+        line_total: Math.round(lineTotal * 100) / 100,
+        status: "FOUND"
+      };
+    }));
   };
 
   const totals = useMemo(() => {
@@ -401,7 +426,25 @@ const RecipeQuote = () => {
                         <TableRow key={line.position}>
                           <TableCell className="text-muted-foreground">{line.position}</TableCell>
                           <TableCell>
-                            <div className="text-sm">{line.product_name || line.description}</div>
+                            {line.alternatives && line.alternatives.length > 0 ? (
+                              <Select
+                                value={line.product_id || ""}
+                                onValueChange={(val) => handleAlternativeChange(line.position, val)}
+                              >
+                                <SelectTrigger className="w-full text-sm h-auto py-1 min-h-[32px]">
+                                  <SelectValue placeholder="Alege alternativă..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {line.alternatives.map((alt) => (
+                                    <SelectItem key={alt.id} value={alt.id} className="text-sm">
+                                      {alt.denumire_completa} (UM: {alt.unit || "-"}) - {Number(alt.pret_lista).toFixed(2)} lei
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div className="text-sm">{line.product_name || line.description}</div>
+                            )}
                             {line.status === "NOT_FOUND" && (
                               <div className="text-xs text-destructive flex items-center gap-1 mt-0.5">
                                 <AlertTriangle className="h-3 w-3" />
@@ -479,9 +522,27 @@ const RecipeQuote = () => {
                               </Badge>
                             ) : null}
                           </div>
-                          <p className="text-sm font-medium leading-snug line-clamp-2">
-                            {line.product_name || line.description}
-                          </p>
+                          {line.alternatives && line.alternatives.length > 0 ? (
+                            <Select
+                              value={line.product_id || ""}
+                              onValueChange={(val) => handleAlternativeChange(line.position, val)}
+                            >
+                              <SelectTrigger className="w-full text-sm h-auto py-1 mt-1">
+                                <SelectValue placeholder="Alege alternativă..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {line.alternatives.map((alt) => (
+                                  <SelectItem key={alt.id} value={alt.id} className="text-sm">
+                                    {alt.denumire_completa} (UM: {alt.unit || "-"})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="text-sm font-medium leading-snug line-clamp-2">
+                              {line.product_name || line.description}
+                            </p>
+                          )}
                           {line.status === "NOT_FOUND" && (
                             <p className="text-xs text-destructive flex items-center gap-1 mt-0.5">
                               <AlertTriangle className="h-3 w-3" /> Produs negăsit în catalog

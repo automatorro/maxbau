@@ -22,8 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Pencil, CheckCircle2, Circle, Info, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { Search, Pencil, CheckCircle2, Circle, Info, AlertTriangle, Sparkles, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+
+const PAGE_SIZE = 50;
 
 interface AiInfo {
   consum?: string;
@@ -92,14 +94,16 @@ const AdminProductTechData = () => {
   const [jsonError, setJsonError] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
 
+  const [page, setPage] = useState(0);
+
   const queryClient = useQueryClient();
 
-  const { data: products = [], isLoading, error: queryError } = useQuery({
-    queryKey: ["admin-tech-products", search],
+  const { data, isLoading, error: queryError } = useQuery({
+    queryKey: ["admin-tech-products", search, page],
     queryFn: async () => {
       let query = supabase
         .from("products")
-        .select("id, cod_intern, denumire_completa, unit, pret_lista, brand, specifications")
+        .select("id, cod_intern, denumire_completa, unit, pret_lista, brand, specifications", { count: "exact" })
         .order("cod_intern");
 
       const tokens = search.trim().split(/\s+/).filter((t) => t.length >= 2);
@@ -110,11 +114,20 @@ const AdminProductTechData = () => {
         );
       }
 
-      const { data, error } = await query.limit(200);
+      const { data, error, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
       if (error) throw error;
-      return (data ?? []) as Product[];
+      return { products: (data ?? []) as Product[], total: count ?? 0 };
     },
   });
+
+  const products = data?.products || [];
+  const total = data?.total || 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleSearch = (val: string) => {
+    setSearch(val);
+    setPage(0);
+  };
 
   const saveMutation = useMutation({
     mutationFn: async ({ id, aiInfo, extraSpecs }: { id: string; aiInfo: AiInfo; extraSpecs: Record<string, unknown> | null }) => {
@@ -258,7 +271,7 @@ const AdminProductTechData = () => {
           <Input
             placeholder="Caută produse..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -353,6 +366,20 @@ const AdminProductTechData = () => {
           </Table>
         </div>
 
+        {totalPages > 1 && (
+          <div className="hidden md:flex items-center justify-center gap-2 mt-4">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Pagina {page + 1} din {totalPages}
+            </span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         {/* Mobile card list */}
         <div className="md:hidden space-y-2">
           {isLoading ? (
@@ -407,6 +434,20 @@ const AdminProductTechData = () => {
             })
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex md:hidden items-center justify-center gap-2 mt-4">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page + 1} / {totalPages}
+            </span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Dialog editare */}

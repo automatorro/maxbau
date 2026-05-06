@@ -7,25 +7,27 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Search, Upload, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const BATCH_SIZE = 5;
+const PAGE_SIZE = 50;
 
 const AdminProducts = () => {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState("");
   const [importProgress, setImportProgress] = useState(0);
+  const [page, setPage] = useState(0);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: products, isLoading } = useQuery({
-    queryKey: ["admin-products", search],
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-products", search, page],
     queryFn: async () => {
       let query = supabase
         .from("products")
-        .select("*, categories(name)")
+        .select("*, categories(name)", { count: "exact" })
         .order("cod_intern");
 
       if (search) {
@@ -36,11 +38,20 @@ const AdminProducts = () => {
         }
       }
 
-      const { data, error } = await query.limit(100);
+      const { data, error, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
       if (error) throw error;
-      return data;
+      return { products: data, total: count ?? 0 };
     },
   });
+
+  const products = data?.products || [];
+  const total = data?.total || 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const handleSearch = (val: string) => {
+    setSearch(val);
+    setPage(0);
+  };
 
   const handleImport = async () => {
     setImporting(true);
@@ -153,7 +164,7 @@ const AdminProducts = () => {
           <Input
             placeholder="Caută produse..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             className="pl-10"
           />
         </div>
@@ -208,6 +219,20 @@ const AdminProducts = () => {
           </Table>
         </div>
 
+        {totalPages > 1 && (
+          <div className="hidden md:flex items-center justify-center gap-2 mt-4">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Pagina {page + 1} din {totalPages}
+            </span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         {/* Mobile card list */}
         <div className="md:hidden space-y-2">
           {isLoading ? (
@@ -242,6 +267,20 @@ const AdminProducts = () => {
             </div>
           )}
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex md:hidden items-center justify-center gap-2 mt-4">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              {page + 1} / {totalPages}
+            </span>
+            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );
