@@ -115,6 +115,7 @@ async function getApiKey(): Promise<string> {
     .single();
   if (error || !data?.value) throw new Error("Cheia API nu a fost găsită în configurație.");
   cachedApiKey = data.value.trim();
+  console.log("API key preview:", cachedApiKey.slice(0, 10) + "..." + cachedApiKey.slice(-4), "length:", cachedApiKey.length);
   return cachedApiKey;
 }
 
