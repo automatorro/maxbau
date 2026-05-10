@@ -11,6 +11,7 @@ import {
   Lightbulb,
   FlaskConical,
   Building2,
+  MessageSquare,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -36,6 +37,7 @@ const mainItems = [
   { title: "Ofertă din cerere client", url: "/quote/smart", icon: Lightbulb },
   { title: "Generare rețetă", url: "/recipe-quote", icon: Calculator },
   { title: "Ofertele mele", url: "/quotes", icon: FileText },
+  { title: "Consultant AI", url: "/consultant", icon: MessageSquare },
 ];
 
 const adminItems = [
