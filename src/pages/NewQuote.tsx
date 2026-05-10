@@ -552,10 +552,10 @@ const NewQuote = () => {
         )}
 
         {/* Actions */}
-        <div className="flex gap-3 justify-end pb-8">
+        <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pb-8">
           <Button
-            variant="outline"
             disabled={items.length === 0}
+            className="w-full sm:w-auto"
             onClick={() => {
               exportQuoteToExcel(
                 {
@@ -586,11 +586,13 @@ const NewQuote = () => {
             <Download className="h-4 w-4 mr-1" /> Exportă Excel
           </Button>
           <Button variant="outline" onClick={() => saveMutation.mutate("draft")}
-            disabled={saveMutation.isPending || items.length === 0}>
+            disabled={saveMutation.isPending || items.length === 0}
+            className="w-full sm:w-auto">
             <Save className="h-4 w-4 mr-1" /> Salvează ciornă
           </Button>
           <Button onClick={() => saveMutation.mutate("sent")}
-            disabled={saveMutation.isPending || items.length === 0}>
+            disabled={saveMutation.isPending || items.length === 0}
+            className="w-full sm:w-auto">
             <Send className="h-4 w-4 mr-1" /> Trimite oferta
           </Button>
         </div>

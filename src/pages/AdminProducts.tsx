@@ -524,8 +524,116 @@ const AdminProducts = () => {
           </Table>
         </div>
 
+        {/* Mobile card view */}
+        <div className="md:hidden space-y-2">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            </div>
+          ) : products && products.length > 0 ? (
+            products.map((product) => {
+              const isExpanded = expandedRowId === product.id;
+              const aiInfo = getAiInfo(product);
+              return (
+                <div key={product.id} className="rounded-lg border bg-card">
+                  <button
+                    onClick={() => toggleExpand(product.id)}
+                    className="w-full text-left p-3 flex items-start gap-3"
+                  >
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary shrink-0">
+                          {product.cod_intern}
+                        </Badge>
+                        {product.categories?.name && (
+                          <Badge variant="secondary" className="text-[10px] truncate max-w-[100px]">
+                            {product.categories.name}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium line-clamp-2">{product.denumire_completa}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">{product.brand || ""} · {product.unit || "buc"}</span>
+                        <span className="text-base font-bold text-primary">{Number(product.pret_lista).toFixed(2)} lei</span>
+                      </div>
+                    </div>
+                    {isExpanded ? <ChevronUp className="h-4 w-4 shrink-0 mt-1 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 mt-1 text-muted-foreground" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t px-3 pb-3 space-y-3">
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2">
+                        <Button variant="outline" size="sm" className="flex-1 gap-1.5" onClick={() => openEdit(product)}>
+                          <Pencil className="h-3.5 w-3.5" /> Editează
+                        </Button>
+                        <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive" onClick={() => setDeleteProductId(product.id)}>
+                          <Trash2 className="h-3.5 w-3.5" /> Șterge
+                        </Button>
+                      </div>
+
+                      {/* AI Info */}
+                      <div className="rounded-md border p-2.5 space-y-2 bg-muted/20">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-semibold flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-primary" />
+                            Date Tehnice
+                            {aiInfo?.updated_at && <span className="text-[10px] font-normal text-muted-foreground">(✓)</span>}
+                          </h4>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => fetchAiData(product.id)}
+                            disabled={aiLoadingId === product.id}
+                          >
+                            {aiLoadingId === product.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3 w-3" />
+                            )}
+                            AI
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="text-muted-foreground text-[10px] uppercase">Consum</p>
+                            <p className="font-medium">{aiInfo?.consum || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-[10px] uppercase">Ambalaj</p>
+                            <p className="font-medium">{aiInfo?.ambalaj || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-[10px] uppercase">Utilizare</p>
+                            <p className="font-medium">{aiInfo?.utilizare || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground text-[10px] uppercase">Producător</p>
+                            <p className="font-medium">{product.manufacturer || product.brand || "—"}</p>
+                          </div>
+                        </div>
+                        {aiInfo?.alternative && aiInfo.alternative.length > 0 && (
+                          <div className="text-xs">
+                            <p className="text-muted-foreground text-[10px] uppercase">Alternative</p>
+                            <p className="font-medium">{aiInfo.alternative.join(", ")}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Niciun produs. Importați produse de pe maxbau.ro.
+            </div>
+          )}
+        </div>
+
         {totalPages > 1 && (
-          <div className="hidden md:flex items-center justify-center gap-2 mt-4">
+          <div className="flex items-center justify-center gap-2 mt-4">
             <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
               <ChevronLeft className="h-4 w-4" />
             </Button>

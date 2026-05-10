@@ -621,7 +621,7 @@ const SmartQuote = () => {
                 )}
 
                 {/* Footer acțiuni */}
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t border-border/40">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between px-3 py-2 bg-muted/20 border-t border-border/40 gap-2">
                   <span className="text-xs text-muted-foreground">
                     {suggestedProducts.length > 0
                       ? selectedSuggestions.size > 0
@@ -629,7 +629,7 @@ const SmartQuote = () => {
                         : "Bifați produsele potrivite"
                       : "Produsul nu există în catalog?"}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     {debouncedCerere.length >= 3 && (
                       <button
                         onClick={fetchEquivalents}
@@ -1040,16 +1040,17 @@ const SmartQuote = () => {
         )}
 
         {items.length > 0 && (
-          <div className="flex gap-3 justify-end pb-8 flex-wrap">
-            <Button variant="outline" onClick={handleExport} className="gap-2">
+          <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pb-8">
+            <Button variant="outline" onClick={handleExport} className="gap-2 w-full sm:w-auto">
               <Download className="h-4 w-4" /> Exportă Excel
             </Button>
             <Button variant="outline"
               onClick={() => saveMutation.mutate("draft")}
-              disabled={saveMutation.isPending}>
+              disabled={saveMutation.isPending}
+              className="w-full sm:w-auto">
               <Save className="h-4 w-4 mr-1" /> Salvează ciornă
             </Button>
-            <Button onClick={() => saveMutation.mutate("sent")} disabled={saveMutation.isPending}>
+            <Button onClick={() => saveMutation.mutate("sent")} disabled={saveMutation.isPending} className="w-full sm:w-auto">
               <Send className="h-4 w-4 mr-1" /> Trimite oferta
             </Button>
           </div>

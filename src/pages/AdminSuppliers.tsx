@@ -212,7 +212,9 @@ const AdminSuppliers = () => {
             ) : suppliers.length === 0 ? (
               <p className="text-sm text-muted-foreground">Niciun furnizor adăugat încă.</p>
             ) : (
-              <div className="rounded-md border">
+            <div className="space-y-0">
+              {/* Desktop table */}
+              <div className="hidden md:block rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -268,6 +270,52 @@ const AdminSuppliers = () => {
                   </TableBody>
                 </Table>
               </div>
+
+              {/* Mobile card view */}
+              <div className="md:hidden space-y-2">
+                {suppliers.map((s) => (
+                  <div key={s.id} className="rounded-lg border bg-card p-3 space-y-2">
+                    {editingId === s.id ? (
+                      <div className="space-y-2">
+                        <Input value={editName} onChange={(e) => setEditName(e.target.value)} className="h-9 text-sm" placeholder="Nume furnizor" />
+                        <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className="text-xs min-h-[60px]" placeholder="Observații..." />
+                        <div className="flex gap-2">
+                          <Button size="sm" className="flex-1 gap-1.5" onClick={saveEdit}><Save className="h-3.5 w-3.5" /> Salvează</Button>
+                          <Button variant="outline" size="sm" onClick={() => setEditingId(null)}><X className="h-3.5 w-3.5" /></Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm">{s.name}</p>
+                            {s.notes && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{s.notes}</p>}
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => startEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteId(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        </div>
+                        <div className="flex gap-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-muted-foreground uppercase">Produse:</span>
+                            <Badge variant={productCounts[s.id] ? "default" : "secondary"} className={`text-[10px] ${productCounts[s.id] ? "bg-primary text-primary-foreground" : ""}`}>
+                              {productCounts[s.id] || 0}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-muted-foreground uppercase">Importuri:</span>
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                              {priceSheetCounts[s.id] || 0}
+                            </Badge>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
             )}
           </CardContent>
         </Card>

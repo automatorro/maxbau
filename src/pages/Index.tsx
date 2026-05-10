@@ -133,7 +133,7 @@ const Index = () => {
               Platformă digitală pentru forța de vânzări
             </div>
           </div>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground leading-tight">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-foreground leading-tight">
             Max Bau —{" "}
             <span className="text-primary">mai rapid,</span>
             <br className="hidden sm:block" /> mai precis, mai câștigat.
@@ -152,11 +152,11 @@ const Index = () => {
           )}
 
           {/* Pillars */}
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-8 flex gap-2 sm:gap-3 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
             {pillars.map((p) => (
               <div
                 key={p.label}
-                className="flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-sm text-foreground/80"
+                className="flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-xs sm:text-sm text-foreground/80 whitespace-nowrap shrink-0 sm:shrink"
               >
                 <p.icon className="h-3.5 w-3.5 text-primary" />
                 {p.label}
@@ -227,7 +227,7 @@ const Index = () => {
             Administrare
           </h2>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
           {adminFeatures.map((item) => (
             <Link
               key={item.url}

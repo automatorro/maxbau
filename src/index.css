@@ -92,7 +92,40 @@
     @apply border-border;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground;
+    overscroll-behavior-y: contain;
   }
+
+  /* Ensure inputs are touch-friendly (min 44px) on mobile */
+  @media (max-width: 768px) {
+    input, select, textarea, button {
+      min-height: 44px;
+      font-size: 16px; /* Prevents iOS auto-zoom on focus */
+    }
+    /* Smaller inputs used inside tables/compact areas */
+    input.h-7, input.h-8 {
+      min-height: 32px;
+      font-size: 14px;
+    }
+  }
+}
+
+/* Safe area utilities for notch devices */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }

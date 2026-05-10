@@ -32,7 +32,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
             </div>
             <h1 className="text-lg font-semibold text-foreground truncate">Max Bau Materiale</h1>
           </header>
-          <main className="flex-1 p-4 md:p-6 overflow-auto">
+          <main className="flex-1 p-3 md:p-6 overflow-auto min-w-0 pb-safe">
             {children}
           </main>
         </div>

@@ -985,7 +985,7 @@ const ImportOcr = () => {
               {/* Price comparison & save section */}
               <div className="rounded-md border p-3 space-y-3 mt-4">
                 <h4 className="text-sm font-medium">Prețuri & Salvare</h4>
-                <div className="flex flex-wrap gap-2 items-end">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-end">
                   <div className="min-w-[150px]">
                     <Label className="text-xs">Coloană preț</Label>
                     <Select value={priceColIdx.toString()} onValueChange={(v) => { setPriceColIdx(Number(v)); setPriceOverridesByRowId({}); }}>
@@ -993,8 +993,8 @@ const ImportOcr = () => {
                       <SelectContent>{headerCells.map((h, i) => (<SelectItem key={i} value={i.toString()}>{h || `Col ${i + 1}`}</SelectItem>))}</SelectContent>
                     </Select>
                   </div>
-                  <Button variant="outline" size="sm" onClick={ensurePriceOverrides} disabled={bodyRows.length === 0}>Preia prețuri</Button>
-                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning}>
+                  <Button variant="outline" size="sm" onClick={ensurePriceOverrides} disabled={bodyRows.length === 0} className="w-full sm:w-auto">Preia prețuri</Button>
+                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning} className="w-full sm:w-auto">
                     Actualizează Catalogul (doar potrivite)
                   </Button>
                   {bodyRows.some((r) => !matchedProductIdByRowId[r.id]) && (
@@ -1002,9 +1002,14 @@ const ImportOcr = () => {
                       size="sm"
                       onClick={bulkUpdateCatalog}
                       disabled={bulkRunning}
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white w-full sm:w-auto"
                     >
-                      {bulkRunning ? "Se procesează..." : `Creează produse noi + Actualizează Catalog (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}
+                      {bulkRunning ? "Se procesează..." : (
+                        <>
+                          <span className="hidden sm:inline">{`Creează produse noi + Actualizează Catalog (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}</span>
+                          <span className="sm:hidden">{`Creează + Actualizează (${bodyRows.filter((r) => !matchedProductIdByRowId[r.id]).length} noi)`}</span>
+                        </>
+                      )}
                     </Button>
                   )}
                 </div>

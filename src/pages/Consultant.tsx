@@ -204,14 +204,15 @@ export default function Consultant() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col max-w-3xl mx-auto" style={{ height: "calc(100vh - 7rem)" }}>
+      <div className="flex flex-col max-w-3xl mx-auto" style={{ height: "calc(100dvh - 7rem)" }}>
         <div className="flex items-center justify-between mb-3 shrink-0">
           <div>
-            <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-foreground flex items-center gap-2">
               <Bot className="h-5 w-5 text-primary" />
-              Consultant AI
+              <span className="hidden sm:inline">Consultant AI</span>
+              <span className="sm:hidden">AI</span>
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
               Inginer de vânzări MAXBAU — consultanță tehnică în timp real
             </p>
           </div>
@@ -222,7 +223,8 @@ export default function Consultant() {
             className="gap-1.5 shrink-0"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Conversație nouă
+            <span className="hidden sm:inline">Conversație nouă</span>
+            <span className="sm:hidden">Nou</span>
           </Button>
         </div>
 
@@ -282,7 +284,7 @@ export default function Consultant() {
           </CardContent>
         </Card>
 
-        <div className="flex gap-2 mt-3 shrink-0">
+        <div className="flex gap-2 mt-3 shrink-0 pb-safe">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}

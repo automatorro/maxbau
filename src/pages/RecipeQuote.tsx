@@ -386,7 +386,7 @@ const RecipeQuote = () => {
               </div>
             </div>
             <div className="mt-4">
-              <Button onClick={handleGenerate} className="gap-2" size="lg">
+              <Button onClick={handleGenerate} className="gap-2 w-full sm:w-auto" size="lg">
                 <Calculator className="h-4 w-4" />
                 GENEREAZĂ OFERTĂ
               </Button>
@@ -619,8 +619,8 @@ const RecipeQuote = () => {
               </CardContent>
             </Card>
 
-            <div className="flex justify-end pb-8">
-              <Button onClick={handleCreateQuote} size="lg" className="gap-2">
+            <div className="flex justify-center sm:justify-end pb-8">
+              <Button onClick={handleCreateQuote} size="lg" className="gap-2 w-full sm:w-auto">
                 <Plus className="h-4 w-4" />
                 Salvează ca ofertă
               </Button>
