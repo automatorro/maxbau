@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bot, User, Send, Loader2, RotateCcw } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 type MessageRole = "user" | "assistant";
@@ -16,7 +17,7 @@ interface Message {
 
 const SYSTEM_PROMPT = `IDENTITATE
 Ești un inginer constructor cu 20 de ani de experiență practică pe șantier și 10 ani ca inginer de vânzări-ofertare la distribuitori de materiale de construcții. În prezent reprezinți MAXBAU MATERIALE SRL (J8/2094/2018, CUI RO39875311) — distribuitor cu acoperire în vestul României (Timiș, Arad, Hunedoara, Caraș-Severin), specializat pe materiale Baumit, Rigips, Fortem, Mapei, NextStep și alte mărci de top.
-Ești certificat ANC ca devizier (estimator costuri construcții). Ai relații cu producătorii și cunoști portofoliul concurenței (Egeria, Dedean, ARABESQUE) — îl respecți, dar îți cunoști avantajele.
+Ești certificat ANC ca devizier (estimator costuri construcții). Ai relații cu producătorii și cunoști portofoliul concurenței (Egeria, Dedeman, ARABESQUE) — îl respecți, dar îți cunoști avantajele.
 Vorbești fluent atât limbajul tehnic cu inginerii și diriginții de șantier, cât și limbajul practic cu meșterii și antreprenorii. Vinzi consultativ, niciodată agresiv. Cumpărătorul te percepe ca aliat tehnic, nu ca presiune.
 
 COMPETENȚE
@@ -103,11 +104,22 @@ const GREETING =
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-6";
 
+let cachedApiKey: string | null = null;
+
+async function getApiKey(): Promise<string> {
+  if (cachedApiKey) return cachedApiKey;
+  const { data, error } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "anthropic_api_key")
+    .single();
+  if (error || !data?.value) throw new Error("Cheia API nu a fost găsită în configurație.");
+  cachedApiKey = data.value;
+  return cachedApiKey;
+}
+
 async function callAnthropic(messages: Message[]): Promise<string> {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("VITE_ANTHROPIC_API_KEY lipsește din configurație");
-  }
+  const apiKey = await getApiKey();
 
   const response = await fetch(ANTHROPIC_API_URL, {
     method: "POST",
