@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Search, Package, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const PAGE_SIZE = 24;
 
@@ -18,6 +19,7 @@ const Catalog = () => {
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSuppliers, setSelectedSuppliers] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -31,6 +33,13 @@ const Catalog = () => {
     setSelectedCategory(id);
     setPage(0);
   };
+  const handleSupplierToggle = (id: string) => {
+    const newSet = new Set(selectedSuppliers);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setSelectedSuppliers(newSet);
+    setPage(0);
+  };
   const handleSearchChange = (val: string) => {
     setSearch(val);
     setPage(0);
@@ -41,6 +50,18 @@ const Catalog = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categories")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["catalog-suppliers"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("suppliers")
         .select("*")
         .order("name");
       if (error) throw error;
@@ -65,7 +86,7 @@ const Catalog = () => {
   }, [selectedCategory, categories]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["catalog-products", search, categoryIds, page],
+    queryKey: ["catalog-products", search, categoryIds, Array.from(selectedSuppliers), page],
     queryFn: async () => {
       let query = supabase
         .from("products")
@@ -82,6 +103,10 @@ const Catalog = () => {
 
       if (categoryIds) {
         query = query.in("category_id", categoryIds);
+      }
+
+      if (selectedSuppliers.size > 0) {
+        query = query.in("supplier_id", Array.from(selectedSuppliers));
       }
 
       const { data, error, count } = await query
@@ -101,19 +126,46 @@ const Catalog = () => {
     return categories.find((c) => c.id === selectedCategory)?.name;
   }, [selectedCategory, categories]);
 
-  const CategorySidebar = (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
-        Categorii
-      </h3>
-      <CategoryTree
-        categories={categories}
-        selectedId={selectedCategory}
-        onSelect={(id) => {
-          handleCategorySelect(id);
-          setMobileFilterOpen(false);
-        }}
-      />
+  const FilterSidebar = (
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
+          Categorii
+        </h3>
+        <CategoryTree
+          categories={categories}
+          selectedId={selectedCategory}
+          onSelect={(id) => {
+            handleCategorySelect(id);
+            setMobileFilterOpen(false);
+          }}
+        />
+      </div>
+
+      {suppliers.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
+            Producători
+          </h3>
+          <div className="px-2 space-y-3">
+            {suppliers.map(s => (
+              <div key={s.id} className="flex items-center space-x-3">
+                <Checkbox 
+                  id={`supplier-${s.id}`} 
+                  checked={selectedSuppliers.has(s.id)}
+                  onCheckedChange={() => handleSupplierToggle(s.id)}
+                />
+                <label 
+                  htmlFor={`supplier-${s.id}`} 
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                >
+                  {s.name}
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -147,7 +199,7 @@ const Catalog = () => {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-72 p-4">
-              <ScrollArea className="h-full">{CategorySidebar}</ScrollArea>
+              <ScrollArea className="h-full">{FilterSidebar}</ScrollArea>
             </SheetContent>
           </Sheet>
         </div>
@@ -169,7 +221,7 @@ const Catalog = () => {
           {/* Desktop sidebar */}
           <aside className="hidden lg:block w-60 shrink-0">
             <ScrollArea className="h-[calc(100vh-220px)] pr-2">
-              {CategorySidebar}
+              {FilterSidebar}
             </ScrollArea>
           </aside>
 

@@ -53,6 +53,8 @@ const AdminProducts = () => {
   const [importStatus, setImportStatus] = useState("");
   const [importProgress, setImportProgress] = useState(0);
   const [page, setPage] = useState(0);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [supplierFilter, setSupplierFilter] = useState<string>("all");
   
   // Expanded row and Edit states
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -80,7 +82,7 @@ const AdminProducts = () => {
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-products", search, page],
+    queryKey: ["admin-products", search, categoryFilter, supplierFilter, page],
     queryFn: async () => {
       let query = supabase
         .from("products")
@@ -92,6 +94,22 @@ const AdminProducts = () => {
         for (const raw of tokens) {
           const token = raw.replace(/,/g, "\\,");
           query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
+        }
+      }
+
+      if (categoryFilter !== "all") {
+        if (categoryFilter === "none") {
+          query = query.is("category_id", null);
+        } else {
+          query = query.eq("category_id", categoryFilter);
+        }
+      }
+
+      if (supplierFilter !== "all") {
+        if (supplierFilter === "none") {
+          query = query.is("supplier_id", null);
+        } else {
+          query = query.eq("supplier_id", supplierFilter);
         }
       }
 
@@ -348,14 +366,42 @@ const AdminProducts = () => {
           </div>
         )}
 
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Caută produse..."
-            value={search}
-            onChange={(e) => handleSearch(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Caută produse..."
+              value={search}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          
+          <Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(0); }}>
+            <SelectTrigger className="w-full md:w-[200px]">
+              <SelectValue placeholder="Toate categoriile" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toate categoriile</SelectItem>
+              <SelectItem value="none">Fără categorie</SelectItem>
+              {categories.map((c: any) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={supplierFilter} onValueChange={(v) => { setSupplierFilter(v); setPage(0); }}>
+            <SelectTrigger className="w-full md:w-[200px]">
+              <SelectValue placeholder="Toți furnizorii" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toți furnizorii</SelectItem>
+              <SelectItem value="none">Fără furnizor</SelectItem>
+              {suppliers.map((s: any) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Desktop table */}
