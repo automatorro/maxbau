@@ -101,7 +101,7 @@ const GREETING =
   "Ca să vă pot recomanda cel mai bine, spuneți-mi pe scurt: ce construiți sau renovați și în ce fază sunteți?";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-sonnet-4-6";
 
 async function callAnthropic(messages: Message[]): Promise<string> {
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
