@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, Fragment } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
@@ -7,11 +7,45 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, Search, Upload, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Upload, Loader2, Pencil, Trash2, ChevronDown, ChevronUp, Sparkles, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const BATCH_SIZE = 5;
 const PAGE_SIZE = 50;
+
+interface AiInfo {
+  consum?: string;
+  ambalaj?: string;
+  alternative?: string[];
+  compatibilitati?: string;
+  utilizare?: string;
+  updated_at?: string;
+}
+
+interface Product {
+  id: string;
+  cod_intern: string;
+  denumire_completa: string;
+  unit: string | null;
+  pret_lista: number;
+  brand: string | null;
+  manufacturer: string | null;
+  supplier_id: string | null;
+  category_id: string | null;
+  packaging: string | null;
+  pack_quantity: string | null;
+  specifications: Record<string, unknown> | null;
+  categories?: { name: string } | null;
+}
+
+const getAiInfo = (p: Product): AiInfo | null => {
+  const specs = p.specifications || {};
+  return (specs.ai_info as AiInfo) || null;
+};
 
 const AdminProducts = () => {
   const [search, setSearch] = useState("");
@@ -19,6 +53,29 @@ const AdminProducts = () => {
   const [importStatus, setImportStatus] = useState("");
   const [importProgress, setImportProgress] = useState(0);
   const [page, setPage] = useState(0);
+  
+  // Expanded row and Edit states
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+  const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    cod_intern: "",
+    denumire_completa: "",
+    pret_lista: "",
+    unit: "",
+    category_id: "none",
+    brand: "",
+    manufacturer: "",
+    supplier_id: "none",
+    consum: "",
+    ambalaj: "",
+    alternative: "",
+    compatibilitati: "",
+    utilizare: "",
+  });
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -40,7 +97,25 @@ const AdminProducts = () => {
 
       const { data, error, count } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
       if (error) throw error;
-      return { products: data, total: count ?? 0 };
+      return { products: (data as any) as Product[], total: count ?? 0 };
+    },
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("categories").select("*").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ["suppliers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("suppliers").select("*").order("name");
+      if (error) throw error;
+      return data;
     },
   });
 
@@ -51,6 +126,7 @@ const AdminProducts = () => {
   const handleSearch = (val: string) => {
     setSearch(val);
     setPage(0);
+    setExpandedRowId(null);
   };
 
   const handleImport = async () => {
@@ -59,7 +135,6 @@ const AdminProducts = () => {
     setImportStatus("Se descoperă URL-urile produselor de pe maxbau.ro...");
 
     try {
-      // Step 1: Map the site
       const { data: mapData, error: mapError } = await supabase.functions.invoke("scrape-maxbau", {
         body: { action: "map" },
       });
@@ -77,7 +152,6 @@ const AdminProducts = () => {
 
       setImportStatus(`S-au găsit ${productUrls.length} produse. Se importă...`);
 
-      // Step 2: Scrape in batches
       let totalImported = 0;
       let totalErrors = 0;
       const allErrors: string[] = [];
@@ -132,13 +206,128 @@ const AdminProducts = () => {
     }
   };
 
+  const openEdit = (product: Product) => {
+    setEditProduct(product);
+    const ai = getAiInfo(product);
+    setForm({
+      cod_intern: product.cod_intern || "",
+      denumire_completa: product.denumire_completa || "",
+      pret_lista: product.pret_lista?.toString() || "0",
+      unit: product.unit || "",
+      category_id: product.category_id || "none",
+      brand: product.brand || "",
+      manufacturer: product.manufacturer || "",
+      supplier_id: product.supplier_id || "none",
+      consum: ai?.consum || "",
+      ambalaj: ai?.ambalaj || "",
+      alternative: ai?.alternative?.join(", ") || "",
+      compatibilitati: ai?.compatibilitati || "",
+      utilizare: ai?.utilizare || "",
+    });
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!editProduct) return;
+      
+      const aiInfo: AiInfo = {
+        consum: form.consum.trim() || undefined,
+        ambalaj: form.ambalaj.trim() || undefined,
+        alternative: form.alternative.trim()
+          ? form.alternative.split(",").map(s => s.trim()).filter(Boolean)
+          : [],
+        compatibilitati: form.compatibilitati.trim() || undefined,
+        utilizare: form.utilizare.trim() || undefined,
+      };
+
+      const existingSpecs = (editProduct.specifications as Record<string, unknown>) || {};
+      const newSpecs = {
+        ...existingSpecs,
+        ai_info: { ...aiInfo, updated_at: new Date().toISOString() },
+      };
+
+      const updateData = {
+        cod_intern: form.cod_intern,
+        denumire_completa: form.denumire_completa,
+        pret_lista: parseFloat(form.pret_lista) || 0,
+        unit: form.unit,
+        category_id: form.category_id === "none" ? null : form.category_id,
+        brand: form.brand || null,
+        manufacturer: form.manufacturer || null,
+        supplier_id: form.supplier_id === "none" ? null : form.supplier_id,
+        specifications: newSpecs,
+      };
+
+      const { error } = await supabase.from("products").update(updateData).eq("id", editProduct.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      toast({ title: "Produs salvat cu succes" });
+      setEditProduct(null);
+    },
+    onError: (e) => toast({ title: "Eroare la salvare", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("products").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      toast({ title: "Produs șters cu succes" });
+      setDeleteProductId(null);
+    },
+    onError: (e) => toast({ title: "Eroare la ștergere", description: e.message, variant: "destructive" }),
+  });
+
+  const fetchAiData = async (productId: string) => {
+    setAiLoadingId(productId);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-product-info", {
+        body: { product_ids: [productId] },
+      });
+
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || "Eroare AI");
+
+      const aiResult = data.data?.[productId] as AiInfo | undefined;
+      if (aiResult) {
+        const p = products.find(prod => prod.id === productId);
+        if (p) {
+          const existingSpecs = (p.specifications as Record<string, unknown>) || {};
+          const newSpecs = {
+            ...existingSpecs,
+            ai_info: { ...aiResult, updated_at: new Date().toISOString() },
+          };
+          await supabase.from("products").update({ specifications: newSpecs }).eq("id", productId);
+          queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+          toast({ title: "Date tehnice AI obținute și salvate" });
+        }
+      } else {
+        toast({ title: "AI nu a returnat date pentru acest produs" });
+      }
+    } catch (e) {
+      console.error("AI fetch error:", e);
+      toast({ title: "Eroare la obținerea datelor AI", variant: "destructive" });
+    } finally {
+      setAiLoadingId(null);
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    if (expandedRowId === id) setExpandedRowId(null);
+    else setExpandedRowId(id);
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Administrare produse</h1>
-            <p className="text-muted-foreground">Gestionează catalogul de produse</p>
+            <p className="text-muted-foreground">Gestionează catalogul și datele tehnice ale produselor</p>
           </div>
           <Button onClick={handleImport} disabled={importing} size="sm">
             {importing ? (
@@ -170,47 +359,117 @@ const AdminProducts = () => {
         </div>
 
         {/* Desktop table */}
-        <div className="hidden md:block rounded-md border overflow-x-auto">
-          <Table className="min-w-[1100px]">
+        <div className="hidden md:block rounded-md border overflow-x-auto bg-card">
+          <Table className="min-w-[1200px]">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]"></TableHead>
                 <TableHead>Cod intern</TableHead>
                 <TableHead>Denumire</TableHead>
                 <TableHead>Categorie</TableHead>
                 <TableHead>Brand</TableHead>
-                <TableHead>Producător</TableHead>
-                <TableHead>Ambalare</TableHead>
-                <TableHead>Cantitate/pachet</TableHead>
                 <TableHead>UM</TableHead>
                 <TableHead className="text-right">Preț (fără TVA)</TableHead>
+                <TableHead className="text-right w-[100px]">Acțiuni</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8">
+                  <TableCell colSpan={8} className="text-center py-8">
                     <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent mx-auto" />
                   </TableCell>
                 </TableRow>
               ) : products && products.length > 0 ? (
-                products.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell className="font-mono text-sm">{product.cod_intern}</TableCell>
-                    <TableCell className="max-w-xs truncate">{product.denumire_completa}</TableCell>
-                    <TableCell>{(product.categories as any)?.name || "-"}</TableCell>
-                    <TableCell className="max-w-[140px] truncate">{product.brand || "-"}</TableCell>
-                    <TableCell className="max-w-[160px] truncate">{product.manufacturer || "-"}</TableCell>
-                    <TableCell className="max-w-[160px] truncate">{product.packaging || "-"}</TableCell>
-                    <TableCell className="max-w-[140px] truncate">{product.pack_quantity || "-"}</TableCell>
-                    <TableCell>{product.unit}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {Number(product.pret_lista).toFixed(2)} lei
-                    </TableCell>
-                  </TableRow>
-                ))
+                products.map((product) => {
+                  const isExpanded = expandedRowId === product.id;
+                  const aiInfo = getAiInfo(product);
+                  return (
+                    <Fragment key={product.id}>
+                      <TableRow className={isExpanded ? "bg-muted/50" : ""}>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toggleExpand(product.id)}>
+                            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </Button>
+                        </TableCell>
+                        <TableCell className="font-mono text-sm">{product.cod_intern}</TableCell>
+                        <TableCell className="max-w-xs truncate font-medium">{product.denumire_completa}</TableCell>
+                        <TableCell>{product.categories?.name || "-"}</TableCell>
+                        <TableCell className="max-w-[140px] truncate">{product.brand || "-"}</TableCell>
+                        <TableCell>{product.unit}</TableCell>
+                        <TableCell className="text-right font-bold text-primary">
+                          {Number(product.pret_lista).toFixed(2)} lei
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => openEdit(product)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteProductId(product.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow className="bg-muted/30">
+                          <TableCell colSpan={8} className="p-0">
+                            <div className="p-4 border-b border-border/50">
+                              <div className="flex items-center justify-between mb-4">
+                                <h4 className="text-sm font-semibold flex items-center gap-2">
+                                  <Sparkles className="h-4 w-4 text-primary" />
+                                  Date Tehnice 
+                                  {aiInfo?.updated_at && <span className="text-xs font-normal text-muted-foreground ml-2">(completate)</span>}
+                                </h4>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => fetchAiData(product.id)}
+                                  disabled={aiLoadingId === product.id}
+                                >
+                                  {aiLoadingId === product.id ? (
+                                    <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Se caută...</>
+                                  ) : (
+                                    <><Sparkles className="h-3.5 w-3.5 mr-1" /> {aiInfo ? "Re-generează cu AI" : "Completează cu AI"}</>
+                                  )}
+                                </Button>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                                <div className="space-y-1">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Consum</p>
+                                  <p>{aiInfo?.consum || "-"}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Ambalaj</p>
+                                  <p>{aiInfo?.ambalaj || "-"}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Utilizare</p>
+                                  <p>{aiInfo?.utilizare || "-"}</p>
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Producător/Furnizor</p>
+                                  <p>{product.manufacturer || product.brand || "-"}</p>
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Alternative</p>
+                                  <p>{aiInfo?.alternative?.join(", ") || "-"}</p>
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">Compatibilități</p>
+                                  <p>{aiInfo?.compatibilitati || "-"}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Niciun produs. Importați produse de pe maxbau.ro.
                   </TableCell>
                 </TableRow>
@@ -232,56 +491,133 @@ const AdminProducts = () => {
             </Button>
           </div>
         )}
+      </div>
 
-        {/* Mobile card list */}
-        <div className="md:hidden space-y-2">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-            </div>
-          ) : products && products.length > 0 ? (
-            products.map((product) => (
-              <div key={product.id} className="rounded-lg border bg-card p-3 space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary mb-1">
-                      {product.cod_intern}
-                    </Badge>
-                    <p className="text-sm font-medium leading-snug line-clamp-2">{product.denumire_completa}</p>
+      {/* Edit Dialog */}
+      <Dialog open={Boolean(editProduct)} onOpenChange={(o) => !o && setEditProduct(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>Editare Produs</DialogTitle>
+            <DialogDescription>
+              Modificați informațiile de bază și datele tehnice pentru <span className="font-mono text-primary">{editProduct?.cod_intern}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <ScrollArea className="flex-1 px-6 py-4">
+            <div className="space-y-6">
+              {/* Informatii de baza */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm border-b pb-2">Informații de bază</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Cod intern</Label>
+                    <Input value={form.cod_intern} onChange={e => setForm({...form, cod_intern: e.target.value})} />
                   </div>
-                  <span className="text-base font-bold text-primary shrink-0">
-                    {Number(product.pret_lista).toFixed(2)} lei
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                  {(product.categories as any)?.name && <span>{(product.categories as any).name}</span>}
-                  {product.brand && <span>{product.brand}</span>}
-                  {product.unit && <span>UM: {product.unit}</span>}
-                  {product.packaging && <span>{product.packaging}</span>}
+                  <div className="space-y-2">
+                    <Label>Denumire completă</Label>
+                    <Input value={form.denumire_completa} onChange={e => setForm({...form, denumire_completa: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Preț de listă (fără TVA)</Label>
+                    <Input type="number" step="0.01" value={form.pret_lista} onChange={e => setForm({...form, pret_lista: e.target.value})} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Unitate de măsură</Label>
+                    <Input value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} placeholder="ex: buc, kg, m" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Categorie</Label>
+                    <Select value={form.category_id} onValueChange={v => setForm({...form, category_id: v})}>
+                      <SelectTrigger><SelectValue placeholder="Selectează categoria" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Fără categorie</SelectItem>
+                        {categories.map((c: any) => (
+                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Furnizor MaxBau</Label>
+                    <Select value={form.supplier_id} onValueChange={v => setForm({...form, supplier_id: v})}>
+                      <SelectTrigger><SelectValue placeholder="Selectează furnizorul" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Fără furnizor</SelectItem>
+                        {suppliers.map((s: any) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Brand</Label>
+                    <Input value={form.brand} onChange={e => setForm({...form, brand: e.target.value})} placeholder="ex: Ceresit" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Producător Oficial</Label>
+                    <Input value={form.manufacturer} onChange={e => setForm({...form, manufacturer: e.target.value})} placeholder="ex: Henkel" />
+                  </div>
                 </div>
               </div>
-            ))
-          ) : (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              Niciun produs. Importați produse de pe maxbau.ro.
-            </div>
-          )}
-        </div>
 
-        {totalPages > 1 && (
-          <div className="flex md:hidden items-center justify-center gap-2 mt-4">
-            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-              <ChevronLeft className="h-4 w-4" />
+              {/* Date tehnice */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm border-b pb-2 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  Date Tehnice & Utilizare
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Consum orientativ</Label>
+                    <Input value={form.consum} onChange={e => setForm({...form, consum: e.target.value})} placeholder="ex: 3-4 kg/m²" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ambalaj</Label>
+                    <Input value={form.ambalaj} onChange={e => setForm({...form, ambalaj: e.target.value})} placeholder="ex: sac 25 kg" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Compatibilități</Label>
+                    <Input value={form.compatibilitati} onChange={e => setForm({...form, compatibilitati: e.target.value})} placeholder="ex: beton, zidărie" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Utilizare</Label>
+                    <Input value={form.utilizare} onChange={e => setForm({...form, utilizare: e.target.value})} placeholder="ex: interior/exterior" />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>Alternative echivalente (separate prin virgulă)</Label>
+                    <Input value={form.alternative} onChange={e => setForm({...form, alternative: e.target.value})} placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ScrollArea>
+
+          <DialogFooter className="px-6 py-4 border-t">
+            <Button variant="outline" onClick={() => setEditProduct(null)}>Anulează</Button>
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Se salvează..." : "Salvează modificările"}
             </Button>
-            <span className="text-sm text-muted-foreground">
-              {page + 1} / {totalPages}
-            </span>
-            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-              <ChevronRight className="h-4 w-4" />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Dialog */}
+      <Dialog open={Boolean(deleteProductId)} onOpenChange={(o) => !o && setDeleteProductId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmare ștergere</DialogTitle>
+            <DialogDescription>
+              Sunteți sigur că doriți să ștergeți acest produs? Acțiunea este ireversibilă și va șterge produsul din toate ofertele nefinalizate.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteProductId(null)}>Anulează</Button>
+            <Button variant="destructive" onClick={() => deleteProductId && deleteMutation.mutate(deleteProductId)} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? "Se șterge..." : "Șterge definitiv"}
             </Button>
-          </div>
-        )}
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };
