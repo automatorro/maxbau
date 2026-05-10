@@ -105,11 +105,17 @@ const AdminSuppliers = () => {
 
   const confirmDelete = async () => {
     if (!deleteId) return;
-    const { error } = await supabase.from("suppliers").delete().eq("id", deleteId);
+    
+    // Unlink products and price sheets first to prevent FK constraint errors
+    await supabase.from("products").update({ supplier_id: null }).eq("supplier_id", deleteId);
+    await supabase.from("price_sheets").update({ supplier_id: null }).eq("supplier_id", deleteId);
+
+    const { error, count } = await supabase.from("suppliers").delete().eq("id", deleteId);
     if (error) { toast.error(error.message); return; }
+    
     setDeleteId(null);
     queryClient.invalidateQueries({ queryKey: ["admin-suppliers"] });
-    toast.success("Furnizor șters");
+    toast.success("Furnizor șters definitiv");
   };
 
   const autoMapProducts = async () => {

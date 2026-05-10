@@ -106,7 +106,16 @@ const Catalog = () => {
       }
 
       if (selectedSuppliers.size > 0) {
-        query = query.in("supplier_id", Array.from(selectedSuppliers));
+        const hasNone = selectedSuppliers.has("none");
+        const realSuppliers = Array.from(selectedSuppliers).filter(id => id !== "none");
+        
+        if (hasNone && realSuppliers.length > 0) {
+          query = query.or(`supplier_id.is.null,supplier_id.in.(${realSuppliers.join(",")})`);
+        } else if (hasNone) {
+          query = query.is("supplier_id", null);
+        } else {
+          query = query.in("supplier_id", realSuppliers);
+        }
       }
 
       const { data, error, count } = await query
@@ -148,6 +157,19 @@ const Catalog = () => {
             Producători
           </h3>
           <div className="px-2 space-y-3">
+            <div className="flex items-center space-x-3">
+              <Checkbox 
+                id="supplier-none" 
+                checked={selectedSuppliers.has("none")}
+                onCheckedChange={() => handleSupplierToggle("none")}
+              />
+              <label 
+                htmlFor="supplier-none" 
+                className="text-sm font-medium leading-none text-muted-foreground italic peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+              >
+                Fără furnizor
+              </label>
+            </div>
             {suppliers.map(s => (
               <div key={s.id} className="flex items-center space-x-3">
                 <Checkbox 
@@ -220,7 +242,7 @@ const Catalog = () => {
         <div className="flex gap-6">
           {/* Desktop sidebar */}
           <aside className="hidden lg:block w-60 shrink-0">
-            <ScrollArea className="h-[calc(100vh-220px)] pr-2">
+            <ScrollArea className="h-[calc(100vh-160px)] pr-2">
               {FilterSidebar}
             </ScrollArea>
           </aside>
