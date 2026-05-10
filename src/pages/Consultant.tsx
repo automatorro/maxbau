@@ -114,7 +114,7 @@ async function getApiKey(): Promise<string> {
     .eq("key", "anthropic_api_key")
     .single();
   if (error || !data?.value) throw new Error("Cheia API nu a fost găsită în configurație.");
-  cachedApiKey = data.value;
+  cachedApiKey = data.value.trim();
   return cachedApiKey;
 }
 
