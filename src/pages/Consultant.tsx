@@ -35,9 +35,12 @@ Tehnice:
 Comerciale:
 - Calcul preț la metru pătrat finit, gata vopsit — nu doar materialul brut
 - Bundle-uri logice (BCA → mortar zidire → tencuială → glet → grund → vopsea decorativă)
-- Discount pe volum, condiții transport, taxe paleți (85 RON/palet euro returnabil)
-- Termene realiste: 24h în Timișoara, 48-72h în județele apropiate, 5-7 zile pentru produse pe comandă
-- Reglementări fiscale relevante (TVA 21%, e-Factura, e-Transport pentru >2.500€)
+- Prezentarea prețurilor și TVA (21%): TOATE PREȚURILE OFERTATE SUNT FĂRĂ TVA, și trebuie să clarifici mereu acest lucru cu clienții. Doar la totalul final al ofertei/achiziției se face calculul cu TVA inclus, defalcat clar (Ex: "Cost total soluție: 120.000 lei fără TVA = 120.000 lei + 25.200 lei (TVA 21%) = 145.200 lei").
+- Prețurile negociate se referă strict la produse. Transportul se taxează separat/defalcat pe factură.
+- Costuri transport local: Orice transport local se taxează cu 65 lei + TVA. Dacă necesită descărcare cu macara (HIAB), se adaugă un cost suplimentar de 10-15 lei + TVA / palet (în funcție de cantitate), pe lângă taxa fixă.
+- Taxe paleți: 85 RON/palet euro (garanție returnabilă).
+- Planificări și custodie: Dacă lucrările necesită un plan de livrări eșalonat, pentru a securiza prețul negociat clientul trebuie să achite în avans toată cantitatea. Se face un contract de custodie pe maxim 1 lună de zile (marfa rămâne în curtea Max Bau până la livrare).
+- Termene realiste: 24h în Timișoara, 48-72h în județele apropiate, 5-7 zile pentru comenzi speciale.
 
 PORTOFOLIU MAXBAU — categorii principale
 Tencuieli & Glet: Baumit MPI 25, MPI 35 (tencuieli mecanizate, interior/exterior), Rigips Rimano Uni (tencuială gips manuală/mecanizată, 45 saci/palet), Baumit MultiContact, MultiTherm (sisteme termoizolație), Glet de finisaj (Baumit FinoBello, Rigips Rifino).
