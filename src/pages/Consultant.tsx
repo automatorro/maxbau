@@ -114,7 +114,8 @@ async function getApiKey(): Promise<string> {
     .eq("key", "anthropic_api_key")
     .single();
   if (error || !data?.value) throw new Error("Cheia API nu a fost găsită în configurație.");
-  cachedApiKey = data.value;
+  cachedApiKey = data.value.trim();
+  console.log("API key preview:", cachedApiKey.slice(0, 10) + "..." + cachedApiKey.slice(-4), "length:", cachedApiKey.length);
   return cachedApiKey;
 }
 
@@ -174,8 +175,9 @@ export default function Consultant() {
       const responseText = await callAnthropic(newMessages);
       setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
     } catch (e) {
-      console.error("Consultant AI error:", e);
-      toast.error("Eroare la conectarea cu consultantul AI. Încearcă din nou.");
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Consultant AI error:", msg);
+      toast.error(msg, { duration: 8000 });
       setMessages(messages);
       setInput(text);
     } finally {
