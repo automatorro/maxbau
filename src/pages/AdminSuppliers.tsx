@@ -65,14 +65,23 @@ const AdminSuppliers = () => {
   const { data: productCounts = {} } = useQuery({
     queryKey: ["supplier-products-counts"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("products")
-        .select("supplier_id")
-        .not("supplier_id", "is", null);
-      if (error) throw error;
+      // Fetch ALL products in pages of 1000 (Supabase default limit is 1000)
       const counts: Record<string, number> = {};
-      for (const row of data || []) {
-        if (row.supplier_id) counts[row.supplier_id] = (counts[row.supplier_id] || 0) + 1;
+      let from = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("supplier_id")
+          .not("supplier_id", "is", null)
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        for (const row of data || []) {
+          if (row.supplier_id) counts[row.supplier_id] = (counts[row.supplier_id] || 0) + 1;
+        }
+        hasMore = (data?.length || 0) === pageSize;
+        from += pageSize;
       }
       return counts;
     },
