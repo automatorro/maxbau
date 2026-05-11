@@ -276,8 +276,15 @@ const AdminProducts = () => {
         specifications: newSpecs,
       };
 
-      const { error } = await supabase.from("products").update(updateData).eq("id", editProduct.id);
+      const { error, data: updateResult, count } = await supabase
+        .from("products")
+        .update(updateData)
+        .eq("id", editProduct.id)
+        .select();
       if (error) throw error;
+      if (!updateResult || updateResult.length === 0) {
+        throw new Error("Salvarea a eșuat — verificați dacă aveți rolul de administrator (RLS).");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-products"] });
