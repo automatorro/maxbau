@@ -649,15 +649,15 @@ const AdminProducts = () => {
 
       {/* Edit Dialog */}
       <Dialog open={Boolean(editProduct)} onOpenChange={(o) => !o && setEditProduct(null)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="px-6 py-4 border-b">
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b shrink-0">
             <DialogTitle>Editare Produs</DialogTitle>
             <DialogDescription>
               Modificați informațiile de bază și datele tehnice pentru <span className="font-mono text-primary">{editProduct?.cod_intern}</span>
             </DialogDescription>
           </DialogHeader>
 
-          <ScrollArea className="flex-1 px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
               {/* Informatii de baza */}
               <div className="space-y-4">
@@ -744,9 +744,9 @@ const AdminProducts = () => {
                 </div>
               </div>
             </div>
-          </ScrollArea>
+          </div>
 
-          <DialogFooter className="px-6 py-4 border-t">
+          <DialogFooter className="px-6 py-4 border-t shrink-0">
             <Button variant="outline" onClick={() => setEditProduct(null)}>Anulează</Button>
             <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? "Se salvează..." : "Salvează modificările"}
