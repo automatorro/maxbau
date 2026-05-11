@@ -17,7 +17,7 @@ import AdminDiscounts from "./pages/AdminDiscounts";
 import ImportOcr from "./pages/ImportOcr";
 import RecipeQuote from "./pages/RecipeQuote";
 import SmartQuote from "./pages/SmartQuote";
-import AdminSuppliers from "./pages/AdminSuppliers";
+
 import Consultant from "./pages/Consultant";
 import NotFound from "./pages/NotFound";
 
@@ -43,7 +43,7 @@ const App = () => (
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
             <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
-            <Route path="/admin/suppliers" element={<ProtectedRoute><AdminSuppliers /></ProtectedRoute>} />
+
             <Route path="/consultant" element={<ProtectedRoute><Consultant /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>

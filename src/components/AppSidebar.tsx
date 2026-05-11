@@ -10,7 +10,7 @@ import {
   ScanText,
   Lightbulb,
   FlaskConical,
-  Building2,
+
   MessageSquare,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
@@ -42,7 +42,7 @@ const mainItems = [
 
 const adminItems = [
   { title: "Produse", url: "/admin/products", icon: Settings },
-  { title: "Furnizori", url: "/admin/suppliers", icon: Building2 },
+
   { title: "Discounturi", url: "/admin/discounts", icon: Tags },
 
 ];
