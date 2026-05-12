@@ -90,18 +90,11 @@ const salesFeatures = [
 
 const adminFeatures = [
   {
-    title: "Date tehnice produse",
-    subtitle: "Alimentare motor AI",
-    url: "/admin/product-tech",
-    icon: FlaskConical,
-    badge: "NOU",
-  },
-
-  {
-    title: "Produse",
-    subtitle: "Catalog admin",
+    title: "Catalog & Date Tehnice",
+    subtitle: "Administrare produse și motor AI",
     url: "/admin/products",
     icon: Settings,
+    badge: "CENTRALIZAT",
   },
   {
     title: "Discounturi",
