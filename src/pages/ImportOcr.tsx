@@ -766,11 +766,15 @@ const ImportOcr = () => {
                     </div>
                     <div className="flex items-start gap-2">
                       <FileUp className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
-                      <div><span className="font-medium">Încarcă fișierul Excel</span> (.xlsx, .csv) folosind butonul de upload. Dacă fișierul are mai multe foi, alege foaia dorită din dropdown-ul „Foaie Excel".</div>
+                      <div><span className="font-medium">Varianta A — Excel/CSV:</span> Încarcă fișierul (.xlsx, .csv) folosind butonul de upload. Dacă are mai multe foi, alege foaia dorită. Apoi apasă <strong>„Importă fișier"</strong>.</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <ScanText className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+                      <div><span className="font-medium">Varianta B — Imagine (OCR):</span> Încarcă o poză (PNG/JPG) cu lista de prețuri (ex: screenshot WhatsApp, scanare). Alege limba (RO/EN) și apasă <strong>„Scanează"</strong>. AI-ul va extrage tabelul din imagine.</div>
                     </div>
                     <div className="flex items-start gap-2">
                       <ArrowRight className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
-                      <div>Apasă <strong>„Importă fișier"</strong> — AI-ul va analiza tabelul, va detecta coloanele (denumire, preț, UM) și va porni potrivirea automată.</div>
+                      <div>Indiferent de variantă, AI-ul va analiza datele, va detecta coloanele (denumire, preț, UM) și va porni <strong>potrivirea automată</strong>. De aici, pașii sunt identici.</div>
                     </div>
                   </div>
                   <div className="rounded-md bg-blue-100/50 px-3 py-2 text-xs text-blue-800 flex items-start gap-2">
