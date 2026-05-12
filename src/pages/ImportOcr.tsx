@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp, Building2, Plus } from "lucide-react";
+import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp, Building2, Plus, HelpCircle, ArrowRight, Lightbulb, AlertCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -286,6 +287,7 @@ const ImportOcr = () => {
   const [priceOverridesByRowId, setPriceOverridesByRowId] = useState<Record<string, string>>({});
   const [savePricesOpen, setSavePricesOpen] = useState(false);
   const [savePricesRunning, setSavePricesRunning] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
 
   // ── Queries ────────────────────────────────────────────────────────────────
@@ -715,10 +717,157 @@ const ImportOcr = () => {
   return (
     <DashboardLayout>
       <div className="space-y-4 max-w-6xl">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Import OCR/Excel</h1>
-          <p className="text-sm text-muted-foreground">Încarcă imagine sau Excel, potrivește produse și salvează prețuri</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Import OCR/Excel</h1>
+            <p className="text-sm text-muted-foreground">Încarcă imagine sau Excel, potrivește produse și salvează prețuri</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHelpOpen(true)}
+            className="gap-1.5 shrink-0 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span className="hidden sm:inline">Cum funcționează?</span>
+          </Button>
         </div>
+
+        {/* ── Help Guide Dialog ───────────────────────────────────────────── */}
+        <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <HelpCircle className="h-5 w-5 text-blue-600" />
+                Ghid: Importul de prețuri din Excel
+              </DialogTitle>
+              <DialogDescription>
+                Urmează pașii de mai jos pentru a actualiza catalogul cu prețuri din fișierele Excel primite de la furnizori.
+              </DialogDescription>
+            </DialogHeader>
+
+            <ScrollArea className="flex-1 pr-4 -mr-4">
+              <div className="space-y-6 pb-4">
+
+                {/* ── PASUL 1 ── */}
+                <div className="rounded-lg border border-blue-100 bg-blue-50/30 p-4 space-y-3">
+                  <h3 className="font-semibold text-base flex items-center gap-2">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-sm font-bold">1</span>
+                    Furnizor &amp; Upload
+                  </h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-start gap-2">
+                      <Building2 className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+                      <div><span className="font-medium">Selectează furnizorul</span> din dropdown-ul „Furnizor". Aceasta ajută sistemul să potrivească produsele corect.</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Plus className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+                      <div><span className="font-medium">Furnizor nou?</span> Scrie numele în câmpul „Sau creează nou" și apasă <strong>+</strong>.</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <FileUp className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+                      <div><span className="font-medium">Încarcă fișierul Excel</span> (.xlsx, .csv) folosind butonul de upload. Dacă fișierul are mai multe foi, alege foaia dorită din dropdown-ul „Foaie Excel".</div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <ArrowRight className="h-4 w-4 mt-0.5 text-blue-600 shrink-0" />
+                      <div>Apasă <strong>„Importă fișier"</strong> — AI-ul va analiza tabelul, va detecta coloanele (denumire, preț, UM) și va porni potrivirea automată.</div>
+                    </div>
+                  </div>
+                  <div className="rounded-md bg-blue-100/50 px-3 py-2 text-xs text-blue-800 flex items-start gap-2">
+                    <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>Selectează <strong>mereu</strong> furnizorul înainte de a importa fișierul. Badge-ul „Profil AI salvat" înseamnă că sistemul a memorat structura Excel-ului acestui furnizor.</span>
+                  </div>
+                </div>
+
+                {/* ── PASUL 2 ── */}
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/30 p-4 space-y-3">
+                  <h3 className="font-semibold text-base flex items-center gap-2">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white text-sm font-bold">2</span>
+                    Tabel importat &amp; Potrivire produse
+                  </h3>
+                  <div className="text-sm space-y-2">
+                    <p className="text-muted-foreground">După import, fiecare rând din Excel este comparat cu produsele din baza de date. Vei vedea:</p>
+                    <div className="grid gap-2">
+                      <div className="flex items-start gap-2 bg-white/70 rounded-md px-3 py-2 border">
+                        <Badge variant="outline" className="shrink-0 text-xs border-green-500/30 text-green-700 bg-green-50 mt-0.5">
+                          <Check className="h-3 w-3 mr-0.5" /> COD
+                        </Badge>
+                        <div><span className="font-medium text-green-700">Badge verde</span> — produsul a fost potrivit automat. Verifică dacă e corect; apasă 🗑️ pentru a desfaci.</div>
+                      </div>
+                      <div className="flex items-start gap-2 bg-white/70 rounded-md px-3 py-2 border">
+                        <Badge variant="secondary" className="shrink-0 text-xs mt-0.5">3 sugestii</Badge>
+                        <div><span className="font-medium">Dropdown cu sugestii</span> — sistemul a găsit câteva potriviri posibile. Deschide dropdown-ul și alege produsul corect.</div>
+                      </div>
+                      <div className="flex items-start gap-2 bg-white/70 rounded-md px-3 py-2 border">
+                        <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />
+                        <div><span className="font-medium text-orange-600">„Nepotrivit"</span> — folosește 🔍 (lupă) pentru căutare manuală, sau „+ Creează produs nou" pentru a-l adăuga în baza de date.</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">Butoanele din această secțiune:</p>
+                    <ul className="space-y-1 text-muted-foreground">
+                      <li className="flex items-start gap-2"><ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-600" /><span><strong className="text-foreground">Coloană denumire</strong> — alege care coloană conține numele produsului (detectată automat).</span></li>
+                      <li className="flex items-start gap-2"><ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-600" /><span><strong className="text-foreground">Potrivește automat</strong> — rerulează algoritmul de potrivire (util după corecturi).</span></li>
+                      <li className="flex items-start gap-2"><ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-emerald-600" /><span><strong className="text-foreground">Doar nepotrivite / Toate</strong> — filtru ce ascunde rândurile deja potrivite.</span></li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* ── PASUL 3 ── */}
+                <div className="rounded-lg border border-amber-100 bg-amber-50/30 p-4 space-y-3">
+                  <h3 className="font-semibold text-base flex items-center gap-2">
+                    <span className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-600 text-white text-sm font-bold">3</span>
+                    Prețuri &amp; Salvare
+                  </h3>
+                  <div className="text-sm space-y-2">
+                    <p className="text-muted-foreground">Ultima secțiune — aici decizi ce prețuri se salvează în catalog:</p>
+                    <ul className="space-y-2">
+                      <li className="flex items-start gap-2">
+                        <ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                        <span><strong>Coloană preț</strong> — alege care coloană conține prețul (detectată automat, dar poți corecta).</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                        <span><strong>Preia prețuri</strong> — citește valorile numerice din coloana selectată. <em>Apasă înainte de salvare!</em></span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                        <span><strong>Actualizează Catalogul (doar potrivite)</strong> — salvează prețurile doar pentru rândurile cu produs selectat (✅ verde).</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <ArrowRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+                        <span><strong className="text-emerald-700">Butonul verde „Creează + Actualizează"</strong> — cel mai puternic: creează produse noi pentru TOATE rândurile nepotrivite ȘI actualizează prețurile.</span>
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="rounded-md bg-amber-100/50 px-3 py-2 text-xs text-amber-800 flex items-start gap-2">
+                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span><strong>Atenție la UM!</strong> Verifică dacă prețul din Excel este per aceeași unitate de măsură ca în baza de date (ex: per „mp" vs. per „buc").</span>
+                  </div>
+                </div>
+
+                {/* ── Rezumat rapid ── */}
+                <div className="rounded-lg border bg-muted/30 p-4">
+                  <h3 className="font-semibold text-base mb-3">📋 Rezumat rapid — Ordinea pașilor</h3>
+                  <ol className="space-y-1.5 text-sm">
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">1</span> Selectează furnizorul din dropdown</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">2</span> Încarcă fișierul Excel (buton upload)</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">3</span> Alege foaia Excel (dacă sunt mai multe)</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold shrink-0">4</span> Apasă „Importă fișier" — AI-ul analizează</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold shrink-0">5</span> Verifică potrivirile din coloana „Produs (DB)"</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold shrink-0">6</span> Corectează: sugestii / căutare manuală / produs nou</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold shrink-0">7</span> Verifică coloana de preț</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold shrink-0">8</span> Apasă „Preia prețuri"</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold shrink-0">9</span> Verifică tabelul de prețuri de jos</li>
+                    <li className="flex items-center gap-2"><span className="flex items-center justify-center w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold shrink-0">10</span> Apasă „Actualizează Catalogul" sau butonul verde</li>
+                  </ol>
+                </div>
+
+              </div>
+            </ScrollArea>
+          </DialogContent>
+        </Dialog>
 
         {/* Supplier + Upload Section */}
         <Card>
