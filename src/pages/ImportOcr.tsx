@@ -735,7 +735,7 @@ const ImportOcr = () => {
 
         {/* ── Help Guide Dialog ───────────────────────────────────────────── */}
         <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogContent className="max-w-2xl max-h-[85vh]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-xl">
                 <HelpCircle className="h-5 w-5 text-blue-600" />
@@ -746,7 +746,7 @@ const ImportOcr = () => {
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="flex-1 pr-4 -mr-4">
+            <div className="overflow-y-auto max-h-[calc(85vh-120px)] pr-1">
               <div className="space-y-6 pb-4">
 
                 {/* ── PASUL 1 ── */}
@@ -865,7 +865,7 @@ const ImportOcr = () => {
                 </div>
 
               </div>
-            </ScrollArea>
+            </div>
           </DialogContent>
         </Dialog>
 
