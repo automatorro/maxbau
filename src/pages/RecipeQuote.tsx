@@ -43,6 +43,7 @@ interface GeneratedLine {
   line_total: number;
   status: "FOUND" | "NOT_FOUND";
   price_sheet_item_id?: string | null;
+  price_variant_id?: string | null;
   alternatives: Product[];
 }
 
@@ -239,9 +240,22 @@ const RecipeQuote = () => {
     [lines]
   );
 
+  const { data: priceVariants = [] } = useQuery({
+    queryKey: ["recipe-quote-price-variants", productIdsInLines.join("|")],
+    enabled: productIdsInLines.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_prices")
+        .select("id, product_id, supplier_id, price_type, price, currency, suppliers(name)")
+        .in("product_id", productIdsInLines)
+        .is("valid_to", null)
+        .order("price", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
 
-
-  const updateLine = (position: number, patch: Partial<Pick<GeneratedLine, "unit_price" | "discount_percent" | "price_sheet_item_id">>) => {
+  const updateLine = (position: number, patch: Partial<Pick<GeneratedLine, "unit_price" | "discount_percent" | "price_sheet_item_id" | "price_variant_id">>) => {
     setLines((prev) =>
       prev.map((l) => {
         if (l.position !== position) return l;
@@ -415,7 +429,7 @@ const RecipeQuote = () => {
                         <TableHead className="w-[90px] text-right">Cantitate</TableHead>
                         <TableHead className="w-[50px]">UM</TableHead>
                         <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
-                      <TableHead className="w-[160px]">Listă</TableHead>
+                      <TableHead className="w-[160px]">Grile preț</TableHead>
                       <TableHead className="w-[80px] text-right">Disc.%</TableHead>
                         <TableHead className="w-[110px] text-right">Total</TableHead>
                         <TableHead className="w-[40px]"></TableHead>
@@ -478,7 +492,38 @@ const RecipeQuote = () => {
                             )}
                           </TableCell>
                           <TableCell>
-                            <span className="text-xs text-muted-foreground">—</span>
+                            {line.status === "FOUND" ? (
+                              (() => {
+                                const variants = priceVariants.filter((v: any) => v.product_id === line.product_id);
+                                if (variants.length === 0) {
+                                  return <span className="text-xs text-muted-foreground text-center block">—</span>;
+                                }
+                                return (
+                                  <Select 
+                                    value={line.price_variant_id || ""} 
+                                    onValueChange={(val) => {
+                                      const variant = variants.find((v: any) => v.id === val);
+                                      if (variant) {
+                                        updateLine(line.position, { price_variant_id: val, unit_price: Number(variant.price) });
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 text-[11px] w-[140px]">
+                                      <SelectValue placeholder="Alege preț..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {variants.map((v: any) => (
+                                        <SelectItem key={v.id} value={v.id} className="text-[11px]">
+                                          {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                );
+                              })()
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {line.status === "FOUND" ? (
@@ -565,6 +610,39 @@ const RecipeQuote = () => {
                       </div>
                       {line.status === "FOUND" && (
                         <div className="grid grid-cols-2 gap-2">
+                          <div className="col-span-2">
+                            {(() => {
+                              const variants = priceVariants.filter((v: any) => v.product_id === line.product_id);
+                              if (variants.length > 0) {
+                                return (
+                                  <div className="mb-2">
+                                    <p className="text-[10px] text-muted-foreground mb-1">Grile preț</p>
+                                    <Select 
+                                      value={line.price_variant_id || ""} 
+                                      onValueChange={(val) => {
+                                        const variant = variants.find((v: any) => v.id === val);
+                                        if (variant) {
+                                          updateLine(line.position, { price_variant_id: val, unit_price: Number(variant.price) });
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs w-full bg-muted/50">
+                                        <SelectValue placeholder="Selectează o grilă de preț..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {variants.map((v: any) => (
+                                          <SelectItem key={v.id} value={v.id} className="text-xs">
+                                            {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                           <div>
                             <p className="text-[10px] text-muted-foreground mb-1">Preț/UM</p>
                             <Input

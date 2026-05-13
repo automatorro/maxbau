@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const BATCH_SIZE = 5;
 const PAGE_SIZE = 50;
@@ -46,6 +47,61 @@ const getAiInfo = (p: Product): AiInfo | null => {
   const specs = p.specifications || {};
   return (specs.ai_info as AiInfo) || null;
 };
+
+function ProductPricesTab({ productId }: { productId: string }) {
+  const { data: prices, isLoading } = useQuery({
+    queryKey: ["product-prices", productId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_prices")
+        .select(`
+          id, price_type, price, currency, min_quantity, unit, valid_from, valid_to,
+          suppliers ( name )
+        `)
+        .eq("product_id", productId)
+        .order("valid_to", { ascending: false, nullsFirst: true })
+        .order("valid_from", { ascending: false });
+      if (error) throw error;
+      return data;
+    }
+  });
+
+  if (isLoading) return <div className="py-8 text-center text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mx-auto mb-2" /> Se încarcă prețurile...</div>;
+  if (!prices?.length) return <div className="text-muted-foreground text-sm py-8 text-center border rounded-md bg-muted/20">Nu există grile de preț pentru acest produs. (Importați din Excel)</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Furnizor</TableHead>
+              <TableHead>Tip preț</TableHead>
+              <TableHead className="text-right">Preț</TableHead>
+              <TableHead className="w-[100px] text-center">Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {prices.map((p: any) => (
+              <TableRow key={p.id} className={p.valid_to ? "opacity-50 bg-muted/20" : ""}>
+                <TableCell className="font-medium text-xs">{p.suppliers?.name || "Nespecificat"}</TableCell>
+                <TableCell className="text-xs">{p.price_type}</TableCell>
+                <TableCell className="text-right text-xs font-bold">{p.price} {p.currency}</TableCell>
+                <TableCell className="text-center">
+                  {p.valid_to ? (
+                    <span className="text-[10px] text-muted-foreground" title={new Date(p.valid_to).toLocaleString()}>Arhivat</span>
+                  ) : (
+                    <Badge variant="outline" className="border-green-500/50 text-green-700 bg-green-50">Activ</Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
 
 const AdminProducts = () => {
   const [search, setSearch] = useState("");
@@ -665,92 +721,103 @@ const AdminProducts = () => {
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            <div className="space-y-6">
-              {/* Informatii de baza */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm border-b pb-2">Informații de bază</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Cod intern</Label>
-                    <Input value={form.cod_intern} onChange={e => setForm({...form, cod_intern: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Denumire completă</Label>
-                    <Input value={form.denumire_completa} onChange={e => setForm({...form, denumire_completa: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Preț de listă (fără TVA)</Label>
-                    <Input type="number" step="0.01" value={form.pret_lista} onChange={e => setForm({...form, pret_lista: e.target.value})} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Unitate de măsură</Label>
-                    <Input value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} placeholder="ex: buc, kg, m" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Categorie</Label>
-                    <Select value={form.category_id} onValueChange={v => setForm({...form, category_id: v})}>
-                      <SelectTrigger><SelectValue placeholder="Selectează categoria" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Fără categorie</SelectItem>
-                        {categories.map((c: any) => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Furnizor MaxBau</Label>
-                    <Select value={form.supplier_id} onValueChange={v => setForm({...form, supplier_id: v})}>
-                      <SelectTrigger><SelectValue placeholder="Selectează furnizorul" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Fără furnizor</SelectItem>
-                        {suppliers.map((s: any) => (
-                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Brand</Label>
-                    <Input value={form.brand} onChange={e => setForm({...form, brand: e.target.value})} placeholder="ex: Ceresit" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Producător Oficial</Label>
-                    <Input value={form.manufacturer} onChange={e => setForm({...form, manufacturer: e.target.value})} placeholder="ex: Henkel" />
+            <Tabs defaultValue="detalii" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="detalii">Detalii Produs</TabsTrigger>
+                <TabsTrigger value="preturi">Grile & Istoric Prețuri</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="detalii" className="space-y-6 mt-0">
+                {/* Informatii de baza */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm border-b pb-2">Informații de bază</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Cod intern</Label>
+                      <Input value={form.cod_intern} onChange={e => setForm({...form, cod_intern: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Denumire completă</Label>
+                      <Input value={form.denumire_completa} onChange={e => setForm({...form, denumire_completa: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Preț de listă implicit (fără TVA)</Label>
+                      <Input type="number" step="0.01" value={form.pret_lista} onChange={e => setForm({...form, pret_lista: e.target.value})} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Unitate de măsură</Label>
+                      <Input value={form.unit} onChange={e => setForm({...form, unit: e.target.value})} placeholder="ex: buc, kg, m" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Categorie</Label>
+                      <Select value={form.category_id} onValueChange={v => setForm({...form, category_id: v})}>
+                        <SelectTrigger><SelectValue placeholder="Selectează categoria" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Fără categorie</SelectItem>
+                          {categories.map((c: any) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Furnizor MaxBau implicit</Label>
+                      <Select value={form.supplier_id} onValueChange={v => setForm({...form, supplier_id: v})}>
+                        <SelectTrigger><SelectValue placeholder="Selectează furnizorul" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Fără furnizor</SelectItem>
+                          {suppliers.map((s: any) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Brand</Label>
+                      <Input value={form.brand} onChange={e => setForm({...form, brand: e.target.value})} placeholder="ex: Ceresit" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Producător Oficial</Label>
+                      <Input value={form.manufacturer} onChange={e => setForm({...form, manufacturer: e.target.value})} placeholder="ex: Henkel" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Date tehnice */}
-              <div className="space-y-4">
-                <h3 className="font-semibold text-sm border-b pb-2 flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Date Tehnice & Utilizare
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Consum orientativ</Label>
-                    <Input value={form.consum} onChange={e => setForm({...form, consum: e.target.value})} placeholder="ex: 3-4 kg/m²" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Ambalaj</Label>
-                    <Input value={form.ambalaj} onChange={e => setForm({...form, ambalaj: e.target.value})} placeholder="ex: sac 25 kg" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Compatibilități</Label>
-                    <Input value={form.compatibilitati} onChange={e => setForm({...form, compatibilitati: e.target.value})} placeholder="ex: beton, zidărie" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Utilizare</Label>
-                    <Input value={form.utilizare} onChange={e => setForm({...form, utilizare: e.target.value})} placeholder="ex: interior/exterior" />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Alternative echivalente (separate prin virgulă)</Label>
-                    <Input value={form.alternative} onChange={e => setForm({...form, alternative: e.target.value})} placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel" />
+                {/* Date tehnice */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm border-b pb-2 flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Date Tehnice & Utilizare
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Consum orientativ</Label>
+                      <Input value={form.consum} onChange={e => setForm({...form, consum: e.target.value})} placeholder="ex: 3-4 kg/m²" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Ambalaj</Label>
+                      <Input value={form.ambalaj} onChange={e => setForm({...form, ambalaj: e.target.value})} placeholder="ex: sac 25 kg" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Compatibilități</Label>
+                      <Input value={form.compatibilitati} onChange={e => setForm({...form, compatibilitati: e.target.value})} placeholder="ex: beton, zidărie" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Utilizare</Label>
+                      <Input value={form.utilizare} onChange={e => setForm({...form, utilizare: e.target.value})} placeholder="ex: interior/exterior" />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Alternative echivalente (separate prin virgulă)</Label>
+                      <Input value={form.alternative} onChange={e => setForm({...form, alternative: e.target.value})} placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
+              </TabsContent>
+
+              <TabsContent value="preturi" className="mt-0">
+                {editProduct && <ProductPricesTab productId={editProduct.id} />}
+              </TabsContent>
+            </Tabs>
           </div>
 
           <DialogFooter className="px-6 py-4 border-t shrink-0">

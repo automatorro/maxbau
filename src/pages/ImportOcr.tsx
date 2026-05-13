@@ -283,7 +283,9 @@ const ImportOcr = () => {
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [showOnlyUnmatched, setShowOnlyUnmatched] = useState(false);
 
-  const [priceColIdx, setPriceColIdx] = useState<number>(0);
+  const [priceMappings, setPriceMappings] = useState<{ id: string; colIdx: number; priceType: string; minQuantity: number }[]>([
+    { id: "default", colIdx: 0, priceType: "Preț listă", minQuantity: 1 }
+  ]);
   const [priceOverridesByRowId, setPriceOverridesByRowId] = useState<Record<string, string>>({});
   const [savePricesOpen, setSavePricesOpen] = useState(false);
   const [savePricesRunning, setSavePricesRunning] = useState(false);
@@ -354,7 +356,7 @@ const ImportOcr = () => {
   useEffect(() => {
     const max = Math.max(0, headerCells.length - 1);
     setMatchNameColIdx((v) => Math.max(0, Math.min(max, v)));
-    setPriceColIdx((v) => Math.max(0, Math.min(max, v)));
+    setPriceMappings(prev => prev.map(m => ({ ...m, colIdx: Math.max(0, Math.min(max, m.colIdx)) })));
   }, [headerCells.length]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -370,7 +372,8 @@ const ImportOcr = () => {
   const resetTableState = () => {
     setGridRows([]); setHeaderRowIndex(0);
     setSuggestionsByRowId({}); setMatchedProductIdByRowId({});
-    setPriceOverridesByRowId({}); setSavePricesOpen(false);
+    setPriceMappings([{ id: "default", colIdx: 0, priceType: "Preț listă", minQuantity: 1 }]);
+    setSavePricesOpen(false);
     setAiColumnMap(null); setCategoryRows([]);
   };
 
@@ -397,7 +400,7 @@ const ImportOcr = () => {
     const nameIdx = columnMap?.denumire != null && columnMap.denumire >= 0 ? columnMap.denumire : guessNameColumnIndex(headers);
     const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
-    setPriceColIdx(priceIdx);
+    setPriceMappings([{ id: crypto.randomUUID(), colIdx: priceIdx, priceType: "Preț listă", minQuantity: 1 }]);
 
     if (columnMap) setAiColumnMap(columnMap);
     if (catRows && catRows.length > 0) {
@@ -470,11 +473,24 @@ const ImportOcr = () => {
 
       const supplierColumnMap = selectedSupplier?.ai_column_map || null;
       const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "ocr-excel", rows: rawRows, filename: excelFile.name, supplier_column_map: supplierColumnMap }
+        body: { action: "ocr-excel", rows: rawRows.slice(0, 50), filename: excelFile.name, supplier_column_map: supplierColumnMap }
       });
       if (error) throw new Error(error.message);
       if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
-      loadAiResult(data.headers, data.rows, data.note, data.column_map, data.category_rows);
+
+      const headerRowIndex = data.header_row_index || 0;
+      const dataRows = rawRows.slice(headerRowIndex + 1);
+      
+      const headersLength = data.headers.length;
+      const normalizedRows = dataRows.map(row => {
+        const padded = [...row];
+        while (padded.length < headersLength) padded.push("");
+        return padded.slice(0, headersLength);
+      });
+
+      const validRows = normalizedRows.filter(row => row.some(cell => cell.trim() !== ""));
+
+      loadAiResult(data.headers, validRows, data.note, data.column_map, []);
 
       // Auto-save column_map to supplier if first import
       if (data.column_map && selectedSupplierId && (!supplierColumnMap || Object.keys(supplierColumnMap).length === 0)) {
@@ -482,7 +498,7 @@ const ImportOcr = () => {
         toast.info("Profilul furnizorului a fost salvat automat");
       }
 
-      toast.success(`${data.rows.length} rânduri importate din "${sheetName}"`);
+      toast.success(`${validRows.length} rânduri importate din "${sheetName}"`);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare import Excel"); }
     finally { setExcelRunning(false); }
   };
@@ -563,8 +579,10 @@ const ImportOcr = () => {
     if (bodyRows.length === 0) return;
     setPriceOverridesByRowId((prev) => {
       const next = { ...prev };
+      const defaultMapping = priceMappings.find(m => m.priceType.toLowerCase() === "preț listă" || m.priceType.toLowerCase() === "pret lista") || priceMappings[0];
+      if (!defaultMapping) return prev;
       for (const r of bodyRows) {
-        const cell = r.cells[priceColIdx] || "";
+        const cell = r.cells[defaultMapping.colIdx] || "";
         const parsed = parsePriceCell(cell);
         if (parsed === null) continue;
         if (typeof next[r.id] === "string" && next[r.id].trim() !== "") continue;
@@ -576,29 +594,55 @@ const ImportOcr = () => {
 
   const updateCatalogPrices = async () => {
     if (savePricesRunning) return;
-    const updates: { id: string; pret_lista: number; grile_pret: Record<string, string> | null; supplier_id?: string | null }[] = [];
-    for (const r of bodyRows) {
-      const productId = matchedProductIdByRowId[r.id];
-      if (!productId) continue;
-      const raw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
-      const parsed = parsePriceCell(raw);
-      if (parsed === null) continue;
-      
-      const extraItem: Record<string, string | undefined> = {};
-      if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
-      if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
-      if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
-      const grile_pret = Object.keys(extraItem).length > 0 ? extraItem as Record<string, string> : null;
-
-      updates.push({ id: productId, pret_lista: parsed, grile_pret, ...(selectedSupplierId ? { supplier_id: selectedSupplierId } : {}) });
-    }
-    
-    if (updates.length === 0) { toast.error("Nu există rânduri valide (produs + preț numeric)"); return; }
     setSavePricesRunning(true);
     
     try {
-      await Promise.all(updates.map(u => supabase.from("products").update(u).eq("id", u.id)));
-      toast.success(`Catalog actualizat: ${updates.length} prețuri`);
+      const productIdsToInvalidate = new Set<string>();
+
+      for (const mapping of priceMappings) {
+        const productIdsForThisMapping = [];
+        const insertsForThisMapping = [];
+        
+        for (const r of bodyRows) {
+          const productId = matchedProductIdByRowId[r.id];
+          if (!productId) continue;
+          
+          const raw = r.cells[mapping.colIdx] || "";
+          const parsed = parsePriceCell(raw);
+          if (parsed === null) continue;
+          
+          productIdsForThisMapping.push(productId);
+          productIdsToInvalidate.add(productId);
+          
+          insertsForThisMapping.push({
+            product_id: productId,
+            supplier_id: selectedSupplierId || null,
+            price_type: mapping.priceType,
+            price: parsed,
+            currency: "RON",
+            min_quantity: mapping.minQuantity,
+          });
+        }
+        
+        if (productIdsForThisMapping.length > 0) {
+          const isBasePrice = mapping.priceType.toLowerCase() === "preț listă" || mapping.priceType.toLowerCase() === "pret lista";
+          if (isBasePrice) {
+            for (const insert of insertsForThisMapping) {
+              await supabase.from("products").update({ pret_lista: insert.price }).eq("id", insert.product_id);
+            }
+          }
+          
+          let query = supabase.from("product_prices").update({ valid_to: new Date().toISOString() })
+            .in("product_id", productIdsForThisMapping).eq("price_type", mapping.priceType).is("valid_to", null);
+          if (selectedSupplierId) query = query.eq("supplier_id", selectedSupplierId);
+          else query = query.is("supplier_id", null);
+          await query;
+          
+          await supabase.from("product_prices").insert(insertsForThisMapping);
+        }
+      }
+
+      toast.success(`Catalog actualizat cu succes pentru mapările definite.`);
       setSavePricesOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
     } catch (e) {
@@ -613,14 +657,16 @@ const ImportOcr = () => {
     setBulkRunning(true);
 
     try {
-      // 1. Create products for all unmatched rows that have a non-empty name
       const unmatchedRows = bodyRows.filter((r) => !matchedProductIdByRowId[r.id]);
       const freshMatched: Record<string, string> = {};
+
+      const defaultMapping = priceMappings.find(m => m.priceType.toLowerCase() === "preț listă" || m.priceType.toLowerCase() === "pret lista") || priceMappings[0];
+      if (!defaultMapping) { toast.error("Trebuie să definești cel puțin o mapare de preț"); setBulkRunning(false); return; }
 
       for (const r of unmatchedRows) {
         const denumire = (r.cells[matchNameColIdx] || "").trim();
         if (!denumire) continue;
-        const pretRaw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
+        const pretRaw = (r.cells[defaultMapping.colIdx] || "").toString();
         const pretLista = parsePriceCell(pretRaw) ?? 0;
         const cod = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
         
@@ -639,35 +685,57 @@ const ImportOcr = () => {
         if (newProd?.id) freshMatched[r.id] = newProd.id;
       }
 
-      // 2. Merge newly created into matched map
       const allMatched = { ...matchedProductIdByRowId, ...freshMatched };
       setMatchedProductIdByRowId(allMatched);
       
-      // 3. Update existing matched rows
-      const updates = [];
-      for (const r of bodyRows) {
-        const productId = allMatched[r.id];
-        if (!productId || freshMatched[r.id]) continue; // skip new products, already saved
+      for (const mapping of priceMappings) {
+        const productIdsForThisMapping = [];
+        const insertsForThisMapping = [];
+        const basePriceUpdates = [];
         
-        const raw = (priceOverridesByRowId[r.id] ?? r.cells[priceColIdx] ?? "").toString();
-        const parsed = parsePriceCell(raw);
-        if (parsed === null) continue;
+        for (const r of bodyRows) {
+          const productId = allMatched[r.id];
+          if (!productId) continue; 
+          
+          const raw = (r.cells[mapping.colIdx] || "").toString();
+          const parsed = parsePriceCell(raw);
+          if (parsed === null) continue;
+          
+          productIdsForThisMapping.push(productId);
+          insertsForThisMapping.push({
+            product_id: productId,
+            supplier_id: selectedSupplierId || null,
+            price_type: mapping.priceType,
+            price: parsed,
+            currency: "RON",
+            min_quantity: mapping.minQuantity,
+          });
+
+          if (!freshMatched[r.id]) {
+            basePriceUpdates.push({ id: productId, price: parsed });
+          }
+        }
         
-        const extraItem: Record<string, string | undefined> = {};
-        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
-        if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
-        if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
-        const grile_pret = Object.keys(extraItem).length > 0 ? extraItem as Record<string, string> : null;
-
-        updates.push({ id: productId, pret_lista: parsed, grile_pret, ...(selectedSupplierId ? { supplier_id: selectedSupplierId } : {}) });
-      }
-
-      if (updates.length > 0) {
-        await Promise.all(updates.map(u => supabase.from("products").update(u).eq("id", u.id)));
+        if (productIdsForThisMapping.length > 0) {
+          const isBasePrice = mapping.priceType.toLowerCase() === "preț listă" || mapping.priceType.toLowerCase() === "pret lista";
+          if (isBasePrice) {
+            for (const upd of basePriceUpdates) {
+              await supabase.from("products").update({ pret_lista: upd.price }).eq("id", upd.id);
+            }
+          }
+          
+          let query = supabase.from("product_prices").update({ valid_to: new Date().toISOString() })
+            .in("product_id", productIdsForThisMapping).eq("price_type", mapping.priceType).is("valid_to", null);
+          if (selectedSupplierId) query = query.eq("supplier_id", selectedSupplierId);
+          else query = query.is("supplier_id", null);
+          await query;
+          
+          await supabase.from("product_prices").insert(insertsForThisMapping);
+        }
       }
 
       const newCount = Object.keys(freshMatched).length;
-      toast.success(`Catalog actualizat: ${updates.length + newCount} produse prelucrate${newCount > 0 ? ` (${newCount} produse noi)` : ""}`);
+      toast.success(`Catalog actualizat cu succes${newCount > 0 ? ` (${newCount} produse noi)` : ""}`);
       await queryClient.invalidateQueries({ queryKey: ["products-for-ocr-match"] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Eroare la actualizare catalog");
@@ -685,7 +753,7 @@ const ImportOcr = () => {
     setGridRows((prev) => prev.map((r) => ({ ...r, cells: r.cells.filter((_, i) => i !== colIndex) })));
     const adjust = (idx: number) => idx === colIndex ? 0 : idx > colIndex ? idx - 1 : idx;
     setMatchNameColIdx(adjust);
-    setPriceColIdx(adjust);
+    setPriceMappings(prev => prev.map(m => ({ ...m, colIdx: adjust(m.colIdx) })));
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>, startRowIdx: number, startColIdx: number) => {
@@ -1036,7 +1104,7 @@ const ImportOcr = () => {
                           </div>
                         </TableHead>
                       ))}
-                      <TableHead className="min-w-[280px] sticky right-0 bg-background">Produs (DB)</TableHead>
+                      <TableHead className="min-w-[280px]">Produs (DB)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1048,7 +1116,7 @@ const ImportOcr = () => {
                             <Input value={c} onChange={(e) => updateCell(r.id, colIdx, e.target.value)} onPaste={(e) => { const ai = gridRows.findIndex((gr) => gr.id === r.id); if (ai >= 0) handlePaste(e, ai, colIdx); }} className="h-7 text-xs" />
                           </TableCell>
                         ))}
-                        <TableCell className="min-w-[280px] sticky right-0 bg-background">
+                        <TableCell className="min-w-[280px]">
                           <InlineProductSearch
                             rowId={r.id}
                             selectedProductId={matchedProductIdByRowId[r.id] || null}
@@ -1137,17 +1205,53 @@ const ImportOcr = () => {
 
               {/* Price comparison & save section */}
               <div className="rounded-md border p-3 space-y-3 mt-4">
-                <h4 className="text-sm font-medium">Prețuri & Salvare</h4>
-                <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-end">
-                  <div className="min-w-[150px]">
-                    <Label className="text-xs">Coloană preț</Label>
-                    <Select value={priceColIdx.toString()} onValueChange={(v) => { setPriceColIdx(Number(v)); setPriceOverridesByRowId({}); }}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{headerCells.map((h, i) => (<SelectItem key={i} value={i.toString()}>{h || `Col ${i + 1}`}</SelectItem>))}</SelectContent>
-                    </Select>
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  Mapări Prețuri & Salvare
+                  <div className="group relative">
+                    <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-64 p-2 bg-popover text-popover-foreground text-xs rounded shadow-lg border z-10">
+                      Adaugă o mapare pentru fiecare coloană de preț din Excel. Toate variațiile definite vor fi salvate simultan!
+                    </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={ensurePriceOverrides} disabled={bodyRows.length === 0} className="w-full sm:w-auto">Preia prețuri</Button>
-                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning} className="w-full sm:w-auto">
+                </h4>
+                
+                <div className="flex flex-col gap-3">
+                  {priceMappings.map((mapping, idx) => (
+                    <div key={mapping.id} className="flex flex-col sm:flex-row flex-wrap gap-2 items-end bg-muted/30 p-2 rounded border border-dashed">
+                      <div className="min-w-[150px] flex-1">
+                        <Label className="text-xs">Coloană preț</Label>
+                        <Select value={mapping.colIdx.toString()} onValueChange={(v) => { 
+                          setPriceMappings(prev => prev.map((m, i) => i === idx ? { ...m, colIdx: Number(v) } : m)); 
+                        }}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>{headerCells.map((h, i) => (<SelectItem key={i} value={i.toString()}>{h || `Col ${i + 1}`}</SelectItem>))}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="min-w-[150px] flex-1">
+                        <Label className="text-xs">Tip preț (ex: Preț listă, Palet)</Label>
+                        <Input value={mapping.priceType} onChange={(e) => setPriceMappings(prev => prev.map((m, i) => i === idx ? { ...m, priceType: e.target.value } : m))} className="h-8 text-xs" />
+                      </div>
+                      <div className="min-w-[100px]">
+                        <Label className="text-xs">Cant. min.</Label>
+                        <Input type="number" min={1} value={mapping.minQuantity} onChange={(e) => setPriceMappings(prev => prev.map((m, i) => i === idx ? { ...m, minQuantity: Number(e.target.value) || 1 } : m))} className="h-8 text-xs" />
+                      </div>
+                      {priceMappings.length > 1 && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => setPriceMappings(prev => prev.filter((_, i) => i !== idx))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  <div className="flex items-center">
+                    <Button variant="outline" size="sm" className="text-xs border-dashed" onClick={() => setPriceMappings(prev => [...prev, { id: crypto.randomUUID(), colIdx: prev[prev.length - 1]?.colIdx || 0, priceType: "Preț nou", minQuantity: 1 }])}>
+                      <Plus className="h-3 w-3 mr-1" /> Adaugă tip preț
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-end mt-4 pt-4 border-t">
+                  <Button variant="outline" size="sm" onClick={() => setSavePricesOpen(true)} disabled={bodyRows.length === 0 || bulkRunning} className="w-full sm:w-auto mt-auto">
                     Actualizează Catalogul (doar potrivite)
                   </Button>
                   {bodyRows.some((r) => !matchedProductIdByRowId[r.id]) && (
@@ -1176,19 +1280,17 @@ const ImportOcr = () => {
                       <TableHeader className="sticky top-0 bg-background">
                         <TableRow>
                           <TableHead className="text-xs">Produs</TableHead>
-                          <TableHead className="text-xs w-[110px]" title={headerCells[priceColIdx] || "Preț import"}>
-                            <span className="block truncate max-w-[100px]">{headerCells[priceColIdx] || "Preț import"}</span>
+                          <TableHead className="text-xs w-[110px]" title={headerCells[priceMappings[0]?.colIdx || 0] || "Preț import"}>
+                            <span className="block truncate max-w-[100px]">{headerCells[priceMappings[0]?.colIdx || 0] || "Preț import"}</span>
                           </TableHead>
                           <TableHead className="text-xs w-[100px]">Preț Vechi (DB)</TableHead>
-                          <TableHead className="text-xs w-[100px]">Preț Nou</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {bodyRows.filter((r) => matchedProductIdByRowId[r.id]).map((r) => {
                           const productId = matchedProductIdByRowId[r.id]!;
                           const product = productsById.get(productId);
-                          const parsedOcr = parsePriceCell(r.cells[priceColIdx] || "");
-                          const override = priceOverridesByRowId[r.id] ?? "";
+                          const parsedOcr = parsePriceCell(r.cells[priceMappings[0]?.colIdx || 0] || "");
                           const dbUnit = product?.unit || "?";
                           return (
                             <TableRow key={r.id}>
@@ -1201,9 +1303,6 @@ const ImportOcr = () => {
                                 {product?.pret_lista != null
                                   ? <><span>{Number(product.pret_lista).toFixed(2)}</span><span className="text-muted-foreground ml-1">lei/{dbUnit}</span></>
                                   : "-"}
-                              </TableCell>
-                              <TableCell>
-                                <Input value={override} onChange={(e) => setPriceOverridesByRowId((prev) => ({ ...prev, [r.id]: e.target.value }))} placeholder={parsedOcr !== null ? parsedOcr.toString() : ""} className="h-7 text-xs" />
                               </TableCell>
                             </TableRow>
                           );

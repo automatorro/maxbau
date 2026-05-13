@@ -318,6 +318,63 @@ export type Database = {
           },
         ]
       }
+      product_prices: {
+        Row: {
+          id: string
+          product_id: string
+          supplier_id: string | null
+          price_type: string
+          price: number
+          currency: string
+          min_quantity: number | null
+          unit: string | null
+          valid_from: string
+          valid_to: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id: string
+          supplier_id?: string | null
+          price_type?: string
+          price: number
+          currency?: string
+          min_quantity?: number | null
+          unit?: string | null
+          valid_from?: string
+          valid_to?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string
+          supplier_id?: string | null
+          price_type?: string
+          price?: number
+          currency?: string
+          min_quantity?: number | null
+          unit?: string | null
+          valid_from?: string
+          valid_to?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_prices_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_prices_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string

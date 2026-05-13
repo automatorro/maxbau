@@ -215,14 +215,14 @@ Reguli stricte:
           {
             role: "system",
             content: `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
-Primești o matrice 2D de strings extrasă dintr-un fișier Excel.
-Sarcina ta: identifică rândul de antet corect (poate să nu fie primul rând), curăță rândurile goale sau de separare, normalizează prețurile (format european: virgulă ca separator zecimal → punct), returnează datele curate.
+Primești o matrice 2D de strings extrasă din primele rânduri ale unui fișier Excel.
+Sarcina ta: identifică indexul rândului de antet (0-based) și returnează acest index, împreună cu denumirile coloanelor din antet și maparea acestor coloane (column_map).
 IMPORTANT: Identifică și returnează un column_map care specifică ce coloană corespunde fiecărui tip de informație (denumire, preț, um, cod_furnizor, cantitate_palet, consum, etc.).
-Dacă tabelul conține rânduri de categorie/grupă (bold, fără preț, text mai mare), marchează-le în câmpul category_rows.`,
+Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`,
           },
           {
             role: "user",
-            content: `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, curăță și returnează tabelul normalizat cu headers, rows, column_map și category_rows.${supplierHint}`,
+            content: `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, antetul și returnează header_row_index, headers și column_map.${supplierHint}`,
           },
         ],
         "extract_price_table",
@@ -231,12 +231,8 @@ Dacă tabelul conține rânduri de categorie/grupă (bold, fără preț, text ma
           parameters: {
             type: "object",
             properties: {
+              header_row_index: { type: "number", description: "0-based index of the header row in the provided raw rows" },
               headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
-              rows: {
-                type: "array",
-                items: { type: "array", items: { type: "string" } },
-                description: "All data rows (excluding header). Each inner array has same length as headers.",
-              },
               column_map: {
                 type: "object",
                 properties: {
@@ -249,20 +245,9 @@ Dacă tabelul conține rânduri de categorie/grupă (bold, fără preț, text ma
                 },
                 description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found.",
               },
-              category_rows: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    row_index: { type: "number", description: "0-based index in the rows array" },
-                    category_name: { type: "string", description: "Category/group name extracted" },
-                  },
-                },
-                description: "Rows that represent category/group headers, not actual products",
-              },
               note: { type: "string", description: "Optional: observation about data quality" },
             },
-            required: ["headers", "rows", "column_map"],
+            required: ["header_row_index", "headers", "column_map"],
             additionalProperties: false,
           },
         }
@@ -276,20 +261,14 @@ Dacă tabelul conține rânduri de categorie/grupă (bold, fără preț, text ma
       }
 
       const headers = result.headers as string[];
-      const colCount = headers.length;
-      const normalizedRows = ((result.rows as string[][]) || []).map((row) => {
-        const padded = [...row];
-        while (padded.length < colCount) padded.push("");
-        return padded.slice(0, colCount);
-      });
+      const headerRowIndex = typeof result.header_row_index === 'number' ? result.header_row_index : 0;
 
       return new Response(
         JSON.stringify({
           success: true,
           headers,
-          rows: normalizedRows,
+          header_row_index: headerRowIndex,
           column_map: result.column_map || null,
-          category_rows: result.category_rows || [],
           note: (result.note as string) || null,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -38,6 +38,7 @@ interface QuoteItem {
   discount_percent: number;
   pret_final: number;
   subtotal: number;
+  price_variant_id?: string | null;
 }
 
 function calcLine(item: Partial<QuoteItem>): Pick<QuoteItem, "pret_final" | "subtotal"> {
@@ -145,6 +146,21 @@ const NewQuote = () => {
         .in("id", productIdsInQuote);
       if (error) throw error;
       return data as { id: string; pret_lista: number }[];
+    },
+  });
+
+  const { data: priceVariants = [] } = useQuery({
+    queryKey: ["quote-price-variants", productIdsInQuote.join("|")],
+    enabled: productIdsInQuote.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_prices")
+        .select("id, product_id, supplier_id, price_type, price, currency, suppliers(name)")
+        .in("product_id", productIdsInQuote)
+        .is("valid_to", null)
+        .order("price", { ascending: false });
+      if (error) throw error;
+      return data;
     },
   });
 
@@ -407,7 +423,7 @@ const NewQuote = () => {
                       <TableHead>Denumire</TableHead>
                       <TableHead className="w-[70px] text-right">Cant.</TableHead>
                       <TableHead className="w-[50px]">UM</TableHead>
-                      <TableHead className="w-[160px]">Listă</TableHead>
+                      <TableHead className="w-[160px]">Grile preț</TableHead>
                       <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
                       <TableHead className="w-[70px] text-right">Disc.%</TableHead>
                       <TableHead className="w-[90px] text-right">Preț final</TableHead>
@@ -433,7 +449,35 @@ const NewQuote = () => {
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
                         <TableCell>
-                          <span className="text-xs text-muted-foreground">—</span>
+                          {(() => {
+                            const variants = priceVariants.filter((v: any) => v.product_id === item.product_id);
+                            if (variants.length === 0) {
+                              return <span className="text-xs text-muted-foreground text-center block">—</span>;
+                            }
+                            return (
+                              <Select 
+                                value={item.price_variant_id || ""} 
+                                onValueChange={(val) => {
+                                  const variant = variants.find((v: any) => v.id === val);
+                                  if (variant) {
+                                    updateItem(item.tempId, "price_variant_id", val);
+                                    updateItem(item.tempId, "pret_unitar", Number(variant.price));
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-[11px] w-[140px]">
+                                  <SelectValue placeholder="Alege preț..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {variants.map((v: any) => (
+                                    <SelectItem key={v.id} value={v.id} className="text-[11px]">
+                                      {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Input type="number" min={0} step="any" value={item.pret_unitar}
@@ -469,6 +513,37 @@ const NewQuote = () => {
                             {item.cod_intern}
                           </Badge>
                           <p className="text-sm line-clamp-2">{item.denumire}</p>
+                          {(() => {
+                            const variants = priceVariants.filter((v: any) => v.product_id === item.product_id);
+                            if (variants.length > 0) {
+                              return (
+                                <div className="mt-2">
+                                  <Select 
+                                    value={item.price_variant_id || ""} 
+                                    onValueChange={(val) => {
+                                      const variant = variants.find((v: any) => v.id === val);
+                                      if (variant) {
+                                        updateItem(item.tempId, "price_variant_id", val);
+                                        updateItem(item.tempId, "pret_unitar", Number(variant.price));
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs w-full bg-muted/50">
+                                      <SelectValue placeholder="Selectează o grilă de preț..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {variants.map((v: any) => (
+                                        <SelectItem key={v.id} value={v.id} className="text-xs">
+                                          {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
                           onClick={() => removeItem(item.tempId)}>

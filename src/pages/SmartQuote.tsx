@@ -11,6 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -50,6 +53,7 @@ interface OfertaItem {
   pret_final: number;
   subtotal: number;
   is_cerere_speciala?: boolean;
+  price_variant_id?: string | null;
 }
 
 type SuggestedProduct = PickedProduct & { score: number };
@@ -135,6 +139,26 @@ const SmartQuote = () => {
   useEffect(() => {
     setEquivalentResults(null);
   }, [cerereText]);
+
+  const productIdsInQuote = useMemo(
+    () => Array.from(new Set(items.map((i) => i.product_id).filter(Boolean))) as string[],
+    [items]
+  );
+
+  const { data: priceVariants = [] } = useQuery({
+    queryKey: ["smart-quote-price-variants", productIdsInQuote.join("|")],
+    enabled: productIdsInQuote.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("product_prices")
+        .select("id, product_id, supplier_id, price_type, price, currency, suppliers(name)")
+        .in("product_id", productIdsInQuote)
+        .is("valid_to", null)
+        .order("price", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
 
   // ── Live catalog search ──────────────────────────────────────────────────
   const tokens = useMemo(() => tokenize(debouncedCerere), [debouncedCerere]);
@@ -765,6 +789,7 @@ const SmartQuote = () => {
                       <TableHead>Denumire MaxBau</TableHead>
                       <TableHead className="w-[70px] text-right">Cant.</TableHead>
                       <TableHead className="w-[45px]">UM</TableHead>
+                      <TableHead className="w-[160px]">Grile preț</TableHead>
                       <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
                       <TableHead className="w-[65px] text-right">Disc%</TableHead>
                       <TableHead className="w-[90px] text-right">Preț final</TableHead>
@@ -808,6 +833,41 @@ const SmartQuote = () => {
                               className="h-8 w-[65px] text-right text-sm" />
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{item.unit}</TableCell>
+                          <TableCell>
+                            {item.is_cerere_speciala ? (
+                              <span className="text-xs text-muted-foreground text-center block">—</span>
+                            ) : (
+                              (() => {
+                                const variants = priceVariants.filter((v: any) => v.product_id === item.product_id);
+                                if (variants.length === 0) {
+                                  return <span className="text-xs text-muted-foreground text-center block">—</span>;
+                                }
+                                return (
+                                  <Select 
+                                    value={item.price_variant_id || ""} 
+                                    onValueChange={(val) => {
+                                      const variant = variants.find((v: any) => v.id === val);
+                                      if (variant) {
+                                        updateItem(item.tempId, "price_variant_id", val);
+                                        updateItem(item.tempId, "pret_unitar", Number(variant.price));
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 text-[11px] w-[140px]">
+                                      <SelectValue placeholder="Alege preț..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {variants.map((v: any) => (
+                                        <SelectItem key={v.id} value={v.id} className="text-[11px]">
+                                          {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                );
+                              })()
+                            )}
+                          </TableCell>
                           <TableCell>
                             {item.is_cerere_speciala ? (
                               <span className="text-xs text-muted-foreground px-2">—</span>
@@ -864,6 +924,37 @@ const SmartQuote = () => {
                             {item.cod_intern}
                           </Badge>
                           <p className="text-sm line-clamp-2">{item.denumire}</p>
+                          {!item.is_cerere_speciala && (() => {
+                            const variants = priceVariants.filter((v: any) => v.product_id === item.product_id);
+                            if (variants.length > 0) {
+                              return (
+                                <div className="mt-2">
+                                  <Select 
+                                    value={item.price_variant_id || ""} 
+                                    onValueChange={(val) => {
+                                      const variant = variants.find((v: any) => v.id === val);
+                                      if (variant) {
+                                        updateItem(item.tempId, "price_variant_id", val);
+                                        updateItem(item.tempId, "pret_unitar", Number(variant.price));
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs w-full bg-muted/50">
+                                      <SelectValue placeholder="Selectează o grilă de preț..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {variants.map((v: any) => (
+                                        <SelectItem key={v.id} value={v.id} className="text-xs">
+                                          {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </div>
                         <Button variant="ghost" size="icon"
                           className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
