@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -358,7 +358,6 @@ export default function AntemasuratorImport() {
   const [processing, setProcessing] = useState(false);
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
-  const [pdfHint, setPdfHint] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2
@@ -406,26 +405,16 @@ export default function AntemasuratorImport() {
           // Excel → client-side XLSX parsing (instant, most accurate)
           const buf = await file.arrayBuffer();
           applyItems(parseExcelToItems(buf), "Excel");
-        } else if (ext === "pdf") {
-          // PDF multi-pagină → OCR extrage doar primul tabel vizibil.
-          // Soluția fiabilă: copiați textul din PDF (Ctrl+A → Ctrl+C) în tab-ul Text.
-          setProcessing(false);
-          setPdfHint(true);
-          setActiveTab("text");
-          toast.info(
-            "PDF detectat — copiați textul din PDF și lipiți-l în tab-ul Text pentru extragere completă.",
-            { duration: 6000 }
-          );
-          return;
         } else {
-          // Image → ocr-whatsapp (funcționează bine pentru imagini single-page)
+          // PDF sau imagine → ocr-whatsapp (Gemini vision)
+          // Notă: pentru PDF-uri multi-pagină, Gemini procesează în general prima pagină/tabel.
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
           for (let i = 0; i < bytes.length; i++)
             binary += String.fromCharCode(bytes[i]);
           const base64 = btoa(binary);
-          const mime = file.type || "image/jpeg";
+          const mime = ext === "pdf" ? "application/pdf" : file.type || "image/jpeg";
 
           const { data, error } = await supabase.functions.invoke(
             "ocr-whatsapp",
@@ -434,14 +423,23 @@ export default function AntemasuratorImport() {
 
           if (error) throw new Error(error.message ?? "Eroare OCR");
           if (!data?.headers || !data?.rows) {
-            toast.error("Imaginea nu conține un tabel lizibil");
+            toast.error("Documentul nu conține un tabel lizibil");
             return;
           }
 
-          applyItems(
-            mapOcrToItems(data.headers as string[], data.rows as string[][]),
-            file.name
+          const mapped = mapOcrToItems(
+            data.headers as string[],
+            data.rows as string[][]
           );
+
+          if (ext === "pdf" && mapped.length > 0) {
+            toast.warning(
+              `${mapped.length} produse extrase din PDF. Dacă documentul are mai multe pagini, verificați lista și adăugați manual produsele lipsă.`,
+              { duration: 7000 }
+            );
+          }
+
+          applyItems(mapped, file.name);
         }
       } catch (e: any) {
         toast.error("Eroare procesare: " + (e.message ?? "necunoscută"));
@@ -666,15 +664,12 @@ export default function AntemasuratorImport() {
             <CardContent>
               <Tabs
                 value={activeTab}
-                onValueChange={(v) => {
-                  setActiveTab(v as "file" | "text");
-                  setPdfHint(false);
-                }}
+                onValueChange={(v) => setActiveTab(v as "file" | "text")}
               >
                 <TabsList className="mb-4">
                   <TabsTrigger value="file">
                     <Upload className="w-4 h-4 mr-2" />
-                    Fișier (Excel · Imagine)
+                    Fișier (PDF · Excel · Imagine)
                   </TabsTrigger>
                   <TabsTrigger value="text">
                     <FileText className="w-4 h-4 mr-2" />
@@ -732,25 +727,14 @@ export default function AntemasuratorImport() {
                     <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
                     <p className="text-xs text-blue-700">
                       <strong>Excel</strong> — cel mai precis, procesare instant. &nbsp;
-                      <strong>Imagini (JPG/PNG)</strong> — extragere OCR, funcționează bine pentru pagini single. &nbsp;
-                      <strong>PDF</strong> — deschideți PDF-ul, selectați tot (Ctrl+A), copiați (Ctrl+C) și lipiți în tab-ul <em>Text / Copy-paste</em>.
+                      <strong>PDF/Imagine</strong> — extragere OCR via AI. &nbsp;
+                      <strong>PDF multi-pagină</strong> — OCR extrage primul tabel; produsele de pe paginile 2+ pot fi adăugate manual sau prin tab-ul <em>Text / Copy-paste</em>.
                     </p>
                   </div>
                 </TabsContent>
 
                 {/* Text paste */}
                 <TabsContent value="text">
-                  {pdfHint && (
-                    <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3">
-                      <Info className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                      <div className="text-xs text-amber-800">
-                        <strong>PDF detectat.</strong> Deschideți PDF-ul în browser sau Adobe Reader,
-                        apăsați <kbd className="px-1 py-0.5 rounded bg-amber-100 font-mono">Ctrl+A</kbd> (selectare totală),
-                        apoi <kbd className="px-1 py-0.5 rounded bg-amber-100 font-mono">Ctrl+C</kbd> și lipiți mai jos.
-                        Parserul extrage automat toate produsele din toate paginile.
-                      </div>
-                    </div>
-                  )}
                   <Textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
