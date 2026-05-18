@@ -242,6 +242,8 @@ function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
 }
 
 // ── PDF text extractor (pdfjs-dist, toate paginile) ──────────────────────────
+// getTextContent() returnează elemente poziționate (x, y) în ordine arbitrară.
+// Le grupăm pe rânduri după coordonata Y (toleranță 4pt), sortăm după X.
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -250,13 +252,48 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 
 async function extractTextFromPdf(buf: ArrayBuffer): Promise<string> {
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-  const pages: string[] = [];
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
+  const allLines: string[] = [];
+
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-    pages.push(content.items.map((it: any) => it.str).join(" "));
+    const items = (content.items as any[]).filter((it) => it.str?.trim());
+    if (!items.length) continue;
+
+    // Grupăm elementele pe rânduri: tolerance 4pt în coordonata Y
+    const rowMap = new Map<number, { x: number; str: string }[]>();
+    for (const item of items) {
+      const x: number = item.transform[4];
+      const y: number = item.transform[5];
+      const yRounded = Math.round(y);
+
+      let rowKey = -Infinity;
+      for (const [ky] of rowMap) {
+        if (Math.abs(ky - yRounded) <= 4) { rowKey = ky; break; }
+      }
+      if (rowKey === -Infinity) {
+        rowMap.set(yRounded, []);
+        rowKey = yRounded;
+      }
+      rowMap.get(rowKey)!.push({ x, str: item.str });
+    }
+
+    // Sortăm rândurile de sus în jos (Y mare = sus în PDF)
+    const sortedRows = [...rowMap.entries()]
+      .sort(([ya], [yb]) => yb - ya)
+      .map(([, els]) =>
+        els
+          .sort((a, b) => a.x - b.x)
+          .map((e) => e.str)
+          .join(" ")
+          .trim()
+      )
+      .filter((l) => l.length > 0);
+
+    allLines.push(...sortedRows);
   }
-  return pages.join("\n");
+
+  return allLines.join("\n");
 }
 
 const unitRxGlobal = new RegExp(
