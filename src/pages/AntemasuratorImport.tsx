@@ -236,8 +236,7 @@ function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
     .filter(
       (it) =>
         it.descriere_client.length > 2 &&
-        it.cantitate > 0 &&
-        !isDateDeCalcul(it.descriere_client)
+        it.cantitate > 0
     );
 }
 
