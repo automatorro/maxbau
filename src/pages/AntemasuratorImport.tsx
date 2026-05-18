@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ import {
   Plus,
   Trash2,
   ClipboardList,
+  Info,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -151,6 +152,7 @@ function parseTextToItems(text: string): ExtractedItem[] {
 
     const descriere = descMatch[2].trim();
     if (descriere.length < 3) continue;
+    if (isDateDeCalcul(descriere)) continue;
 
     items.push({
       id: randomId(),
@@ -163,6 +165,20 @@ function parseTextToItems(text: string): ExtractedItem[] {
   }
 
   return items;
+}
+
+// ── "Date de calcul" filter ───────────────────────────────────────────────────
+// Antemasurătorile încep cu un tabel de date de referință ale clădirii
+// (suprafețe, perimetre, nr. ferestre) care NU sunt produse de achiziționat.
+
+const DATE_CALCUL_KEYWORDS = [
+  "arie ", "arie\t", "perimetru", "nr. fereastr", "nr. ferestre",
+  "suprafata", "suprafață", "lungime", "adancime", "inaltime", "înălțime",
+];
+
+function isDateDeCalcul(name: string): boolean {
+  const n = norm(name);
+  return DATE_CALCUL_KEYWORDS.some((kw) => n.startsWith(kw) || n.includes(" " + kw));
 }
 
 // ── OCR table → ExtractedItem[] mapper ───────────────────────────────────────
@@ -217,7 +233,12 @@ function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
         unitate: unit || "buc",
       };
     })
-    .filter((it) => it.descriere_client.length > 2 && it.cantitate > 0);
+    .filter(
+      (it) =>
+        it.descriere_client.length > 2 &&
+        it.cantitate > 0 &&
+        !isDateDeCalcul(it.descriere_client)
+    );
 }
 
 const unitRxGlobal = new RegExp(
@@ -336,6 +357,8 @@ export default function AntemasuratorImport() {
   const [textInput, setTextInput] = useState("");
   const [processing, setProcessing] = useState(false);
   const [items, setItems] = useState<ExtractedItem[]>([]);
+  const [activeTab, setActiveTab] = useState<"file" | "text">("file");
+  const [pdfHint, setPdfHint] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2
@@ -380,19 +403,29 @@ export default function AntemasuratorImport() {
 
       try {
         if (ext === "xlsx" || ext === "xls") {
-          // Excel → client-side XLSX parsing
+          // Excel → client-side XLSX parsing (instant, most accurate)
           const buf = await file.arrayBuffer();
           applyItems(parseExcelToItems(buf), "Excel");
+        } else if (ext === "pdf") {
+          // PDF multi-pagină → OCR extrage doar primul tabel vizibil.
+          // Soluția fiabilă: copiați textul din PDF (Ctrl+A → Ctrl+C) în tab-ul Text.
+          setProcessing(false);
+          setPdfHint(true);
+          setActiveTab("text");
+          toast.info(
+            "PDF detectat — copiați textul din PDF și lipiți-l în tab-ul Text pentru extragere completă.",
+            { duration: 6000 }
+          );
+          return;
         } else {
-          // Image or PDF → existing ocr-whatsapp edge function
+          // Image → ocr-whatsapp (funcționează bine pentru imagini single-page)
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
           for (let i = 0; i < bytes.length; i++)
             binary += String.fromCharCode(bytes[i]);
           const base64 = btoa(binary);
-          const mime =
-            ext === "pdf" ? "application/pdf" : file.type || "image/jpeg";
+          const mime = file.type || "image/jpeg";
 
           const { data, error } = await supabase.functions.invoke(
             "ocr-whatsapp",
@@ -401,7 +434,7 @@ export default function AntemasuratorImport() {
 
           if (error) throw new Error(error.message ?? "Eroare OCR");
           if (!data?.headers || !data?.rows) {
-            toast.error("Documentul nu conține un tabel lizibil");
+            toast.error("Imaginea nu conține un tabel lizibil");
             return;
           }
 
@@ -631,11 +664,17 @@ export default function AntemasuratorImport() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="file">
+              <Tabs
+                value={activeTab}
+                onValueChange={(v) => {
+                  setActiveTab(v as "file" | "text");
+                  setPdfHint(false);
+                }}
+              >
                 <TabsList className="mb-4">
                   <TabsTrigger value="file">
                     <Upload className="w-4 h-4 mr-2" />
-                    Fișier (PDF · Excel · Imagine)
+                    Fișier (Excel · Imagine)
                   </TabsTrigger>
                   <TabsTrigger value="text">
                     <FileText className="w-4 h-4 mr-2" />
@@ -689,14 +728,29 @@ export default function AntemasuratorImport() {
                       e.target.value = "";
                     }}
                   />
-                  <p className="text-xs text-muted-foreground mt-3">
-                    <strong>Excel</strong> — cel mai precis, procesare instant.{" "}
-                    <strong>PDF/Imagine</strong> — extragere AI via OCR.
-                  </p>
+                  <div className="mt-3 flex items-start gap-2 rounded-md bg-blue-50 border border-blue-200 p-3">
+                    <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-blue-700">
+                      <strong>Excel</strong> — cel mai precis, procesare instant. &nbsp;
+                      <strong>Imagini (JPG/PNG)</strong> — extragere OCR, funcționează bine pentru pagini single. &nbsp;
+                      <strong>PDF</strong> — deschideți PDF-ul, selectați tot (Ctrl+A), copiați (Ctrl+C) și lipiți în tab-ul <em>Text / Copy-paste</em>.
+                    </p>
+                  </div>
                 </TabsContent>
 
                 {/* Text paste */}
                 <TabsContent value="text">
+                  {pdfHint && (
+                    <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 p-3">
+                      <Info className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-xs text-amber-800">
+                        <strong>PDF detectat.</strong> Deschideți PDF-ul în browser sau Adobe Reader,
+                        apăsați <kbd className="px-1 py-0.5 rounded bg-amber-100 font-mono">Ctrl+A</kbd> (selectare totală),
+                        apoi <kbd className="px-1 py-0.5 rounded bg-amber-100 font-mono">Ctrl+C</kbd> și lipiți mai jos.
+                        Parserul extrage automat toate produsele din toate paginile.
+                      </div>
+                    </div>
+                  )}
                   <Textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
