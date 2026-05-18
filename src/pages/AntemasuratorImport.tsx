@@ -519,6 +519,31 @@ export default function AntemasuratorImport() {
     (i) => i.descriere_client.trim() && i.cantitate > 0
   );
 
+  // ── Step 2 helpers ────────────────────────────────────────────────────────
+
+  const updateMatchedItem = (idx: number, field: keyof ItemWithMatch, value: any) =>
+    setItemsWithMatches((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it))
+    );
+
+  const removeMatchedItem = (idx: number) =>
+    setItemsWithMatches((prev) => prev.filter((_, i) => i !== idx));
+
+  const addEmptyMatchedItem = () =>
+    setItemsWithMatches((prev) => [
+      ...prev,
+      {
+        id: randomId(),
+        descriere_client: "",
+        cantitate: 0,
+        unitate: "buc",
+        matchStatus: "pending" as MatchStatus,
+        alternatives: [],
+        selectedMatchIdx: null,
+        de_procurat: false,
+      },
+    ]);
+
   // ── Step 2: AI Matching ───────────────────────────────────────────────────
 
   const startMatching = useCallback(async () => {
@@ -959,6 +984,13 @@ export default function AntemasuratorImport() {
                 </div>
               )}
 
+              <div className="flex justify-end mb-2">
+                <Button variant="outline" size="sm" onClick={addEmptyMatchedItem}>
+                  <Plus className="w-3 h-3 mr-1" />
+                  Adaugă rând
+                </Button>
+              </div>
+
               <div className="rounded border overflow-auto">
                 <Table>
                   <TableHeader>
@@ -966,13 +998,14 @@ export default function AntemasuratorImport() {
                       <TableHead className="min-w-[200px]">
                         Cerere client
                       </TableHead>
-                      <TableHead className="w-20">Cant.</TableHead>
-                      <TableHead className="w-16">UM</TableHead>
+                      <TableHead className="w-24">Cant.</TableHead>
+                      <TableHead className="w-20">UM</TableHead>
                       <TableHead className="w-28">Status</TableHead>
                       <TableHead className="min-w-[300px]">
                         Produs propus din catalog
                       </TableHead>
                       <TableHead className="w-36">De procurat</TableHead>
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -990,9 +1023,14 @@ export default function AntemasuratorImport() {
                           }
                         >
                           <TableCell>
-                            <div className="text-sm font-medium leading-tight">
-                              {item.descriere_client}
-                            </div>
+                            <Input
+                              value={item.descriere_client}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "descriere_client", e.target.value)
+                              }
+                              className="h-7 text-xs"
+                              placeholder="Denumire produs"
+                            />
                             {item.sectiune && (
                               <div className="text-xs text-muted-foreground mt-0.5">
                                 {item.sectiune}
@@ -1000,11 +1038,24 @@ export default function AntemasuratorImport() {
                             )}
                           </TableCell>
 
-                          <TableCell className="text-sm tabular-nums">
-                            {item.cantitate}
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.cantitate || ""}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "cantitate", parseFloat(e.target.value) || 0)
+                              }
+                              className="h-7 text-xs w-20"
+                            />
                           </TableCell>
-                          <TableCell className="text-sm">
-                            {item.unitate}
+                          <TableCell>
+                            <Input
+                              value={item.unitate}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "unitate", e.target.value)
+                              }
+                              className="h-7 text-xs w-16"
+                            />
                           </TableCell>
 
                           <TableCell>
@@ -1120,6 +1171,17 @@ export default function AntemasuratorImport() {
                               </span>
                             </div>
                           </TableCell>
+
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => removeMatchedItem(idx)}
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -1202,16 +1264,17 @@ export default function AntemasuratorImport() {
                     <TableRow>
                       <TableHead>Cerere client</TableHead>
                       <TableHead>Produs catalog</TableHead>
-                      <TableHead className="w-20 text-right">Cant.</TableHead>
-                      <TableHead className="w-16">UM</TableHead>
+                      <TableHead className="w-24">Cant.</TableHead>
+                      <TableHead className="w-20">UM</TableHead>
                       <TableHead className="w-28 text-right">
                         Preț/unit.
                       </TableHead>
                       <TableHead className="w-28 text-right">Subtotal</TableHead>
+                      <TableHead className="w-10" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {itemsWithMatches.map((item) => {
+                    {itemsWithMatches.map((item, idx) => {
                       const match =
                         !item.de_procurat && item.selectedMatchIdx !== null
                           ? item.alternatives[item.selectedMatchIdx]
@@ -1225,7 +1288,13 @@ export default function AntemasuratorImport() {
                           className={item.de_procurat ? "bg-amber-50/60" : ""}
                         >
                           <TableCell className="text-sm">
-                            {item.descriere_client}
+                            <Input
+                              value={item.descriere_client}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "descriere_client", e.target.value)
+                              }
+                              className="h-7 text-xs"
+                            />
                           </TableCell>
                           <TableCell className="text-sm">
                             {match ? (
@@ -1244,11 +1313,24 @@ export default function AntemasuratorImport() {
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-sm text-right tabular-nums">
-                            {item.cantitate}
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={item.cantitate || ""}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "cantitate", parseFloat(e.target.value) || 0)
+                              }
+                              className="h-7 text-xs w-20"
+                            />
                           </TableCell>
-                          <TableCell className="text-sm">
-                            {match?.unit ?? item.unitate}
+                          <TableCell>
+                            <Input
+                              value={item.unitate}
+                              onChange={(e) =>
+                                updateMatchedItem(idx, "unitate", e.target.value)
+                              }
+                              className="h-7 text-xs w-16"
+                            />
                           </TableCell>
                           <TableCell className="text-sm text-right tabular-nums">
                             {match
@@ -1259,6 +1341,16 @@ export default function AntemasuratorImport() {
                             {subtotal > 0
                               ? `${subtotal.toFixed(2)} lei`
                               : "—"}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => removeMatchedItem(idx)}
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
