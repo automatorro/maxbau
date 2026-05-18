@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
+import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
@@ -240,6 +241,24 @@ function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
     );
 }
 
+// ── PDF text extractor (pdfjs-dist, toate paginile) ──────────────────────────
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
+
+async function extractTextFromPdf(buf: ArrayBuffer): Promise<string> {
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((it: any) => it.str).join(" "));
+  }
+  return pages.join("\n");
+}
+
 const unitRxGlobal = new RegExp(
   `\\b(${KNOWN_UNITS.join("|")})\\.?\\b`,
   "i"
@@ -401,19 +420,24 @@ export default function AntemasuratorImport() {
 
       try {
         if (ext === "xlsx" || ext === "xls") {
-          // Excel → client-side XLSX parsing (instant, most accurate)
+          // Excel → client-side XLSX parsing
           const buf = await file.arrayBuffer();
           applyItems(parseExcelToItems(buf), "Excel");
+        } else if (ext === "pdf") {
+          // PDF → pdfjs extrage text din TOATE paginile → parser text
+          const buf = await file.arrayBuffer();
+          const text = await extractTextFromPdf(buf);
+          const parsed = parseTextToItems(text);
+          applyItems(parsed, "PDF");
         } else {
-          // PDF sau imagine → ocr-whatsapp (Gemini vision)
-          // Notă: pentru PDF-uri multi-pagină, Gemini procesează în general prima pagină/tabel.
+          // Imagine → ocr-whatsapp (Gemini vision)
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
           for (let i = 0; i < bytes.length; i++)
             binary += String.fromCharCode(bytes[i]);
           const base64 = btoa(binary);
-          const mime = ext === "pdf" ? "application/pdf" : file.type || "image/jpeg";
+          const mime = file.type || "image/jpeg";
 
           const { data, error } = await supabase.functions.invoke(
             "ocr-whatsapp",
@@ -422,23 +446,14 @@ export default function AntemasuratorImport() {
 
           if (error) throw new Error(error.message ?? "Eroare OCR");
           if (!data?.headers || !data?.rows) {
-            toast.error("Documentul nu conține un tabel lizibil");
+            toast.error("Imaginea nu conține un tabel lizibil");
             return;
           }
 
-          const mapped = mapOcrToItems(
-            data.headers as string[],
-            data.rows as string[][]
+          applyItems(
+            mapOcrToItems(data.headers as string[], data.rows as string[][]),
+            file.name
           );
-
-          if (ext === "pdf" && mapped.length > 0) {
-            toast.warning(
-              `${mapped.length} produse extrase din PDF. Dacă documentul are mai multe pagini, verificați lista și adăugați manual produsele lipsă.`,
-              { duration: 7000 }
-            );
-          }
-
-          applyItems(mapped, file.name);
         }
       } catch (e: any) {
         toast.error("Eroare procesare: " + (e.message ?? "necunoscută"));
