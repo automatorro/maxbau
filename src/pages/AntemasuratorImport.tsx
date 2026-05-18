@@ -72,11 +72,194 @@ interface ItemWithMatch extends ExtractedItem {
   de_procurat: boolean;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Client-side parsers ───────────────────────────────────────────────────────
 
 function randomId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
+
+const NORM_MAP: Record<string, string> = {
+  ă: "a", â: "a", î: "i", ș: "s", ț: "t",
+  Ă: "A", Â: "A", Î: "I", Ș: "S", Ț: "T",
+};
+function norm(s: string): string {
+  return s
+    .split("")
+    .map((c) => NORM_MAP[c] ?? c)
+    .join("")
+    .toLowerCase()
+    .trim();
+}
+
+// ── Text parser (for copy-paste from PDF/Excel) ───────────────────────────────
+//
+// Handles lines like:
+//   "1  Vată minerală bazaltică 15 cm  1386 pac"
+//   "Adeziv polistiren   5  25  157"   ← last number + known unit
+//   "27 GLAFURI EXT. 190 BUC."
+
+const KNOWN_UNITS = [
+  "pac", "saci", "sac", "role", "rola", "buc", "ml", "mp", "mc",
+  "gal", "galeti", "galet", "kg", "cutie", "cutii", "m", "t", "aprox",
+];
+
+function parseTextToItems(text: string): ExtractedItem[] {
+  const unitRx = new RegExp(
+    `\\b(${KNOWN_UNITS.join("|")})\\.?\\b`,
+    "i"
+  );
+  const items: ExtractedItem[] = [];
+  let currentSection = "";
+
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Section header: no digits or only very few, all-caps-ish, or known keywords
+    const hasDigit = /\d/.test(line);
+    const isHeaderKeyword =
+      /termosistem|soclu|invelitoare|învelitoare|accesorii|trotuar|izolare|placa|planseu/i.test(
+        line
+      );
+    if (
+      (!hasDigit && line.length > 6 && /^[A-ZĂÂÎȘȚ\s.\/\-:0-9]{6,}$/i.test(line)) ||
+      isHeaderKeyword
+    ) {
+      currentSection = line;
+      continue;
+    }
+
+    // Find last occurrence of "number unit" at or near end of line
+    const unitMatch = unitRx.exec(line);
+    if (!unitMatch) continue;
+
+    const unitWord = unitMatch[1];
+    const beforeUnit = line.slice(0, unitMatch.index).trim();
+
+    // Find last standalone number before the unit
+    const numMatches = [...beforeUnit.matchAll(/(\d+(?:[.,]\d+)?)/g)];
+    if (!numMatches.length) continue;
+
+    const lastNum = numMatches[numMatches.length - 1];
+    const qty = parseFloat(lastNum[0].replace(",", "."));
+    if (!qty || qty <= 0) continue;
+
+    // Everything before the quantity is description (strip leading "nr.")
+    const beforeQty = beforeUnit.slice(0, lastNum.index!).trim();
+    const descMatch = /^(\d+[.):\s]+)?(.+)$/.exec(beforeQty);
+    if (!descMatch?.[2]?.trim()) continue;
+
+    const descriere = descMatch[2].trim();
+    if (descriere.length < 3) continue;
+
+    items.push({
+      id: randomId(),
+      nr: descMatch[1]?.replace(/[.):\s]+$/, "").trim() || String(items.length + 1),
+      sectiune: currentSection || undefined,
+      descriere_client: descriere,
+      cantitate: qty,
+      unitate: unitWord,
+    });
+  }
+
+  return items;
+}
+
+// ── OCR table → ExtractedItem[] mapper ───────────────────────────────────────
+//
+// ocr-whatsapp returns {headers: string[], rows: string[][]}
+// We detect which column is name / quantity / unit by header keywords.
+
+function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
+  const h = headers.map(norm);
+
+  // Column index finders
+  const find = (...keywords: string[]) =>
+    h.findIndex((c) => keywords.some((k) => c.includes(k)));
+
+  const nameIdx = find("denu", "produ", "materi", "descri", "articol");
+  // "Necesar pachete/buc total" or "Cantitate necesara" — the actual needed qty
+  const qtyIdx = find("necesar", "cantit", "total", "qty", "buc. total");
+  const unitIdx = find("um", "u.m", "unit", "masur");
+  const secIdx = find("sectiu", "categ", "grup");
+
+  const fallbackNameIdx = nameIdx >= 0 ? nameIdx : 0;
+  // If no qty col found, try last numeric-looking column
+  const numericColIdx = (row: string[]) => {
+    for (let i = row.length - 1; i >= 0; i--) {
+      if (i === fallbackNameIdx) continue;
+      if (/^\d+([.,]\d+)?$/.test(row[i].trim())) return i;
+    }
+    return -1;
+  };
+
+  return rows
+    .filter((row) => row.some((c) => c.trim()))
+    .map((row, i) => {
+      const name = row[fallbackNameIdx]?.trim() ?? "";
+      const rawQty =
+        qtyIdx >= 0 ? row[qtyIdx] : row[numericColIdx(row)] ?? "";
+      const rawUnit = unitIdx >= 0 ? row[unitIdx] : "";
+
+      // Try to extract unit from name if not found
+      let unit = rawUnit.trim();
+      if (!unit) {
+        const m = unitRxGlobal.exec(name);
+        if (m) unit = m[1];
+      }
+
+      return {
+        id: randomId(),
+        nr: String(i + 1),
+        sectiune: secIdx >= 0 ? row[secIdx]?.trim() : undefined,
+        descriere_client: name,
+        cantitate: parseFloat(rawQty.replace(",", ".")) || 0,
+        unitate: unit || "buc",
+      };
+    })
+    .filter((it) => it.descriere_client.length > 2 && it.cantitate > 0);
+}
+
+const unitRxGlobal = new RegExp(
+  `\\b(${KNOWN_UNITS.join("|")})\\.?\\b`,
+  "i"
+);
+
+// ── Excel → ExtractedItem[] ───────────────────────────────────────────────────
+
+function parseExcelToItems(buf: ArrayBuffer): ExtractedItem[] {
+  const wb = XLSX.read(buf, { type: "array" });
+  const allItems: ExtractedItem[] = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const rows: string[][] = XLSX.utils.sheet_to_json(ws, {
+      header: 1,
+      defval: "",
+      raw: false,
+    }) as string[][];
+
+    if (!rows.length) continue;
+
+    // Find header row (first row that has 3+ non-empty cells)
+    const headerRowIdx = rows.findIndex(
+      (r) => r.filter((c) => String(c).trim()).length >= 3
+    );
+    if (headerRowIdx < 0) continue;
+
+    const headers = rows[headerRowIdx].map((c) => String(c));
+    const dataRows = rows.slice(headerRowIdx + 1).map((r) =>
+      r.map((c) => String(c))
+    );
+
+    const mapped = mapOcrToItems(headers, dataRows);
+    allItems.push(...mapped);
+  }
+
+  return allItems;
+}
+
+// ── Concurrency helper ────────────────────────────────────────────────────────
 
 async function runWithConcurrency<T>(
   tasks: (() => Promise<T>)[],
@@ -151,7 +334,7 @@ export default function AntemasuratorImport() {
 
   // Step 1
   const [textInput, setTextInput] = useState("");
-  const [extracting, setExtracting] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -167,108 +350,80 @@ export default function AntemasuratorImport() {
   const [projectDesc, setProjectDesc] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // ── Step 1: Upload & Extract ──────────────────────────────────────────────
+  // ── Step 1 handlers ───────────────────────────────────────────────────────
 
-  const applyExtractedItems = useCallback((rawItems: any[]) => {
-    setItems(
-      rawItems.map((item: any) => ({
-        id: randomId(),
-        nr: item.nr,
-        sectiune: item.sectiune,
-        descriere_client: item.descriere_client ?? "",
-        cantitate: Number(item.cantitate) || 0,
-        unitate: item.unitate ?? "buc",
-      }))
-    );
-  }, []);
-
-  const handleExtractText = useCallback(async () => {
-    if (!textInput.trim()) {
-      toast.error("Introduceți sau lipiți textul antemasurătorii");
-      return;
-    }
-    setExtracting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("parse-antemasuratori", {
-        body: { text: textInput },
-      });
-      if (error) throw error;
-      if (!data?.items?.length) {
-        toast.error("Nu s-au găsit produse în text");
+  const applyItems = useCallback(
+    (parsed: ExtractedItem[], source: string) => {
+      if (!parsed.length) {
+        toast.error(`Nu s-au identificat produse în ${source}`);
         return;
       }
-      applyExtractedItems(data.items);
-      toast.success(`${data.items.length} produse extrase cu succes`);
-    } catch (e: any) {
-      toast.error("Eroare extragere: " + (e.message ?? "necunoscută"));
-    } finally {
-      setExtracting(false);
+      setItems(parsed);
+      toast.success(`${parsed.length} produse extrase din ${source}`);
+    },
+    []
+  );
+
+  const handleExtractText = useCallback(() => {
+    if (!textInput.trim()) {
+      toast.error("Introduceți textul antemasurătorii");
+      return;
     }
-  }, [textInput, applyExtractedItems]);
+    const parsed = parseTextToItems(textInput);
+    applyItems(parsed, "text");
+  }, [textInput, applyItems]);
 
   const handleFileUpload = useCallback(
     async (file: File) => {
-      const ext = file.name.split(".").pop()?.toLowerCase();
-      setExtracting(true);
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+      setProcessing(true);
+
       try {
         if (ext === "xlsx" || ext === "xls") {
-          // Parse Excel client-side, then send as CSV text to AI
+          // Excel → client-side XLSX parsing
           const buf = await file.arrayBuffer();
-          const wb = XLSX.read(buf, { type: "array" });
-          const textParts: string[] = [];
-          for (const sheetName of wb.SheetNames) {
-            const ws = wb.Sheets[sheetName];
-            textParts.push(`--- ${sheetName} ---\n${XLSX.utils.sheet_to_csv(ws)}`);
-          }
-          const text = textParts.join("\n\n");
-          const { data, error } = await supabase.functions.invoke("parse-antemasuratori", {
-            body: { text },
-          });
-          if (error) throw error;
-          if (!data?.items?.length) {
-            toast.error("Nu s-au găsit produse în fișierul Excel");
-            return;
-          }
-          applyExtractedItems(data.items);
-          toast.success(`${data.items.length} produse extrase din Excel`);
+          applyItems(parseExcelToItems(buf), "Excel");
         } else {
-          // PDF or image — send as base64 for Gemini vision
+          // Image or PDF → existing ocr-whatsapp edge function
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
-          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          for (let i = 0; i < bytes.length; i++)
+            binary += String.fromCharCode(bytes[i]);
           const base64 = btoa(binary);
           const mime =
-            ext === "pdf"
-              ? "application/pdf"
-              : file.type || "image/jpeg";
+            ext === "pdf" ? "application/pdf" : file.type || "image/jpeg";
 
-          const { data, error } = await supabase.functions.invoke("parse-antemasuratori", {
-            body: { file_base64: base64, mime_type: mime },
-          });
-          if (error) throw error;
-          if (!data?.items?.length) {
-            toast.error("Nu s-au găsit produse în document");
+          const { data, error } = await supabase.functions.invoke(
+            "ocr-whatsapp",
+            { body: { image_base64: base64, mime_type: mime } }
+          );
+
+          if (error) throw new Error(error.message ?? "Eroare OCR");
+          if (!data?.headers || !data?.rows) {
+            toast.error("Documentul nu conține un tabel lizibil");
             return;
           }
-          applyExtractedItems(data.items);
-          toast.success(`${data.items.length} produse extrase din ${file.name}`);
+
+          applyItems(
+            mapOcrToItems(data.headers as string[], data.rows as string[][]),
+            file.name
+          );
         }
       } catch (e: any) {
-        toast.error("Eroare: " + (e.message ?? "necunoscută"));
+        toast.error("Eroare procesare: " + (e.message ?? "necunoscută"));
       } finally {
-        setExtracting(false);
+        setProcessing(false);
       }
     },
-    [applyExtractedItems]
+    [applyItems]
   );
 
-  const addEmptyItem = () => {
+  const addEmptyItem = () =>
     setItems((prev) => [
       ...prev,
       { id: randomId(), descriere_client: "", cantitate: 0, unitate: "buc" },
     ]);
-  };
 
   const removeItem = (id: string) =>
     setItems((prev) => prev.filter((i) => i.id !== id));
@@ -286,7 +441,9 @@ export default function AntemasuratorImport() {
 
   const startMatching = useCallback(async () => {
     if (!validItems.length) {
-      toast.error("Adăugați cel puțin un produs valid (cu denumire și cantitate)");
+      toast.error(
+        "Adăugați cel puțin un produs valid (cu denumire și cantitate)"
+      );
       return;
     }
 
@@ -294,24 +451,28 @@ export default function AntemasuratorImport() {
     setMatching(true);
     setMatchProgress(0);
 
-    const initial: ItemWithMatch[] = validItems.map((i) => ({
-      ...i,
-      matchStatus: "pending" as MatchStatus,
-      alternatives: [],
-      selectedMatchIdx: null,
-      de_procurat: false,
-    }));
-    setItemsWithMatches(initial);
+    setItemsWithMatches(
+      validItems.map((i) => ({
+        ...i,
+        matchStatus: "pending" as MatchStatus,
+        alternatives: [],
+        selectedMatchIdx: null,
+        de_procurat: false,
+      }))
+    );
 
     const tasks = validItems.map((item, idx) => async () => {
       setItemsWithMatches((prev) =>
-        prev.map((it, i) => (i === idx ? { ...it, matchStatus: "loading" } : it))
+        prev.map((it, i) =>
+          i === idx ? { ...it, matchStatus: "loading" } : it
+        )
       );
 
       try {
-        const { data, error } = await supabase.functions.invoke("ai-find-equivalent", {
-          body: { cerere_client: item.descriere_client },
-        });
+        const { data, error } = await supabase.functions.invoke(
+          "ai-find-equivalent",
+          { body: { cerere_client: item.descriere_client } }
+        );
 
         if (error || !data?.success) {
           setItemsWithMatches((prev) =>
@@ -368,6 +529,7 @@ export default function AntemasuratorImport() {
       return;
     }
     setSaving(true);
+
     try {
       const quoteItemRows = itemsWithMatches.map((item) => {
         const match =
@@ -375,7 +537,6 @@ export default function AntemasuratorImport() {
             ? item.alternatives[item.selectedMatchIdx]
             : null;
         const pretUnitar = match?.pret_lista ?? 0;
-        const subtotal = pretUnitar * item.cantitate;
         return {
           product_id: match?.product_id ?? null,
           cod_intern: match?.cod_intern ?? "CERERE",
@@ -385,7 +546,7 @@ export default function AntemasuratorImport() {
           pret_unitar: pretUnitar,
           discount_percent: 0,
           pret_final: pretUnitar,
-          subtotal,
+          subtotal: pretUnitar * item.cantitate,
           cerere_initiala: item.descriere_client,
           nota_echivalenta: match
             ? `Echivalent propus AI (scor ${match.scor}/100): ${match.justificare}`
@@ -394,8 +555,7 @@ export default function AntemasuratorImport() {
       });
 
       const totalNet = quoteItemRows.reduce((s, i) => s + i.subtotal, 0);
-      const TVA = 0.19;
-      const totalTva = totalNet * TVA;
+      const totalTva = totalNet * 0.19;
 
       const { data: quote, error: quoteErr } = await supabase
         .from("quotes")
@@ -418,18 +578,30 @@ export default function AntemasuratorImport() {
       if (quoteItemRows.length > 0) {
         const { error: itemsErr } = await supabase
           .from("quote_items")
-          .insert(quoteItemRows.map((qi) => ({ ...qi, quote_id: quote.id })));
+          .insert(
+            quoteItemRows.map((qi) => ({ ...qi, quote_id: quote.id }))
+          );
         if (itemsErr) throw itemsErr;
       }
 
-      toast.success("Ofertă creată cu succes! Poți edita prețurile și discounturile.");
+      toast.success(
+        "Ofertă creată! Poți ajusta prețurile și discounturile."
+      );
       navigate(`/quote/${quote.id}/edit`);
     } catch (e: any) {
       toast.error("Eroare la salvare: " + (e.message ?? "necunoscută"));
     } finally {
       setSaving(false);
     }
-  }, [clientName, clientPhone, clientEmail, projectDesc, itemsWithMatches, user, navigate]);
+  }, [
+    clientName,
+    clientPhone,
+    clientEmail,
+    projectDesc,
+    itemsWithMatches,
+    user,
+    navigate,
+  ]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -443,13 +615,13 @@ export default function AntemasuratorImport() {
       <div className="max-w-6xl mx-auto p-6">
         <h1 className="text-2xl font-bold mb-1">Import Antemasurătoare</h1>
         <p className="text-muted-foreground mb-6">
-          Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI identifică
-          produsele echivalente din catalog și generează oferta.
+          Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI
+          identifică produsele echivalente din catalog și generează oferta.
         </p>
 
         <StepIndicator current={step} />
 
-        {/* ── STEP 1: Extragere ─────────────────────────────────────────── */}
+        {/* ── STEP 1 ─────────────────────────────────────────────────────── */}
         {step === 1 && (
           <Card>
             <CardHeader>
@@ -463,7 +635,7 @@ export default function AntemasuratorImport() {
                 <TabsList className="mb-4">
                   <TabsTrigger value="file">
                     <Upload className="w-4 h-4 mr-2" />
-                    Fișier (PDF / Excel / Imagine)
+                    Fișier (PDF · Excel · Imagine)
                   </TabsTrigger>
                   <TabsTrigger value="text">
                     <FileText className="w-4 h-4 mr-2" />
@@ -471,30 +643,37 @@ export default function AntemasuratorImport() {
                   </TabsTrigger>
                 </TabsList>
 
-                {/* File upload tab */}
+                {/* File upload */}
                 <TabsContent value="file">
                   <div
                     className="border-2 border-dashed border-muted rounded-lg p-10 text-center cursor-pointer hover:border-primary transition-colors"
-                    onClick={() => !extracting && fileInputRef.current?.click()}
+                    onClick={() =>
+                      !processing && fileInputRef.current?.click()
+                    }
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
                       e.preventDefault();
                       const f = e.dataTransfer.files[0];
-                      if (f && !extracting) handleFileUpload(f);
+                      if (f && !processing) handleFileUpload(f);
                     }}
                   >
-                    {extracting ? (
+                    {processing ? (
                       <div className="flex flex-col items-center gap-3 text-muted-foreground">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                        <p>AI extrage pozițiile din document...</p>
-                        <p className="text-xs">Poate dura 10–30 secunde pentru documente mari</p>
+                        <p>Procesare document...</p>
+                        <p className="text-xs">
+                          PDF și imagini: extragere tabel via AI · Excel:
+                          procesare directă
+                        </p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-3">
                         <Upload className="w-10 h-10 text-muted-foreground" />
-                        <p className="font-medium">Trage fișierul aici sau click pentru selectare</p>
+                        <p className="font-medium">
+                          Trage fișierul aici sau click pentru selectare
+                        </p>
                         <p className="text-sm text-muted-foreground">
-                          PDF · Excel (.xlsx, .xls) · Imagini (JPG, PNG, WebP)
+                          Excel (.xlsx, .xls) · PDF · Imagini (JPG, PNG, WebP)
                         </p>
                       </div>
                     )}
@@ -510,17 +689,22 @@ export default function AntemasuratorImport() {
                       e.target.value = "";
                     }}
                   />
+                  <p className="text-xs text-muted-foreground mt-3">
+                    <strong>Excel</strong> — cel mai precis, procesare instant.{" "}
+                    <strong>PDF/Imagine</strong> — extragere AI via OCR.
+                  </p>
                 </TabsContent>
 
-                {/* Text paste tab */}
+                {/* Text paste */}
                 <TabsContent value="text">
                   <Textarea
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     placeholder={
-                      "Lipește textul antemasurătorii aici...\n\n" +
+                      "Lipește textul antemasurătorii sau copiază direct din Excel...\n\n" +
                       "Exemplu:\n" +
-                      "1  Vată minerală bazaltică 15cm  1386 pac\n" +
+                      "TERMOSISTEM FATADA\n" +
+                      "1  Vată minerală bazaltică 15 cm  1386 pac\n" +
                       "2  Adeziv masă șpaclu vată minerală  533 saci\n" +
                       "3  Plasă armare fibră sticlă 160g/m²  37 role"
                     }
@@ -529,24 +713,25 @@ export default function AntemasuratorImport() {
                   />
                   <Button
                     onClick={handleExtractText}
-                    disabled={extracting || !textInput.trim()}
+                    disabled={!textInput.trim()}
                   >
-                    {extracting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 mr-2" />
-                    )}
-                    Extrage produse cu AI
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Extrage produse
                   </Button>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Parserul detectează automat produsele și cantitățile.
+                    Verifică și corectează rezultatul în tabelul de mai jos.
+                  </p>
                 </TabsContent>
               </Tabs>
 
-              {/* Extracted items review table */}
+              {/* Extracted items table */}
               {items.length > 0 && (
                 <div className="mt-6">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-medium text-muted-foreground">
-                      {items.length} produse extrase — verificați și corectați dacă e necesar
+                      {items.length} produse extrase — verificați și corectați
+                      dacă e necesar
                     </p>
                     <Button variant="outline" size="sm" onClick={addEmptyItem}>
                       <Plus className="w-3 h-3 mr-1" />
@@ -576,7 +761,11 @@ export default function AntemasuratorImport() {
                               <Input
                                 value={item.sectiune ?? ""}
                                 onChange={(e) =>
-                                  updateItem(item.id, "sectiune", e.target.value)
+                                  updateItem(
+                                    item.id,
+                                    "sectiune",
+                                    e.target.value
+                                  )
                                 }
                                 className="h-7 text-xs"
                                 placeholder="Secțiune"
@@ -613,7 +802,11 @@ export default function AntemasuratorImport() {
                               <Input
                                 value={item.unitate}
                                 onChange={(e) =>
-                                  updateItem(item.id, "unitate", e.target.value)
+                                  updateItem(
+                                    item.id,
+                                    "unitate",
+                                    e.target.value
+                                  )
                                 }
                                 className="h-7 text-xs"
                               />
@@ -635,7 +828,11 @@ export default function AntemasuratorImport() {
                   </div>
 
                   <div className="mt-4 flex justify-end">
-                    <Button onClick={startMatching} size="lg" disabled={validItems.length === 0}>
+                    <Button
+                      onClick={startMatching}
+                      size="lg"
+                      disabled={validItems.length === 0}
+                    >
                       <Sparkles className="w-4 h-4 mr-2" />
                       Caută echivalente AI ({validItems.length} produse)
                       <ChevronRight className="w-4 h-4 ml-2" />
@@ -647,7 +844,7 @@ export default function AntemasuratorImport() {
           </Card>
         )}
 
-        {/* ── STEP 2: AI Matching ───────────────────────────────────────── */}
+        {/* ── STEP 2 ─────────────────────────────────────────────────────── */}
         {step === 2 && (
           <Card>
             <CardHeader>
@@ -667,8 +864,8 @@ export default function AntemasuratorImport() {
                   </div>
                   <Progress value={matchProgress} className="h-2" />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Fiecare produs este clasificat în categoria corectă, apoi AI alege
-                    cel mai bun echivalent tehnic din catalog.
+                    Fiecare produs este clasificat în categoria corectă, apoi AI
+                    alege cel mai bun echivalent tehnic ignorând brandul.
                   </p>
                 </div>
               )}
@@ -677,12 +874,16 @@ export default function AntemasuratorImport() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[200px]">Cerere client</TableHead>
+                      <TableHead className="min-w-[200px]">
+                        Cerere client
+                      </TableHead>
                       <TableHead className="w-20">Cant.</TableHead>
                       <TableHead className="w-16">UM</TableHead>
                       <TableHead className="w-28">Status</TableHead>
-                      <TableHead className="min-w-[300px]">Produs propus din catalog</TableHead>
-                      <TableHead className="w-32">De procurat</TableHead>
+                      <TableHead className="min-w-[300px]">
+                        Produs propus din catalog
+                      </TableHead>
+                      <TableHead className="w-36">De procurat</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -695,9 +896,10 @@ export default function AntemasuratorImport() {
                       return (
                         <TableRow
                           key={item.id}
-                          className={item.de_procurat ? "bg-amber-50/60" : ""}
+                          className={
+                            item.de_procurat ? "bg-amber-50/60" : ""
+                          }
                         >
-                          {/* Cerere client */}
                           <TableCell>
                             <div className="text-sm font-medium leading-tight">
                               {item.descriere_client}
@@ -709,15 +911,13 @@ export default function AntemasuratorImport() {
                             )}
                           </TableCell>
 
-                          {/* Cantitate */}
                           <TableCell className="text-sm tabular-nums">
                             {item.cantitate}
                           </TableCell>
+                          <TableCell className="text-sm">
+                            {item.unitate}
+                          </TableCell>
 
-                          {/* UM */}
-                          <TableCell className="text-sm">{item.unitate}</TableCell>
-
-                          {/* Status */}
                           <TableCell>
                             {item.matchStatus === "pending" && (
                               <Badge variant="outline" className="text-xs">
@@ -751,9 +951,9 @@ export default function AntemasuratorImport() {
                               )}
                           </TableCell>
 
-                          {/* Produs propus */}
                           <TableCell>
-                            {!item.de_procurat && item.alternatives.length > 0 ? (
+                            {!item.de_procurat &&
+                            item.alternatives.length > 0 ? (
                               <div>
                                 <Select
                                   value={String(item.selectedMatchIdx ?? 0)}
@@ -761,7 +961,10 @@ export default function AntemasuratorImport() {
                                     setItemsWithMatches((prev) =>
                                       prev.map((it, i) =>
                                         i === idx
-                                          ? { ...it, selectedMatchIdx: parseInt(val) }
+                                          ? {
+                                              ...it,
+                                              selectedMatchIdx: parseInt(val),
+                                            }
                                           : it
                                       )
                                     )
@@ -772,15 +975,19 @@ export default function AntemasuratorImport() {
                                   </SelectTrigger>
                                   <SelectContent>
                                     {item.alternatives.map((alt, ai) => (
-                                      <SelectItem key={alt.cod_intern} value={String(ai)}>
+                                      <SelectItem
+                                        key={alt.cod_intern}
+                                        value={String(ai)}
+                                      >
                                         <span className="font-mono text-xs text-muted-foreground mr-2">
                                           {alt.cod_intern}
                                         </span>
-                                        <span>
-                                          {alt.denumire_completa.length > 55
-                                            ? alt.denumire_completa.slice(0, 55) + "…"
-                                            : alt.denumire_completa}
-                                        </span>
+                                        {alt.denumire_completa.length > 55
+                                          ? alt.denumire_completa.slice(
+                                              0,
+                                              55
+                                            ) + "…"
+                                          : alt.denumire_completa}
                                         <span className="ml-2 text-muted-foreground">
                                           ({alt.scor}%)
                                         </span>
@@ -799,11 +1006,12 @@ export default function AntemasuratorImport() {
                                 Nicio potrivire în catalog
                               </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-xs text-muted-foreground">
+                                —
+                              </span>
                             )}
                           </TableCell>
 
-                          {/* De procurat checkbox */}
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Checkbox
@@ -852,174 +1060,181 @@ export default function AntemasuratorImport() {
           </Card>
         )}
 
-        {/* ── STEP 3: Generare Ofertă ───────────────────────────────────── */}
+        {/* ── STEP 3 ─────────────────────────────────────────────────────── */}
         {step === 3 && (
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>3. Date client și generare ofertă</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {/* Client form */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  <div className="space-y-1">
-                    <Label htmlFor="clientName">Nume client *</Label>
-                    <Input
-                      id="clientName"
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                      placeholder="ex: SC Construct SRL"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="clientPhone">Telefon</Label>
-                    <Input
-                      id="clientPhone"
-                      value={clientPhone}
-                      onChange={(e) => setClientPhone(e.target.value)}
-                      placeholder="07xx xxx xxx"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="clientEmail">Email</Label>
-                    <Input
-                      id="clientEmail"
-                      value={clientEmail}
-                      onChange={(e) => setClientEmail(e.target.value)}
-                      placeholder="client@email.com"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="projectDesc">Descriere proiect</Label>
-                    <Input
-                      id="projectDesc"
-                      value={projectDesc}
-                      onChange={(e) => setProjectDesc(e.target.value)}
-                      placeholder="ex: Reabilitare bloc Bv. Eroilor, Timișoara"
-                    />
-                  </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>3. Date client și generare ofertă</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="space-y-1">
+                  <Label htmlFor="clientName">Nume client *</Label>
+                  <Input
+                    id="clientName"
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="ex: SC Construct SRL"
+                  />
                 </div>
-
-                {/* Summary table */}
-                <div className="rounded border overflow-auto mb-5">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Cerere client</TableHead>
-                        <TableHead>Produs catalog</TableHead>
-                        <TableHead className="w-20 text-right">Cant.</TableHead>
-                        <TableHead className="w-16">UM</TableHead>
-                        <TableHead className="w-28 text-right">Preț/unit.</TableHead>
-                        <TableHead className="w-28 text-right">Subtotal</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {itemsWithMatches.map((item) => {
-                        const match =
-                          !item.de_procurat && item.selectedMatchIdx !== null
-                            ? item.alternatives[item.selectedMatchIdx]
-                            : null;
-                        const subtotal = (match?.pret_lista ?? 0) * item.cantitate;
-
-                        return (
-                          <TableRow
-                            key={item.id}
-                            className={item.de_procurat ? "bg-amber-50/60" : ""}
-                          >
-                            <TableCell className="text-sm">
-                              {item.descriere_client}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {match ? (
-                                <>
-                                  <span className="font-mono text-xs text-muted-foreground mr-1">
-                                    {match.cod_intern}
-                                  </span>
-                                  {match.denumire_completa}
-                                </>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="border-amber-400 text-amber-700 text-xs"
-                                >
-                                  De procurat
-                                </Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-sm text-right tabular-nums">
-                              {item.cantitate}
-                            </TableCell>
-                            <TableCell className="text-sm">
-                              {match?.unit ?? item.unitate}
-                            </TableCell>
-                            <TableCell className="text-sm text-right tabular-nums">
-                              {match ? `${match.pret_lista.toFixed(2)} lei` : "—"}
-                            </TableCell>
-                            <TableCell className="text-sm text-right tabular-nums font-medium">
-                              {subtotal > 0 ? `${subtotal.toFixed(2)} lei` : "—"}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                <div className="space-y-1">
+                  <Label htmlFor="clientPhone">Telefon</Label>
+                  <Input
+                    id="clientPhone"
+                    value={clientPhone}
+                    onChange={(e) => setClientPhone(e.target.value)}
+                    placeholder="07xx xxx xxx"
+                  />
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="clientEmail">Email</Label>
+                  <Input
+                    id="clientEmail"
+                    value={clientEmail}
+                    onChange={(e) => setClientEmail(e.target.value)}
+                    placeholder="client@email.com"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="projectDesc">Descriere proiect</Label>
+                  <Input
+                    id="projectDesc"
+                    value={projectDesc}
+                    onChange={(e) => setProjectDesc(e.target.value)}
+                    placeholder="ex: Reabilitare bloc Bv. Eroilor, Timișoara"
+                  />
+                </div>
+              </div>
 
-                {/* Totals */}
-                {(() => {
-                  const totalNet = itemsWithMatches.reduce((s, item) => {
-                    const match =
-                      !item.de_procurat && item.selectedMatchIdx !== null
-                        ? item.alternatives[item.selectedMatchIdx]
-                        : null;
-                    return s + (match?.pret_lista ?? 0) * item.cantitate;
-                  }, 0);
-                  const tva = totalNet * 0.19;
-                  return totalNet > 0 ? (
-                    <div className="flex justify-end mb-5">
-                      <div className="text-sm space-y-1 text-right">
-                        <div className="text-muted-foreground">
-                          Total net:{" "}
-                          <span className="font-medium text-foreground tabular-nums">
-                            {totalNet.toFixed(2)} lei
-                          </span>
-                        </div>
-                        <div className="text-muted-foreground">
-                          TVA 19%:{" "}
-                          <span className="tabular-nums">{tva.toFixed(2)} lei</span>
-                        </div>
-                        <div className="font-semibold text-base">
-                          Total:{" "}
-                          <span className="tabular-nums">
-                            {(totalNet + tva).toFixed(2)} lei
-                          </span>
-                        </div>
-                        {procuratCount > 0 && (
-                          <p className="text-xs text-amber-600">
-                            * {procuratCount} produse "De procurat" nu sunt incluse în total
-                          </p>
-                        )}
+              {/* Summary table */}
+              <div className="rounded border overflow-auto mb-5">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Cerere client</TableHead>
+                      <TableHead>Produs catalog</TableHead>
+                      <TableHead className="w-20 text-right">Cant.</TableHead>
+                      <TableHead className="w-16">UM</TableHead>
+                      <TableHead className="w-28 text-right">
+                        Preț/unit.
+                      </TableHead>
+                      <TableHead className="w-28 text-right">Subtotal</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {itemsWithMatches.map((item) => {
+                      const match =
+                        !item.de_procurat && item.selectedMatchIdx !== null
+                          ? item.alternatives[item.selectedMatchIdx]
+                          : null;
+                      const subtotal =
+                        (match?.pret_lista ?? 0) * item.cantitate;
+
+                      return (
+                        <TableRow
+                          key={item.id}
+                          className={item.de_procurat ? "bg-amber-50/60" : ""}
+                        >
+                          <TableCell className="text-sm">
+                            {item.descriere_client}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {match ? (
+                              <>
+                                <span className="font-mono text-xs text-muted-foreground mr-1">
+                                  {match.cod_intern}
+                                </span>
+                                {match.denumire_completa}
+                              </>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-400 text-amber-700 text-xs"
+                              >
+                                De procurat
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-right tabular-nums">
+                            {item.cantitate}
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            {match?.unit ?? item.unitate}
+                          </TableCell>
+                          <TableCell className="text-sm text-right tabular-nums">
+                            {match
+                              ? `${match.pret_lista.toFixed(2)} lei`
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-right tabular-nums font-medium">
+                            {subtotal > 0
+                              ? `${subtotal.toFixed(2)} lei`
+                              : "—"}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Totals */}
+              {(() => {
+                const totalNet = itemsWithMatches.reduce((s, item) => {
+                  const match =
+                    !item.de_procurat && item.selectedMatchIdx !== null
+                      ? item.alternatives[item.selectedMatchIdx]
+                      : null;
+                  return s + (match?.pret_lista ?? 0) * item.cantitate;
+                }, 0);
+                const tva = totalNet * 0.19;
+                return totalNet > 0 ? (
+                  <div className="flex justify-end mb-5">
+                    <div className="text-sm space-y-1 text-right">
+                      <div className="text-muted-foreground">
+                        Total net:{" "}
+                        <span className="font-medium text-foreground tabular-nums">
+                          {totalNet.toFixed(2)} lei
+                        </span>
                       </div>
+                      <div className="text-muted-foreground">
+                        TVA 19%:{" "}
+                        <span className="tabular-nums">{tva.toFixed(2)} lei</span>
+                      </div>
+                      <div className="font-semibold text-base">
+                        Total:{" "}
+                        <span className="tabular-nums">
+                          {(totalNet + tva).toFixed(2)} lei
+                        </span>
+                      </div>
+                      {procuratCount > 0 && (
+                        <p className="text-xs text-amber-600">
+                          * {procuratCount} produse "De procurat" nu sunt
+                          incluse în total
+                        </p>
+                      )}
                     </div>
-                  ) : null;
-                })()}
+                  </div>
+                ) : null;
+              })()}
 
-                <div className="flex items-center justify-between">
-                  <Button variant="outline" onClick={() => setStep(2)}>
-                    ← Înapoi la matching
-                  </Button>
-                  <Button
-                    onClick={generateQuote}
-                    disabled={saving || !clientName.trim()}
-                    size="lg"
-                  >
-                    {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    Generează ofertă draft
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              <div className="flex items-center justify-between">
+                <Button variant="outline" onClick={() => setStep(2)}>
+                  ← Înapoi la matching
+                </Button>
+                <Button
+                  onClick={generateQuote}
+                  disabled={saving || !clientName.trim()}
+                  size="lg"
+                >
+                  {saving && (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  )}
+                  Generează ofertă draft
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
     </DashboardLayout>
