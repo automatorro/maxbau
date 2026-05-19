@@ -116,9 +116,12 @@ function looksLikeSectionHeader(line: string): boolean {
 }
 
 function parseTextToItems(text: string): ExtractedItem[] {
-  const unitRx = new RegExp(
+  // Global flag needed to find ALL matches and pick the last one.
+  // In PDFs, a table row produces: "Denumire... <consum>/mp  <cant>/pac  <necesar> pac"
+  // The LAST unit in the line corresponds to the NECESAR column (rightmost = what we want).
+  const unitRxG = new RegExp(
     `\\b(${KNOWN_UNITS.join("|")})\\.?\\b`,
-    "i"
+    "ig"
   );
   const items: ExtractedItem[] = [];
   let currentSection = "";
@@ -137,11 +140,10 @@ function parseTextToItems(text: string): ExtractedItem[] {
       continue;
     }
 
-    // Find last occurrence of "number unit" at or near end of line
-    const unitMatch = unitRx.exec(line);
-    if (!unitMatch) {
+    // Find the LAST unit occurrence — corresponds to the rightmost (NECESAR) column
+    const allUnitMatches = [...line.matchAll(unitRxG)];
+    if (!allUnitMatches.length) {
       // No qty/unit found: accumulate as pending description fragment
-      // (strip leading row-number prefix like "1." or "27 ")
       const stripped = line.replace(/^\d+[.):\s]+/, "").trim();
       if (stripped.length >= 3 && !isDateDeCalcul(stripped)) {
         pendingDesc = pendingDesc ? pendingDesc + " " + stripped : stripped;
@@ -149,13 +151,16 @@ function parseTextToItems(text: string): ExtractedItem[] {
       continue;
     }
 
-    const unitWord = unitMatch[1];
-    const beforeUnit = line.slice(0, unitMatch.index).trim();
+    const lastUnitMatch = allUnitMatches[allUnitMatches.length - 1];
+    const unitWord = lastUnitMatch[1];
+    // Everything before the last unit occurrence
+    const beforeUnit = line.slice(0, lastUnitMatch.index).trim();
 
-    // Find last standalone number before the unit
+    // Find the last standalone number before that unit — the actual needed quantity
     const numMatches = [...beforeUnit.matchAll(/(\d+(?:[.,]\d+)?)/g)];
     if (!numMatches.length) {
-      pendingDesc = pendingDesc ? pendingDesc + " " + line : line;
+      const stripped = line.replace(/^\d+[.):\s]+/, "").trim();
+      if (stripped.length >= 3) pendingDesc = pendingDesc ? pendingDesc + " " + stripped : stripped;
       continue;
     }
 
@@ -163,16 +168,28 @@ function parseTextToItems(text: string): ExtractedItem[] {
     const qty = parseFloat(lastNum[0].replace(",", "."));
     if (!qty || qty <= 0) continue;
 
-    // Everything before the quantity is description (strip leading "nr.")
+    // Everything before the last quantity number is description text.
+    // Strip: row-number prefix, and intermediate columns (consum/mp, cant/pachet)
+    // by keeping only the part up to the first intermediate unit occurrence.
     const beforeQty = beforeUnit.slice(0, lastNum.index!).trim();
-    const descMatch = /^(\d+[.):\s]+)?(.+)$/.exec(beforeQty);
+
+    // Find where intermediate column data starts (first unit match in beforeQty)
+    // and truncate there to get a clean product description.
+    const intermediateMatch = beforeQty.match(
+      new RegExp(`\\s+[\\d.,]+\\s*\\b(${KNOWN_UNITS.join("|")})\\b`, "i")
+    );
+    const cleanBeforeQty = intermediateMatch
+      ? beforeQty.slice(0, intermediateMatch.index!).trim()
+      : beforeQty;
+
+    const descMatch = /^(\d+[.):\s]+)?(.+)$/.exec(cleanBeforeQty);
     const lineDesc = descMatch?.[2]?.trim() ?? "";
 
     // Combine pending fragments with this line's description
     const fullDesc = pendingDesc
       ? lineDesc ? pendingDesc + " " + lineDesc : pendingDesc
       : lineDesc;
-    pendingDesc = ""; // reset accumulator
+    pendingDesc = "";
 
     if (fullDesc.length < 3) continue;
     if (isDateDeCalcul(fullDesc)) continue;
