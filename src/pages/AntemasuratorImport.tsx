@@ -105,13 +105,11 @@ const KNOWN_UNITS = [
   "gal", "galeti", "galet", "kg", "cutie", "cutii", "m", "t", "aprox",
 ];
 
-// Returns true only for clear section headers: ALL-CAPS lines or known section keywords.
-// Case-sensitive so mixed-case product names like "Vata minerala" are NOT treated as sections.
+// Real construction BQ section headers are always ALL CAPS
+// ("TERMOSISTEM FATADA - PERETI EXTERIORI", "TERMOSISTEM SOCLU - P.E.").
+// Mixed-case lines like "performanță prindere termosistem, pt." are product
+// name fragments, not section headers — even if they contain section keywords.
 function looksLikeSectionHeader(line: string): boolean {
-  const isHeaderKeyword =
-    /termosistem|soclu|invelitoare|învelitoare|accesorii|trotuar|izolare|placa|planseu/i.test(line);
-  if (isHeaderKeyword) return true;
-  // Only all-caps lines (no lowercase letters) qualify as section headers
   return /^[A-ZĂÂÎȘȚ0-9\s.\/\-:()+*]{4,}$/.test(line);
 }
 
