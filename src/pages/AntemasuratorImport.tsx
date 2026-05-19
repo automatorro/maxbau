@@ -105,6 +105,16 @@ const KNOWN_UNITS = [
   "gal", "galeti", "galet", "kg", "cutie", "cutii", "m", "t", "aprox",
 ];
 
+// Returns true only for clear section headers: ALL-CAPS lines or known section keywords.
+// Case-sensitive so mixed-case product names like "Vata minerala" are NOT treated as sections.
+function looksLikeSectionHeader(line: string): boolean {
+  const isHeaderKeyword =
+    /termosistem|soclu|invelitoare|învelitoare|accesorii|trotuar|izolare|placa|planseu/i.test(line);
+  if (isHeaderKeyword) return true;
+  // Only all-caps lines (no lowercase letters) qualify as section headers
+  return /^[A-ZĂÂÎȘȚ0-9\s.\/\-:()+*]{4,}$/.test(line);
+}
+
 function parseTextToItems(text: string): ExtractedItem[] {
   const unitRx = new RegExp(
     `\\b(${KNOWN_UNITS.join("|")})\\.?\\b`,
@@ -112,35 +122,42 @@ function parseTextToItems(text: string): ExtractedItem[] {
   );
   const items: ExtractedItem[] = [];
   let currentSection = "";
+  // Accumulates description fragments from lines that have no qty/unit yet.
+  // Handles wrapped PDF table cells where the product name spans multiple rows.
+  let pendingDesc = "";
 
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) continue;
 
-    // Section header: no digits or only very few, all-caps-ish, or known keywords
-    const hasDigit = /\d/.test(line);
-    const isHeaderKeyword =
-      /termosistem|soclu|invelitoare|învelitoare|accesorii|trotuar|izolare|placa|planseu/i.test(
-        line
-      );
-    if (
-      (!hasDigit && line.length > 6 && /^[A-ZĂÂÎȘȚ\s.\/\-:0-9]{6,}$/i.test(line)) ||
-      isHeaderKeyword
-    ) {
+    // Clear section headers (all-caps or keyword): reset pending description
+    if (looksLikeSectionHeader(line) && !/\d/.test(line)) {
       currentSection = line;
+      pendingDesc = "";
       continue;
     }
 
     // Find last occurrence of "number unit" at or near end of line
     const unitMatch = unitRx.exec(line);
-    if (!unitMatch) continue;
+    if (!unitMatch) {
+      // No qty/unit found: accumulate as pending description fragment
+      // (strip leading row-number prefix like "1." or "27 ")
+      const stripped = line.replace(/^\d+[.):\s]+/, "").trim();
+      if (stripped.length >= 3 && !isDateDeCalcul(stripped)) {
+        pendingDesc = pendingDesc ? pendingDesc + " " + stripped : stripped;
+      }
+      continue;
+    }
 
     const unitWord = unitMatch[1];
     const beforeUnit = line.slice(0, unitMatch.index).trim();
 
     // Find last standalone number before the unit
     const numMatches = [...beforeUnit.matchAll(/(\d+(?:[.,]\d+)?)/g)];
-    if (!numMatches.length) continue;
+    if (!numMatches.length) {
+      pendingDesc = pendingDesc ? pendingDesc + " " + line : line;
+      continue;
+    }
 
     const lastNum = numMatches[numMatches.length - 1];
     const qty = parseFloat(lastNum[0].replace(",", "."));
@@ -149,17 +166,22 @@ function parseTextToItems(text: string): ExtractedItem[] {
     // Everything before the quantity is description (strip leading "nr.")
     const beforeQty = beforeUnit.slice(0, lastNum.index!).trim();
     const descMatch = /^(\d+[.):\s]+)?(.+)$/.exec(beforeQty);
-    if (!descMatch?.[2]?.trim()) continue;
+    const lineDesc = descMatch?.[2]?.trim() ?? "";
 
-    const descriere = descMatch[2].trim();
-    if (descriere.length < 3) continue;
-    if (isDateDeCalcul(descriere)) continue;
+    // Combine pending fragments with this line's description
+    const fullDesc = pendingDesc
+      ? lineDesc ? pendingDesc + " " + lineDesc : pendingDesc
+      : lineDesc;
+    pendingDesc = ""; // reset accumulator
+
+    if (fullDesc.length < 3) continue;
+    if (isDateDeCalcul(fullDesc)) continue;
 
     items.push({
       id: randomId(),
-      nr: descMatch[1]?.replace(/[.):\s]+$/, "").trim() || String(items.length + 1),
+      nr: descMatch?.[1]?.replace(/[.):\s]+$/, "").trim() || String(items.length + 1),
       sectiune: currentSection || undefined,
-      descriere_client: descriere,
+      descriere_client: fullDesc,
       cantitate: qty,
       unitate: unitWord,
     });
@@ -853,7 +875,7 @@ export default function AntemasuratorImport() {
                     </Button>
                   </div>
 
-                  <div className="rounded border overflow-auto max-h-[420px]">
+                  <div className="rounded border overflow-x-auto overflow-y-auto max-h-[420px]">
                     <Table>
                       <TableHeader>
                         <TableRow>
