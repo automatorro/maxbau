@@ -984,209 +984,182 @@ export default function AntemasuratorImport() {
                 </div>
               )}
 
-              <div className="flex justify-end mb-2">
+              <div className="flex justify-end mb-3">
                 <Button variant="outline" size="sm" onClick={addEmptyMatchedItem}>
                   <Plus className="w-3 h-3 mr-1" />
                   Adaugă rând
                 </Button>
               </div>
 
-              <div className="rounded border overflow-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="min-w-[200px]">
-                        Cerere client
-                      </TableHead>
-                      <TableHead className="w-24">Cant.</TableHead>
-                      <TableHead className="w-20">UM</TableHead>
-                      <TableHead className="w-28">Status</TableHead>
-                      <TableHead className="min-w-[300px]">
-                        Produs propus din catalog
-                      </TableHead>
-                      <TableHead className="w-36">De procurat</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {itemsWithMatches.map((item, idx) => {
-                      const selectedProduct =
-                        item.selectedMatchIdx !== null
-                          ? item.alternatives[item.selectedMatchIdx]
-                          : null;
+              <div className="space-y-2">
+                {itemsWithMatches.map((item, idx) => {
+                  const selectedProduct =
+                    item.selectedMatchIdx !== null
+                      ? item.alternatives[item.selectedMatchIdx]
+                      : null;
 
-                      return (
-                        <TableRow
-                          key={item.id}
-                          className={
-                            item.de_procurat ? "bg-amber-50/60" : ""
-                          }
-                        >
-                          <TableCell>
-                            <Input
-                              value={item.descriere_client}
-                              onChange={(e) =>
-                                updateMatchedItem(idx, "descriere_client", e.target.value)
-                              }
-                              className="h-7 text-xs"
-                              placeholder="Denumire produs"
-                            />
-                            {item.sectiune && (
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {item.sectiune}
-                              </div>
-                            )}
-                          </TableCell>
-
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={item.cantitate || ""}
-                              onChange={(e) =>
-                                updateMatchedItem(idx, "cantitate", parseFloat(e.target.value) || 0)
-                              }
-                              className="h-7 text-xs w-20"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={item.unitate}
-                              onChange={(e) =>
-                                updateMatchedItem(idx, "unitate", e.target.value)
-                              }
-                              className="h-7 text-xs w-16"
-                            />
-                          </TableCell>
-
-                          <TableCell>
-                            {item.matchStatus === "pending" && (
-                              <Badge variant="outline" className="text-xs">
-                                Așteptare
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-lg border p-3 ${
+                        item.de_procurat ? "bg-amber-50/60 border-amber-200" : "bg-white"
+                      }`}
+                    >
+                      {/* Row 1: status + delete */}
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          {item.matchStatus === "pending" && (
+                            <Badge variant="outline" className="text-xs">
+                              Așteptare
+                            </Badge>
+                          )}
+                          {item.matchStatus === "loading" && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Caută echivalent...
+                            </div>
+                          )}
+                          {item.matchStatus !== "pending" &&
+                            item.matchStatus !== "loading" &&
+                            !item.de_procurat && (
+                              <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                Găsit ({selectedProduct?.scor ?? 0}%)
                               </Badge>
                             )}
-                            {item.matchStatus === "loading" && (
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Caută...
-                              </div>
+                          {item.matchStatus !== "pending" &&
+                            item.matchStatus !== "loading" &&
+                            item.de_procurat && (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-400 text-amber-700 text-xs"
+                              >
+                                <AlertTriangle className="w-3 h-3 mr-1" />
+                                De procurat
+                              </Badge>
                             )}
-                            {item.matchStatus !== "pending" &&
-                              item.matchStatus !== "loading" &&
-                              !item.de_procurat && (
-                                <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">
-                                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                                  Găsit ({selectedProduct?.scor ?? 0}%)
-                                </Badge>
-                              )}
-                            {item.matchStatus !== "pending" &&
-                              item.matchStatus !== "loading" &&
-                              item.de_procurat && (
-                                <Badge
-                                  variant="outline"
-                                  className="border-amber-400 text-amber-700 text-xs"
-                                >
-                                  <AlertTriangle className="w-3 h-3 mr-1" />
-                                  De procurat
-                                </Badge>
-                              )}
-                          </TableCell>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          onClick={() => removeMatchedItem(idx)}
+                        >
+                          <Trash2 className="w-3 h-3 text-destructive" />
+                        </Button>
+                      </div>
 
-                          <TableCell>
-                            {!item.de_procurat &&
-                            item.alternatives.length > 0 ? (
-                              <div>
-                                <Select
-                                  value={String(item.selectedMatchIdx ?? 0)}
-                                  onValueChange={(val) =>
-                                    setItemsWithMatches((prev) =>
-                                      prev.map((it, i) =>
-                                        i === idx
-                                          ? {
-                                              ...it,
-                                              selectedMatchIdx: parseInt(val),
-                                            }
-                                          : it
-                                      )
-                                    )
-                                  }
-                                >
-                                  <SelectTrigger className="h-8 text-xs">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {item.alternatives.map((alt, ai) => (
-                                      <SelectItem
-                                        key={alt.cod_intern}
-                                        value={String(ai)}
-                                      >
-                                        <span className="font-mono text-xs text-muted-foreground mr-2">
-                                          {alt.cod_intern}
-                                        </span>
-                                        {alt.denumire_completa.length > 55
-                                          ? alt.denumire_completa.slice(
-                                              0,
-                                              55
-                                            ) + "…"
-                                          : alt.denumire_completa}
-                                        <span className="ml-2 text-muted-foreground">
-                                          ({alt.scor}%)
-                                        </span>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                {selectedProduct && (
-                                  <p className="text-xs text-muted-foreground mt-1 leading-snug">
-                                    {selectedProduct.justificare}
-                                  </p>
-                                )}
-                              </div>
-                            ) : item.de_procurat ? (
-                              <span className="text-xs text-muted-foreground italic">
-                                Nicio potrivire în catalog
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                —
-                              </span>
-                            )}
-                          </TableCell>
+                      {/* Row 2: cerere client editable */}
+                      <Input
+                        value={item.descriere_client}
+                        onChange={(e) =>
+                          updateMatchedItem(idx, "descriere_client", e.target.value)
+                        }
+                        className="h-8 text-sm mb-2"
+                        placeholder="Denumire produs cerut de client"
+                      />
 
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                checked={item.de_procurat}
-                                onCheckedChange={(checked) =>
-                                  setItemsWithMatches((prev) =>
-                                    prev.map((it, i) =>
-                                      i === idx
-                                        ? { ...it, de_procurat: !!checked }
-                                        : it
-                                    )
-                                  )
-                                }
-                              />
-                              <span className="text-xs text-muted-foreground">
-                                Procurare specială
-                              </span>
-                            </div>
-                          </TableCell>
+                      {/* Row 3: sectiune + cant + UM */}
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                        {item.sectiune && (
+                          <span className="text-xs text-muted-foreground">
+                            {item.sectiune}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">Cant:</span>
+                          <Input
+                            type="number"
+                            value={item.cantitate || ""}
+                            onChange={(e) =>
+                              updateMatchedItem(idx, "cantitate", parseFloat(e.target.value) || 0)
+                            }
+                            className="h-7 text-xs w-20"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-muted-foreground">UM:</span>
+                          <Input
+                            value={item.unitate}
+                            onChange={(e) =>
+                              updateMatchedItem(idx, "unitate", e.target.value)
+                            }
+                            className="h-7 text-xs w-16"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2 ml-auto">
+                          <Checkbox
+                            id={`procurat-${item.id}`}
+                            checked={item.de_procurat}
+                            onCheckedChange={(checked) =>
+                              setItemsWithMatches((prev) =>
+                                prev.map((it, i) =>
+                                  i === idx ? { ...it, de_procurat: !!checked } : it
+                                )
+                              )
+                            }
+                          />
+                          <label
+                            htmlFor={`procurat-${item.id}`}
+                            className="text-xs text-muted-foreground cursor-pointer"
+                          >
+                            Procurare specială
+                          </label>
+                        </div>
+                      </div>
 
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => removeMatchedItem(idx)}
-                            >
-                              <Trash2 className="w-3 h-3 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                      {/* Row 4: produs propus dropdown */}
+                      {!item.de_procurat && item.alternatives.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            Produs propus din catalog:
+                          </p>
+                          <Select
+                            value={String(item.selectedMatchIdx ?? 0)}
+                            onValueChange={(val) =>
+                              setItemsWithMatches((prev) =>
+                                prev.map((it, i) =>
+                                  i === idx
+                                    ? { ...it, selectedMatchIdx: parseInt(val) }
+                                    : it
+                                )
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs w-full">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {item.alternatives.map((alt, ai) => (
+                                <SelectItem key={alt.cod_intern} value={String(ai)}>
+                                  <span className="font-mono text-xs text-muted-foreground mr-2">
+                                    {alt.cod_intern}
+                                  </span>
+                                  {alt.denumire_completa.length > 55
+                                    ? alt.denumire_completa.slice(0, 55) + "…"
+                                    : alt.denumire_completa}
+                                  <span className="ml-2 text-muted-foreground">
+                                    ({alt.scor}%)
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {selectedProduct && (
+                            <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                              {selectedProduct.justificare}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {item.de_procurat && (
+                        <p className="text-xs text-muted-foreground italic">
+                          Nicio potrivire în catalog — va fi inclus ca articol de procurat
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {!matching && itemsWithMatches.length > 0 && (
