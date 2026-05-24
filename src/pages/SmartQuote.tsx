@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchTechInfoWithAnthropic, findEquivalentWithAnthropic } from "@/utils/anthropic";
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { MultiProductPicker, type PickedProduct } from "@/components/MultiProductPicker";
@@ -247,10 +248,8 @@ const SmartQuote = () => {
     if (productIds.length === 0) return;
     setAiLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { product_ids: productIds, client_request: clientRequest },
-      });
-      if (error) throw error;
+      const data = await fetchTechInfoWithAnthropic(productIds, clientRequest);
+      
       if (data?.success && data.data) {
         setAiInfo((prev) => ({ ...prev, ...data.data }));
         const cachedCount = (data.cached_ids as string[] || []).length;
@@ -280,16 +279,13 @@ const SmartQuote = () => {
     setEquivalentLoading(true);
     setEquivalentResults(null);
     try {
-      const { data, error } = await supabase.functions.invoke("ai-find-equivalent", {
-        body: { cerere_client: cerere },
-      });
-      if (error) throw error;
-      const result = data as EquivalentSearchResponse;
+      const result = await findEquivalentWithAnthropic(cerere);
+      
       if (!result?.success || !Array.isArray(result?.echivalente)) {
-        toast.error(result?.error || "Eroare la căutarea echivalentului AI");
+        toast.error("Eroare la căutarea echivalentului AI");
         return;
       }
-      setEquivalentResults(result);
+      setEquivalentResults(result as any);
       if (result.echivalente.length === 0) {
         toast.info("Nu am găsit echivalente în catalogul MaxBau pentru acest produs");
       }

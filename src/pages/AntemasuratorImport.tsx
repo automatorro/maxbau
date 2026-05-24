@@ -5,6 +5,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
+import { findEquivalentWithAnthropic, extractTableFromImageWithAnthropic } from "@/utils/anthropic";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -513,12 +514,8 @@ export default function AntemasuratorImport() {
           const base64 = btoa(binary);
           const mime = file.type || "image/jpeg";
 
-          const { data, error } = await supabase.functions.invoke(
-            "ocr-whatsapp",
-            { body: { image_base64: base64, mime_type: mime } }
-          );
+          const data = await extractTableFromImageWithAnthropic(base64, mime);
 
-          if (error) throw new Error(error.message ?? "Eroare OCR");
           if (!data?.headers || !data?.rows) {
             toast.error("Imaginea nu conține un tabel lizibil");
             return;
@@ -613,12 +610,9 @@ export default function AntemasuratorImport() {
       );
 
       try {
-        const { data, error } = await supabase.functions.invoke(
-          "ai-find-equivalent",
-          { body: { cerere_client: item.descriere_client } }
-        );
+        const data = await findEquivalentWithAnthropic(item.descriere_client);
 
-        if (error || !data?.success) {
+        if (!data?.success) {
           setItemsWithMatches((prev) =>
             prev.map((it, i) =>
               i === idx
