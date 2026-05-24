@@ -511,7 +511,7 @@ const ImportOcr = () => {
     if (note) toast.info(note);
     setTimeout(() => {
       if (productsForMatch.length > 0 && bodyGridRows.length > 0)
-        runAutoMatch(bodyGridRows, nameIdx, productsForMatch);
+        runAutoMatch(bodyGridRows, nameIdx, productsForMatch, columnMap || null);
     }, 100);
   };
 
@@ -601,7 +601,7 @@ const ImportOcr = () => {
     finally { setExcelRunning(false); }
   };
 
-  const runAutoMatch = useCallback((rows: GridRow[], nameColIdx: number, products: ProductForMatch[]) => {
+  const runAutoMatch = useCallback((rows: GridRow[], nameColIdx: number, products: ProductForMatch[], columnMap: Record<string, number> | null) => {
     if (rows.length === 0 || products.length === 0) return;
     const nextSuggestions: Record<string, string[]> = {};
     const nextMatched: Record<string, string | null> = {};
@@ -609,24 +609,36 @@ const ImportOcr = () => {
     const supplierNameText = selectedSupplier?.name || newSupplierName || "";
     const importBrand = getBrandFromName(supplierNameText);
 
-    // Filter out products that belong to a DIFFERENT supplier or have a clashing brand
     const validProducts = products.filter(p => {
-      // Rule 1: Strict supplier_id check if available
       if (p.supplier_id && selectedSupplierId && p.supplier_id !== selectedSupplierId) return false;
-      
-      // Rule 2: Brand clash check
       const productBrand = getBrandFromName(p.denumire_completa) || (p.brand ? getBrandFromName(p.brand) : null);
-      if (productBrand && importBrand && productBrand !== importBrand) {
-        return false; // The product is from a different known brand!
-      }
-
+      if (productBrand && importBrand && productBrand !== importBrand) return false;
       return true; 
     });
 
     for (const r of rows) {
       const name = (r.cells[nameColIdx] || "").trim();
-      if (!name) continue;
-      const results = suggestProductsForName(name, validProducts, 5);
+      let codeToMatch = "";
+      if (columnMap?.cod_furnizor != null && columnMap.cod_furnizor >= 0) {
+        codeToMatch = (r.cells[columnMap.cod_furnizor] || "").trim();
+      }
+      
+      if (!name && !codeToMatch) continue;
+
+      let results: { product: ProductForMatch; score: number }[] = [];
+      
+      if (codeToMatch) {
+         const exactMatch = validProducts.find(p => p.cod_intern === codeToMatch);
+         if (exactMatch) {
+            results = [{ product: exactMatch, score: 1 }];
+         }
+      }
+
+      if (results.length === 0 && name) {
+          const textToSearch = codeToMatch ? `${name} ${codeToMatch}` : name;
+          results = suggestProductsForName(textToSearch, validProducts, 5);
+      }
+
       if (results.length > 0) {
         nextSuggestions[r.id] = results.map((s) => s.product.id);
         if (results[0].score >= 0.85) nextMatched[r.id] = results[0].product.id;
@@ -1206,30 +1218,38 @@ const ImportOcr = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredRows.map((r, rowIdx) => (
-                      <TableRow key={r.id} className={matchedProductIdByRowId[r.id] ? "bg-green-50/30" : ""}>
-                        <TableCell className="text-xs text-muted-foreground">{rowIdx + 1}</TableCell>
-                        {r.cells.map((c, colIdx) => (
-                          <TableCell key={colIdx}>
-                            <Input value={c} onChange={(e) => updateCell(r.id, colIdx, e.target.value)} onPaste={(e) => { const ai = gridRows.findIndex((gr) => gr.id === r.id); if (ai >= 0) handlePaste(e, ai, colIdx); }} className="h-7 text-xs" />
+                    {filteredRows.map((r, rowIdx) => {
+                      const name = (r.cells[matchNameColIdx] || "").trim();
+                      let codeToMatch = "";
+                      if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) {
+                        codeToMatch = (r.cells[aiColumnMap.cod_furnizor] || "").trim();
+                      }
+                      const searchKeyword = codeToMatch ? `${name} ${codeToMatch}` : name;
+                      return (
+                        <TableRow key={r.id} className={matchedProductIdByRowId[r.id] ? "bg-green-50/30" : ""}>
+                          <TableCell className="text-xs text-muted-foreground">{rowIdx + 1}</TableCell>
+                          {r.cells.map((c, colIdx) => (
+                            <TableCell key={colIdx}>
+                              <Input value={c} onChange={(e) => updateCell(r.id, colIdx, e.target.value)} onPaste={(e) => { const ai = gridRows.findIndex((gr) => gr.id === r.id); if (ai >= 0) handlePaste(e, ai, colIdx); }} className="h-7 text-xs" />
+                            </TableCell>
+                          ))}
+                          <TableCell className="min-w-[280px]">
+                            <InlineProductSearch
+                              rowId={r.id}
+                              selectedProductId={matchedProductIdByRowId[r.id] || null}
+                              suggestions={suggestionsByRowId[r.id] || []}
+                              productsById={productsById}
+                              onSelect={(pid) => setMatchedProductForRow(r.id, pid)}
+                              onClear={() => setMatchedProductForRow(r.id, null)}
+                              importedName={searchKeyword}
+                            />
+                            {!matchedProductIdByRowId[r.id] && (
+                              <Button variant="link" size="sm" className="text-xs h-5 p-0 mt-1" onClick={() => openCreateProduct(r)}>+ Creează produs nou</Button>
+                            )}
                           </TableCell>
-                        ))}
-                        <TableCell className="min-w-[280px]">
-                          <InlineProductSearch
-                            rowId={r.id}
-                            selectedProductId={matchedProductIdByRowId[r.id] || null}
-                            suggestions={suggestionsByRowId[r.id] || []}
-                            productsById={productsById}
-                            onSelect={(pid) => setMatchedProductForRow(r.id, pid)}
-                            onClear={() => setMatchedProductForRow(r.id, null)}
-                            importedName={(r.cells[matchNameColIdx] || "").trim()}
-                          />
-                          {!matchedProductIdByRowId[r.id] && (
-                            <Button variant="link" size="sm" className="text-xs h-5 p-0 mt-1" onClick={() => openCreateProduct(r)}>+ Creează produs nou</Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -1286,7 +1306,7 @@ const ImportOcr = () => {
                                   productsById={productsById}
                                   onSelect={(pid) => setMatchedProductForRow(r.id, pid)}
                                   onClear={() => setMatchedProductForRow(r.id, null)}
-                                  importedName={name}
+                                  importedName={searchKeyword}
                                 />
                                 {!matchedProductIdByRowId[r.id] && (
                                   <Button variant="outline" size="sm" className="text-xs w-full" onClick={() => openCreateProduct(r)}>+ Creează produs nou</Button>
