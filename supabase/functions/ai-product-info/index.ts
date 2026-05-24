@@ -19,7 +19,7 @@ async function callAI(
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
+      model: "google/gemini-2.5-flash",
       messages,
       tools: [{ type: "function", function: { name: toolName, ...toolSchema } }],
       tool_choice: { type: "function", function: { name: toolName } },
@@ -32,7 +32,7 @@ async function callAI(
     if (status === 402) throw Object.assign(new Error("AI credits exhausted. Add funds at Settings > Workspace > Usage"), { status: 402 });
     const errText = await resp.text();
     console.error("AI gateway error:", status, errText);
-    throw new Error("AI gateway error");
+    throw new Error(`AI gateway error: ${status} - ${errText}`);
   }
 
   const data = await resp.json();
@@ -663,8 +663,8 @@ Pentru FIECARE produs returnează:
   } catch (e) {
     console.error("ai-product-info error:", e);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ success: false, error: e instanceof Error ? e.message : "Unknown error" }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
