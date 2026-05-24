@@ -55,10 +55,13 @@ async function callAnthropicTool(
 // ── Vision Table Extractor (replacing ocr-whatsapp) ─────────────────────────
 export async function extractTableFromImageWithAnthropic(
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
+  contextType: "price_list" | "antemasuratoare" = "price_list"
 ): Promise<{ headers: string[]; rows: string[][] }> {
   const apiKey = await getApiKey();
-  const systemPrompt = `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
+  
+  const systemPrompt = contextType === "price_list" 
+    ? `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
 Extrage TOATE rândurile din tabel, inclusiv rândul de antet (header).
 Reguli stricte:
 - Păstrează denumirile produselor exact cum apar în imagine
@@ -66,7 +69,15 @@ Reguli stricte:
 - UM = unitate de măsură: sac, kg, m2, ml, buc, l, t, set etc.
 - Ignoră logo-uri, anteturi de companie, numere de pagină, ștampile
 - Toate rândurile returnate trebuie să aibă același număr de celule ca header-ul
-- Celulele goale se returnează ca string gol ""`;
+- Celulele goale se returnează ca string gol ""`
+    : `Ești expert în extragerea datelor din Antemăsurători (liste de cantități / devize) pentru construcții din România.
+Extrage TOATE rândurile din tabel, inclusiv rândul de antet (header).
+Reguli stricte:
+- Extrage toate materialele, suprafețele, lucrările sau operațiunile generice exact cum apar în imagine.
+- Nu ignora rândurile care nu par a fi "produse standard". Dacă este o operațiune sau un material generic (ex: "Sapa", "Vata", "Manopera"), extrage-l!
+- Extrage cantitatea și unitatea de măsură (mp, mc, buc, kg, etc.) pentru fiecare rând.
+- Toate rândurile returnate trebuie să aibă același număr de celule ca header-ul.
+- Celulele goale se returnează ca string gol "".`;
 
   const toolSchema = {
     name: "extract_price_table",
@@ -221,14 +232,29 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
     queue.push(...kids);
   }
 
-  // Fetch products
-  const { data: products } = await supabase
+  // Fetch products by category
+  const { data: categoryProducts } = await supabase
     .from("products")
     .select("id, cod_intern, denumire_completa, pret_lista, unit, brand")
     .in("category_id", descendantIds)
-    .limit(60);
+    .limit(40);
 
-  if (!products || products.length === 0) {
+  // Fetch products by text search fallback
+  const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 3).slice(0, 3);
+  let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand");
+  if (keywords.length > 0) {
+    const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${kw}%`).join(",");
+    textQuery = textQuery.or(ilikeConditions);
+  }
+  const { data: textProducts } = await textQuery.limit(40);
+
+  const mergedMap = new Map();
+  [...(categoryProducts || []), ...(textProducts || [])].forEach(p => {
+    mergedMap.set(p.id, p);
+  });
+  const products = Array.from(mergedMap.values());
+
+  if (products.length === 0) {
     return { success: true, from_cache: false, category: classification, echivalente: [] };
   }
 

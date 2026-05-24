@@ -514,7 +514,7 @@ export default function AntemasuratorImport() {
           const base64 = btoa(binary);
           const mime = file.type || "image/jpeg";
 
-          const data = await extractTableFromImageWithAnthropic(base64, mime);
+          const data = await extractTableFromImageWithAnthropic(base64, mime, "antemasuratoare");
 
           if (!data?.headers || !data?.rows) {
             toast.error("Imaginea nu conține un tabel lizibil");
