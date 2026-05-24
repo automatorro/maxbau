@@ -245,6 +245,106 @@ function InlineProductSearch({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+let cachedApiKey: string | null = null;
+async function getApiKey(): Promise<string> {
+  if (cachedApiKey) return cachedApiKey;
+  const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
+  if (error || !data?.value) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
+  cachedApiKey = data.value.trim();
+  return cachedApiKey;
+}
+
+async function analyzeExcelWithAnthropic(
+  rows: string[][],
+  filename: string,
+  supplierColumnMap: Record<string, string> | null
+): Promise<{ success: boolean; headers?: string[]; header_row_index?: number; column_map?: any; note?: string; error?: string }> {
+  try {
+    const apiKey = await getApiKey();
+    const truncated = rows.slice(0, 50);
+    
+    let supplierHint = "";
+    if (supplierColumnMap && Object.keys(supplierColumnMap).length > 0) {
+      supplierHint = `\n\nProfil furnizor cunoscut (mapping coloane din importuri anterioare): ${JSON.stringify(supplierColumnMap)}. Folosește acest profil ca referință pentru a identifica coloanele, dar verifică dacă se potrivește cu datele actuale.`;
+    }
+
+    const systemPrompt = `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
+Primești o matrice 2D de strings extrasă din primele rânduri ale unui fișier Excel.
+Sarcina ta: identifică indexul rândului de antet (0-based) și returnează acest index, împreună cu denumirile coloanelor din antet și maparea acestor coloane (column_map).
+IMPORTANT: Identifică și returnează un column_map care specifică ce coloană corespunde fiecărui tip de informație (denumire, pret, um, cod_furnizor, cantitate_palet, consum, etc.).
+Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`;
+
+    const userPrompt = `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, antetul și returnează header_row_index, headers și column_map.${supplierHint}`;
+
+    const toolSchema = {
+      name: "extract_price_table",
+      description: "Structured extraction of a price list table from Excel data with column mapping",
+      input_schema: {
+        type: "object",
+        properties: {
+          header_row_index: { type: "number", description: "0-based index of the header row in the provided raw rows" },
+          headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
+          column_map: {
+            type: "object",
+            properties: {
+              denumire: { type: "number", description: "Index (0-based) of the product name column" },
+              pret: { type: "number", description: "Index of the price column" },
+              um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
+              cod_furnizor: { type: "number", description: "Index of the supplier product code column, or -1 if not present" },
+              cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
+              consum: { type: "number", description: "Index of consumption column, or -1 if not present" }
+            },
+            description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found."
+          },
+          note: { type: "string", description: "Optional: observation about data quality" }
+        },
+        required: ["header_row_index", "headers", "column_map"]
+      }
+    };
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-latest",
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+        tools: [toolSchema],
+        tool_choice: { type: "tool", name: "extract_price_table" }
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      return { success: false, error: `Eroare API Anthropic (${response.status}): ${err}` };
+    }
+
+    const data = await response.json();
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+    
+    if (!toolCall?.input) {
+      return { success: false, error: "Modelul nu a returnat date structurate" };
+    }
+
+    const input = toolCall.input;
+    return {
+      success: true,
+      headers: input.headers,
+      header_row_index: input.header_row_index,
+      column_map: input.column_map,
+      note: input.note
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Eroare necunoscută la analiza AI" };
+  }
+}
+
 const ImportOcr = () => {
   const queryClient = useQueryClient();
 
@@ -472,15 +572,8 @@ const ImportOcr = () => {
       if (rawRows.length === 0) { toast.error("Foaia nu conține date"); setExcelRunning(false); return; }
 
       const supplierColumnMap = selectedSupplier?.ai_column_map || null;
-      const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "ocr-excel", rows: rawRows.slice(0, 50), filename: excelFile.name, supplier_column_map: supplierColumnMap }
-      });
-      if (error) {
-        if (error.message?.includes("non-2xx")) {
-          throw new Error("Credit AI epuizat sau model AI indisponibil. Te rog să adaugi fonduri din setările Lovable.");
-        }
-        throw new Error(error.message);
-      }
+      const data = await analyzeExcelWithAnthropic(rawRows, excelFile.name, supplierColumnMap);
+      
       if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
 
       const headerRowIndex = data.header_row_index || 0;
