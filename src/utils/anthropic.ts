@@ -146,7 +146,11 @@ Reguli stricte:
     }),
   });
 
-  if (!response.ok) throw new Error(`Eroare API Anthropic (${response.status})`);
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Anthropic API Error:", errText);
+    throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+  }
   
   const data = await response.json();
   const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
@@ -217,7 +221,11 @@ Reguli stricte:
     }),
   });
 
-  if (!response.ok) throw new Error(`Eroare API Anthropic (${response.status})`);
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Anthropic API Error:", errText);
+    throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+  }
   const data = await response.json();
   const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
   if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
