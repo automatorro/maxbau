@@ -670,9 +670,8 @@ export default function AntemasuratorImport() {
   }, [validItems]);
 
   const reMatchItem = useCallback(async (idx: number) => {
-    let currentItem: ItemWithMatch | null = null;
-    setItemsWithMatches(prev => { currentItem = prev[idx]; return prev; });
-    if (!currentItem || !(currentItem as ItemWithMatch).descriere_client.trim()) return;
+    const currentItem = itemsWithMatches[idx];
+    if (!currentItem || !currentItem.descriere_client.trim()) return;
 
     setItemsWithMatches((prev) =>
       prev.map((it, i) => (i === idx ? { ...it, matchStatus: "loading" } : it))
@@ -732,7 +731,7 @@ export default function AntemasuratorImport() {
         )
       );
     }
-  }, []);
+  }, [itemsWithMatches]);
 
   // ── Step 3: Generate Quote ────────────────────────────────────────────────
 
