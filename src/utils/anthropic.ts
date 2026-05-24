@@ -164,7 +164,11 @@ Reguli stricte:
     input_schema: {
       type: "object",
       properties: {
-        headers: { type: "array", items: { type: "string" }, description: "Column names (e.g. Denumire, Cantitate, UM)" },
+        headers: { 
+          type: "array", 
+          items: { type: "string" }, 
+          description: "MUST be exactly these 3 column names: ['Denumire', 'Cantitate', 'UM']" 
+        },
         rows: {
           type: "array",
           items: { type: "array", items: { type: "string" } },
@@ -312,7 +316,7 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
     const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${kw}%`).join(",");
     textQuery = textQuery.or(ilikeConditions);
   }
-  const { data: textProducts } = await textQuery.limit(40);
+  const { data: textProducts } = await textQuery.limit(120);
 
   const mergedMap = new Map();
   [...(categoryProducts || []), ...(textProducts || [])].forEach(p => {

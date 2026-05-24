@@ -228,15 +228,10 @@ function isDateDeCalcul(name: string): boolean {
 function mapOcrToItems(headers: string[], rows: string[][]): ExtractedItem[] {
   const h = headers.map(norm);
 
-  // Column index finders
-  const find = (...keywords: string[]) =>
-    h.findIndex((c) => keywords.some((k) => c.includes(k)));
-
-  const nameIdx = find("denu", "produ", "materi", "descri", "articol");
-  // "Necesar pachete/buc total" or "Cantitate necesara" — the actual needed qty
-  const qtyIdx = find("necesar", "cantit", "total", "qty", "buc. total");
-  const unitIdx = find("um", "u.m", "unit", "masur");
-  const secIdx = find("sectiu", "categ", "grup");
+  const nameIdx = h.findIndex(c => /denu|produ|materi|descri|articol/.test(c));
+  const qtyIdx = h.findIndex(c => /necesar|cantit|total|qty|buc\. total/.test(c));
+  const unitIdx = h.findIndex(c => /\bum\b|\bu\.m\.?|unit|masur/.test(c));
+  const secIdx = h.findIndex(c => /sectiu|categ|grup/.test(c));
 
   const fallbackNameIdx = nameIdx >= 0 ? nameIdx : 0;
   // If no qty col found, try last numeric-looking column
