@@ -679,19 +679,37 @@ export default function AntemasuratorImport() {
     );
 
     try {
-      const data = await findEquivalentWithAnthropic((currentItem as ItemWithMatch).descriere_client);
-      if (!data?.success) {
-        setItemsWithMatches((prev) =>
-          prev.map((it, i) =>
-            i === idx ? { ...it, matchStatus: "not_found", de_procurat: true } : it
-          )
-        );
-        return;
+      const desc = (currentItem as ItemWithMatch).descriere_client;
+      
+      // 1. Încercăm o căutare clasică rapidă în DB (fără diacritice, exact ca în Catalog)
+      const tokens = desc.split(/\s+/).filter(Boolean);
+      let dbQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit").limit(5);
+      
+      for (const raw of tokens) {
+        const fuzzyToken = raw.replace(/[aăâ]/gi, '_').replace(/[iî]/gi, '_').replace(/[sșş]/gi, '_').replace(/[tțţ]/gi, '_').replace(/,/g, "\\,");
+        dbQuery = dbQuery.or(`denumire_completa.ilike.%${fuzzyToken}%,cod_intern.ilike.%${fuzzyToken}%`);
       }
+      
+      const { data: directMatches } = await dbQuery;
+      let echivalente: MatchedProduct[] = [];
 
-      const echivalente: MatchedProduct[] = (data.echivalente ?? [])
-        .filter((e: any) => e.scor >= 35)
-        .slice(0, 5);
+      if (directMatches && directMatches.length > 0) {
+        echivalente = directMatches.map(p => ({
+          product_id: p.id,
+          cod_intern: p.cod_intern,
+          denumire_completa: p.denumire_completa,
+          pret_lista: p.pret_lista,
+          unit: p.unit,
+          justificare: "Potrivire rapidă (Catalog)",
+          scor: 100
+        }));
+      } else {
+        // 2. Dacă nu găsim nimic exact, recurgem la AI
+        const data = await findEquivalentWithAnthropic(desc);
+        if (data?.success && data.echivalente) {
+          echivalente = data.echivalente.filter((e: any) => e.scor >= 35).slice(0, 5);
+        }
+      }
 
       const found = echivalente.length > 0;
       setItemsWithMatches((prev) =>
