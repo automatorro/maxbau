@@ -10,6 +10,26 @@ export async function getApiKey(): Promise<string> {
   return cachedApiKey;
 }
 
+// Helper to make text queries accent-insensitive in PostgreSQL ilike
+function makeIlikePattern(word: string): string {
+  return word
+    .replace(/[aăâAĂÂ]/g, '_')
+    .replace(/[iîIÎ]/g, '_')
+    .replace(/[sșşSȘŞ]/g, '_')
+    .replace(/[tțţTȚŢ]/g, '_');
+}
+
+// Helper to remove diacritics for local string comparison
+function removeDiacritics(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ș/g, 's').replace(/ț/g, 't')
+    .replace(/Ș/g, 'S').replace(/Ț/g, 'T')
+    .replace(/ă/g, 'a').replace(/â/g, 'a').replace(/î/g, 'i')
+    .replace(/Ă/g, 'A').replace(/Â/g, 'A').replace(/Î/g, 'I');
+}
+
 // ── Generic Tool Caller for Anthropic ───────────────────────────────────────
 async function callAnthropicTool(
   systemPrompt: string,
@@ -313,7 +333,7 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
   const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2).slice(0, 5);
   let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand");
   if (keywords.length > 0) {
-    const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${kw}%`).join(",");
+    const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${makeIlikePattern(kw)}%`).join(",");
     textQuery = textQuery.or(ilikeConditions);
   }
   const { data: textProducts } = await textQuery.limit(500);
@@ -330,9 +350,9 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
 
   // Pre-filter: rank by simple local text overlap to ensure the best items are sent to Anthropic
   if (products.length > 100) {
-    const searchTokens = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2);
+    const searchTokens = removeDiacritics(cerereLower).split(/[^a-z0-9]+/).filter(w => w.length > 2);
     products.forEach(p => {
-      const pName = (p.denumire_completa || "").toLowerCase();
+      const pName = removeDiacritics((p.denumire_completa || "").toLowerCase());
       let score = 0;
       for (const t of searchTokens) {
         if (pName.includes(t)) score++;
