@@ -5,7 +5,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
-import { findEquivalentWithAnthropic, extractTableFromImageWithAnthropic } from "@/utils/anthropic";
+import { findEquivalentWithAnthropic, extractTableFromImageWithAnthropic, extractAntemasuratoareFromTextWithAnthropic } from "@/utils/anthropic";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -479,13 +479,24 @@ export default function AntemasuratorImport() {
     []
   );
 
-  const handleExtractText = useCallback(() => {
+  const handleExtractText = useCallback(async () => {
     if (!textInput.trim()) {
       toast.error("Introduceți textul antemasurătorii");
       return;
     }
-    const parsed = parseTextToItems(textInput);
-    applyItems(parsed, "text");
+    setProcessing(true);
+    try {
+      const data = await extractAntemasuratoareFromTextWithAnthropic(textInput);
+      if (!data?.headers || !data?.rows) {
+        toast.error("Nu s-a putut extrage tabelul din text");
+        return;
+      }
+      applyItems(mapOcrToItems(data.headers, data.rows), "text");
+    } catch (e: any) {
+      toast.error("Eroare procesare text: " + (e.message ?? "necunoscută"));
+    } finally {
+      setProcessing(false);
+    }
   }, [textInput, applyItems]);
 
   const handleFileUpload = useCallback(
@@ -499,11 +510,15 @@ export default function AntemasuratorImport() {
           const buf = await file.arrayBuffer();
           applyItems(parseExcelToItems(buf), "Excel");
         } else if (ext === "pdf") {
-          // PDF → pdfjs extrage text din TOATE paginile → parser text
+          // PDF → pdfjs extrage text din TOATE paginile → extragere tabel via AI
           const buf = await file.arrayBuffer();
           const text = await extractTextFromPdf(buf);
-          const parsed = parseTextToItems(text);
-          applyItems(parsed, "PDF");
+          const data = await extractAntemasuratoareFromTextWithAnthropic(text);
+          if (!data?.headers || !data?.rows) {
+            toast.error("Nu s-a putut extrage tabelul din PDF");
+            return;
+          }
+          applyItems(mapOcrToItems(data.headers, data.rows), "PDF");
         } else {
           // Imagine → ocr-whatsapp (Gemini vision)
           const buf = await file.arrayBuffer();

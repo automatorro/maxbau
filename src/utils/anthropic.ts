@@ -143,6 +143,72 @@ Reguli stricte:
   return { headers: extracted.headers, rows: normalizedRows };
 }
 
+// ── Text Table Extractor (for PDFs and manual paste) ─────────────────────────
+export async function extractAntemasuratoareFromTextWithAnthropic(
+  text: string
+): Promise<{ headers: string[]; rows: string[][] }> {
+  const apiKey = await getApiKey();
+  
+  const systemPrompt = `Ești expert în extragerea datelor din Antemăsurători (liste de cantități / devize) pentru construcții din România, extrase ca text brut din fișiere PDF.
+Sarcina ta este să convertești textul brut într-un tabel structurat.
+Reguli stricte:
+- Extrage toate materialele, suprafețele, lucrările sau operațiunile generice exact cum apar în text.
+- Nu ignora rândurile cu materiale generice (ex: "Sapa", "Vata", "Manopera", etc).
+- Extrage cantitatea și unitatea de măsură (mp, mc, buc, kg, etc.) pentru fiecare rând.
+- Toate rândurile returnate trebuie să aibă același număr de celule ca header-ul.
+- Celulele goale se returnează ca string gol "".`;
+
+  const toolSchema = {
+    name: "extract_price_table",
+    description: "Structured extraction of a bill of quantities table from raw text",
+    input_schema: {
+      type: "object",
+      properties: {
+        headers: { type: "array", items: { type: "string" }, description: "Column names (e.g. Denumire, Cantitate, UM)" },
+        rows: {
+          type: "array",
+          items: { type: "array", items: { type: "string" } },
+          description: "All data rows (excluding header). Each inner array has same length as headers.",
+        },
+      },
+      required: ["headers", "rows"]
+    }
+  };
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Eroare API Anthropic (${response.status})`);
+  const data = await response.json();
+  const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+  if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
+  
+  const extracted = toolCall.input;
+  const colCount = (extracted.headers || []).length;
+  const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+    const padded = [...row];
+    while (padded.length < colCount) padded.push("");
+    return padded.slice(0, colCount);
+  });
+
+  return { headers: extracted.headers, rows: normalizedRows };
+}
+
 // ── Equivalent Finder (replacing ai-find-equivalent) ────────────────────────
 export async function findEquivalentWithAnthropic(cerereClient: string) {
   if (cerereClient.trim().length < 3) throw new Error("Cererea este prea scurtă.");
