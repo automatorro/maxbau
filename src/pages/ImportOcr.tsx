@@ -475,7 +475,12 @@ const ImportOcr = () => {
       const { data, error } = await supabase.functions.invoke("ai-product-info", {
         body: { action: "ocr-excel", rows: rawRows.slice(0, 50), filename: excelFile.name, supplier_column_map: supplierColumnMap }
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (error.message?.includes("non-2xx")) {
+          throw new Error("Credit AI epuizat sau model AI indisponibil. Te rog să adaugi fonduri din setările Lovable.");
+        }
+        throw new Error(error.message);
+      }
       if (!data?.success) throw new Error(data?.error || "Procesare eșuată");
 
       const headerRowIndex = data.header_row_index || 0;
