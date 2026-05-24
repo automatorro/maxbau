@@ -669,6 +669,53 @@ export default function AntemasuratorImport() {
     setMatching(false);
   }, [validItems]);
 
+  const reMatchItem = useCallback(async (idx: number) => {
+    let currentItem: ItemWithMatch | null = null;
+    setItemsWithMatches(prev => { currentItem = prev[idx]; return prev; });
+    if (!currentItem || !(currentItem as ItemWithMatch).descriere_client.trim()) return;
+
+    setItemsWithMatches((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, matchStatus: "loading" } : it))
+    );
+
+    try {
+      const data = await findEquivalentWithAnthropic((currentItem as ItemWithMatch).descriere_client);
+      if (!data?.success) {
+        setItemsWithMatches((prev) =>
+          prev.map((it, i) =>
+            i === idx ? { ...it, matchStatus: "not_found", de_procurat: true } : it
+          )
+        );
+        return;
+      }
+
+      const echivalente: MatchedProduct[] = (data.echivalente ?? [])
+        .filter((e: any) => e.scor >= 35)
+        .slice(0, 5);
+
+      const found = echivalente.length > 0;
+      setItemsWithMatches((prev) =>
+        prev.map((it, i) =>
+          i === idx
+            ? {
+                ...it,
+                matchStatus: found ? "found" : "not_found",
+                alternatives: echivalente,
+                selectedMatchIdx: found ? 0 : null,
+                de_procurat: !found,
+              }
+            : it
+        )
+      );
+    } catch {
+      setItemsWithMatches((prev) =>
+        prev.map((it, i) =>
+          i === idx ? { ...it, matchStatus: "not_found", de_procurat: true } : it
+        )
+      );
+    }
+  }, []);
+
   // ── Step 3: Generate Quote ────────────────────────────────────────────────
 
   const generateQuote = useCallback(async () => {
@@ -1090,15 +1137,27 @@ export default function AntemasuratorImport() {
                         </Button>
                       </div>
 
-                      {/* Row 2: cerere client editable */}
-                      <Input
-                        value={item.descriere_client}
-                        onChange={(e) =>
-                          updateMatchedItem(idx, "descriere_client", e.target.value)
-                        }
-                        className="h-8 text-sm mb-2"
-                        placeholder="Denumire produs cerut de client"
-                      />
+                      {/* Row 2: cerere client editable + Re-caută button */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Input
+                          value={item.descriere_client}
+                          onChange={(e) =>
+                            updateMatchedItem(idx, "descriere_client", e.target.value)
+                          }
+                          className="h-8 text-sm flex-1"
+                          placeholder="Denumire produs cerut de client"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0"
+                          onClick={() => reMatchItem(idx)}
+                          disabled={item.matchStatus === "loading"}
+                        >
+                          <Sparkles className="w-3 h-3 mr-1 text-amber-500" />
+                          Re-caută
+                        </Button>
+                      </div>
 
                       {/* Row 3: sectiune + cant + UM */}
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
