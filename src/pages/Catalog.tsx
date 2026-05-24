@@ -200,6 +200,9 @@ const Catalog = () => {
           <p className="text-muted-foreground text-sm">
             {total} produse {selectedCategoryName && `în ${selectedCategoryName}`}
           </p>
+          <p className="text-xs text-muted-foreground mt-1 bg-amber-50 text-amber-800 p-2 rounded border border-amber-100 inline-block">
+            💡 <strong>Sfat pentru căutare:</strong> Această căutare necesită ca <strong>toate</strong> cuvintele introduse să se regăsească în denumirea produsului. Folosiți doar cele mai importante 1-2 cuvinte (ex: tastați <em>"plasa sticla"</em>, nu <em>"plasa de armare din fibra de sticla"</em>). Pentru căutări cu text lung/complex folosiți modulele cu AI (Import sau Cerere).
+          </p>
         </div>
 
         {/* Search + Mobile filter */}
@@ -207,7 +210,7 @@ const Catalog = () => {
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Caută după denumire sau cod intern..."
+              placeholder="Caută după denumire sau cod intern (cuvinte esențiale)..."
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10"

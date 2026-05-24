@@ -307,25 +307,40 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
     .from("products")
     .select("id, cod_intern, denumire_completa, pret_lista, unit, brand")
     .in("category_id", descendantIds)
-    .limit(40);
+    .limit(1000);
 
   // Fetch products by text search fallback
-  const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 3).slice(0, 3);
+  const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2).slice(0, 5);
   let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand");
   if (keywords.length > 0) {
     const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${kw}%`).join(",");
     textQuery = textQuery.or(ilikeConditions);
   }
-  const { data: textProducts } = await textQuery.limit(120);
+  const { data: textProducts } = await textQuery.limit(500);
 
   const mergedMap = new Map();
   [...(categoryProducts || []), ...(textProducts || [])].forEach(p => {
     mergedMap.set(p.id, p);
   });
-  const products = Array.from(mergedMap.values());
+  let products = Array.from(mergedMap.values());
 
   if (products.length === 0) {
     return { success: true, from_cache: false, category: classification, echivalente: [] };
+  }
+
+  // Pre-filter: rank by simple local text overlap to ensure the best items are sent to Anthropic
+  if (products.length > 100) {
+    const searchTokens = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2);
+    products.forEach(p => {
+      const pName = (p.denumire_completa || "").toLowerCase();
+      let score = 0;
+      for (const t of searchTokens) {
+        if (pName.includes(t)) score++;
+      }
+      (p as any)._matchScore = score;
+    });
+    products.sort((a, b) => ((b as any)._matchScore || 0) - ((a as any)._matchScore || 0));
+    products = products.slice(0, 100);
   }
 
   const productListText = products
