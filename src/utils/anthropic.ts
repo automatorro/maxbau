@@ -1,13 +1,42 @@
 import { supabase } from "@/integrations/supabase/client";
 
-// Re-use same Anthropic API key logic
-let cachedApiKey: string | null = null;
+// Re-use API key logic
+let cachedAnthropicKey: string | null = null;
+let cachedGeminiKey: string | null = null;
+
+export async function getAnthropicKey(): Promise<string | null> {
+  if (cachedAnthropicKey) return cachedAnthropicKey;
+  try {
+    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
+    if (!error && data?.value) {
+      cachedAnthropicKey = data.value.trim();
+      return cachedAnthropicKey;
+    }
+  } catch (e) {
+    console.warn("Could not load Anthropic API key from DB:", e);
+  }
+  return null;
+}
+
+export async function getGeminiKey(): Promise<string | null> {
+  if (cachedGeminiKey) return cachedGeminiKey;
+  try {
+    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
+    if (!error && data?.value) {
+      cachedGeminiKey = data.value.trim();
+      return cachedGeminiKey;
+    }
+  } catch (e) {
+    console.warn("Could not load Gemini API key from DB:", e);
+  }
+  return null;
+}
+
+// Keep the old getApiKey for compatibility or backward reference if needed
 export async function getApiKey(): Promise<string> {
-  if (cachedApiKey) return cachedApiKey;
-  const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-  if (error || !data?.value) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
-  cachedApiKey = data.value.trim();
-  return cachedApiKey;
+  const key = await getAnthropicKey();
+  if (!key) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
+  return key;
 }
 
 // Helper to make text queries accent-insensitive in PostgreSQL ilike
@@ -30,46 +59,153 @@ function removeDiacritics(str: string): string {
     .replace(/Ă/g, 'A').replace(/Â/g, 'A').replace(/Î/g, 'I');
 }
 
-// ── Generic Tool Caller for Anthropic ───────────────────────────────────────
+// Helper to recursively convert OpenAPI/JSON schema to Gemini-compliant format (capitalized types)
+function convertToGeminiSchema(schema: any): any {
+  if (!schema) return schema;
+  if (Array.isArray(schema)) {
+    return schema.map(item => convertToGeminiSchema(item));
+  }
+  if (typeof schema === "object") {
+    const newSchema = { ...schema };
+    if (typeof newSchema.type === "string") {
+      newSchema.type = newSchema.type.toUpperCase();
+    }
+    // Remove unsupported properties in Gemini schema
+    delete newSchema.additionalProperties;
+    
+    if (newSchema.properties) {
+      const newProps: any = {};
+      for (const key of Object.keys(newSchema.properties)) {
+        newProps[key] = convertToGeminiSchema(newSchema.properties[key]);
+      }
+      newSchema.properties = newProps;
+    }
+    if (newSchema.items) {
+      newSchema.items = convertToGeminiSchema(newSchema.items);
+    }
+    return newSchema;
+  }
+  return schema;
+}
+
+// ── Generic Tool Caller for Gemini (Structured JSON) ────────────────────────
+async function callGeminiTool(
+  systemPrompt: string,
+  userPrompt: string,
+  toolSchema: any,
+  imageInput?: { mimeType: string; base64: string }
+): Promise<any> {
+  const geminiKey = await getGeminiKey();
+  if (!geminiKey) {
+    throw new Error("Cheia API Google Gemini nu a fost găsită în configurație (gemini_api_key).");
+  }
+
+  // gemini-2.5-flash: model stabil și rapid, cu suport Vision și JSON output (disponibil din mai 2026)
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+  
+  const parts: any[] = [];
+  if (imageInput) {
+    parts.push({
+      inlineData: {
+        mimeType: imageInput.mimeType,
+        data: imageInput.base64
+      }
+    });
+  }
+  parts.push({ text: userPrompt });
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts
+      }
+    ],
+    systemInstruction: {
+      parts: [{ text: systemPrompt }]
+    },
+    generationConfig: {
+      // Nu folosim responseSchema deoarece Gemini nu suportă array de array-uri în schema.
+      // responseMimeType asigură că modelul returnează JSON valid ghidat de promptul de sistem.
+      responseMimeType: "application/json"
+    }
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Gemini API Error:", response.status, errText);
+    throw new Error(`Eroare API Gemini (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Gemini nu a returnat date structurate valabile.");
+  }
+
+  return JSON.parse(text.trim());
+}
+
+// ── Generic Tool Caller for Anthropic with Gemini Fallback ───────────────────
 async function callAnthropicTool(
   systemPrompt: string,
   userPrompt: string,
   toolSchema: any,
   toolName: string
 ): Promise<any> {
-  const apiKey = await getApiKey();
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022", // Folosim versiunea stabilă
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-      tools: [toolSchema],
-      tool_choice: { type: "tool", name: toolName }
-    }),
-  });
+  try {
+    const apiKey = await getAnthropicKey();
+    if (!apiKey) throw new Error("Anthropic API key is not configured.");
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Anthropic API Error:", response.status, errText);
-    throw new Error(`Eroare API Anthropic (${response.status})`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+        tools: [toolSchema],
+        tool_choice: { type: "tool", name: toolName }
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Anthropic API Error:", response.status, errText);
+      throw new Error(`Eroare API Anthropic (${response.status})`);
+    }
+
+    const data = await response.json();
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === toolName);
+    
+    if (!toolCall?.input) {
+      throw new Error("Modelul nu a returnat date structurate valabile.");
+    }
+
+    return toolCall.input;
+  } catch (error) {
+    console.warn("Anthropic call failed or key missing, trying Gemini fallback...", error);
+    try {
+      return await callGeminiTool(systemPrompt, userPrompt, toolSchema);
+    } catch (geminiError: any) {
+      console.error("Gemini fallback also failed:", geminiError);
+      throw new Error(`Apelul AI a eșuat. Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
   }
-
-  const data = await response.json();
-  const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === toolName);
-  
-  if (!toolCall?.input) {
-    throw new Error("Modelul nu a returnat date structurate valabile.");
-  }
-
-  return toolCall.input;
 }
 
 // ── Vision Table Extractor (replacing ocr-whatsapp) ─────────────────────────
@@ -78,7 +214,6 @@ export async function extractTableFromImageWithAnthropic(
   mimeType: string,
   contextType: "price_list" | "antemasuratoare" = "price_list"
 ): Promise<{ headers: string[]; rows: string[][] }> {
-  const apiKey = await getApiKey();
   
   const systemPrompt = contextType === "price_list" 
     ? `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
@@ -117,61 +252,85 @@ Reguli stricte:
     }
   };
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mimeType, data: imageBase64 }
-            },
-            { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
-          ]
-        }
-      ],
-      tools: [toolSchema],
-      tool_choice: { type: "tool", name: "extract_price_table" }
-    }),
-  });
+  try {
+    const apiKey = await getAnthropicKey();
+    if (!apiKey) throw new Error("Anthropic API key is not configured.");
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Anthropic API Error:", errText);
-    throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: mimeType, data: imageBase64 }
+              },
+              { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
+            ]
+          }
+        ],
+        tools: [toolSchema],
+        tool_choice: { type: "tool", name: "extract_price_table" }
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Anthropic API Error:", errText);
+      throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    }
+    
+    const data = await response.json();
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+    if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din imagine.");
+    
+    const extracted = toolCall.input;
+    const colCount = (extracted.headers || []).length;
+    const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+      const padded = [...row];
+      while (padded.length < colCount) padded.push("");
+      return padded.slice(0, colCount);
+    });
+
+    return { headers: extracted.headers, rows: normalizedRows };
+  } catch (error) {
+    console.warn("Vision Anthropic call failed, trying Gemini fallback...", error);
+    try {
+      const extracted = await callGeminiTool(
+        systemPrompt,
+        "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date.",
+        toolSchema,
+        { mimeType, base64: imageBase64 }
+      );
+      const colCount = (extracted.headers || []).length;
+      const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+      return { headers: extracted.headers, rows: normalizedRows };
+    } catch (geminiError: any) {
+      console.error("Gemini Vision fallback also failed:", geminiError);
+      throw new Error(`Eroare extragere imagine (Vision). Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
   }
-  
-  const data = await response.json();
-  const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
-  if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din imagine.");
-  
-  const extracted = toolCall.input;
-  const colCount = (extracted.headers || []).length;
-  const normalizedRows = (extracted.rows || []).map((row: string[]) => {
-    const padded = [...row];
-    while (padded.length < colCount) padded.push("");
-    return padded.slice(0, colCount);
-  });
-
-  return { headers: extracted.headers, rows: normalizedRows };
 }
 
 // ── Text Table Extractor (for PDFs and manual paste) ─────────────────────────
 export async function extractAntemasuratoareFromTextWithAnthropic(
   text: string
 ): Promise<{ headers: string[]; rows: string[][] }> {
-  const apiKey = await getApiKey();
   
   const systemPrompt = `Ești expert în extragerea datelor din Antemăsurători (liste de cantități / devize) pentru construcții din România, extrase ca text brut din fișiere PDF.
 Sarcina ta este să convertești textul brut într-un tabel structurat.
@@ -203,42 +362,66 @@ Reguli stricte:
     }
   };
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
-      tools: [toolSchema],
-      tool_choice: { type: "tool", name: "extract_price_table" }
-    }),
-  });
+  try {
+    const apiKey = await getAnthropicKey();
+    if (!apiKey) throw new Error("Anthropic API key is not configured.");
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Anthropic API Error:", errText);
-    throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
+        tools: [toolSchema],
+        tool_choice: { type: "tool", name: "extract_price_table" }
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("Anthropic API Error:", errText);
+      throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    }
+    const data = await response.json();
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+    if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
+    
+    const extracted = toolCall.input;
+    const colCount = (extracted.headers || []).length;
+    const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+      const padded = [...row];
+      while (padded.length < colCount) padded.push("");
+      return padded.slice(0, colCount);
+    });
+
+    return { headers: extracted.headers, rows: normalizedRows };
+  } catch (error) {
+    console.warn("Text extraction Anthropic call failed, trying Gemini fallback...", error);
+    try {
+      const extracted = await callGeminiTool(
+        systemPrompt,
+        `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}`,
+        toolSchema
+      );
+      const colCount = (extracted.headers || []).length;
+      const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+      return { headers: extracted.headers, rows: normalizedRows };
+    } catch (geminiError: any) {
+      console.error("Gemini text extraction fallback also failed:", geminiError);
+      throw new Error(`Eroare extragere text. Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
   }
-  const data = await response.json();
-  const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
-  if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
-  
-  const extracted = toolCall.input;
-  const colCount = (extracted.headers || []).length;
-  const normalizedRows = (extracted.rows || []).map((row: string[]) => {
-    const padded = [...row];
-    while (padded.length < colCount) padded.push("");
-    return padded.slice(0, colCount);
-  });
-
-  return { headers: extracted.headers, rows: normalizedRows };
 }
 
 // ── Equivalent Finder (replacing ai-find-equivalent) ────────────────────────

@@ -24,6 +24,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { ScanText, Trash2, Search, Check, AlertTriangle, ChevronDown, ChevronRight, Filter, FileUp, Building2, Plus, HelpCircle, ArrowRight, Lightbulb, AlertCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { extractTableFromImageWithAnthropic } from "@/utils/anthropic";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -245,13 +246,62 @@ function InlineProductSearch({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-let cachedApiKey: string | null = null;
-async function getApiKey(): Promise<string> {
-  if (cachedApiKey) return cachedApiKey;
-  const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-  if (error || !data?.value) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
-  cachedApiKey = data.value.trim();
-  return cachedApiKey;
+let cachedAnthropicKey: string | null = null;
+let cachedGeminiKey: string | null = null;
+
+async function getAnthropicKey(): Promise<string | null> {
+  if (cachedAnthropicKey) return cachedAnthropicKey;
+  try {
+    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
+    if (!error && data?.value) {
+      cachedAnthropicKey = data.value.trim();
+      return cachedAnthropicKey;
+    }
+  } catch (e) {
+    console.warn("Could not load Anthropic API key:", e);
+  }
+  return null;
+}
+
+async function getGeminiKey(): Promise<string | null> {
+  if (cachedGeminiKey) return cachedGeminiKey;
+  try {
+    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
+    if (!error && data?.value) {
+      cachedGeminiKey = data.value.trim();
+      return cachedGeminiKey;
+    }
+  } catch (e) {
+    console.warn("Could not load Gemini API key:", e);
+  }
+  return null;
+}
+
+function convertToGeminiSchema(schema: any): any {
+  if (!schema) return schema;
+  if (Array.isArray(schema)) {
+    return schema.map(item => convertToGeminiSchema(item));
+  }
+  if (typeof schema === "object") {
+    const newSchema = { ...schema };
+    if (typeof newSchema.type === "string") {
+      newSchema.type = newSchema.type.toUpperCase();
+    }
+    delete newSchema.additionalProperties;
+    
+    if (newSchema.properties) {
+      const newProps: any = {};
+      for (const key of Object.keys(newSchema.properties)) {
+        newProps[key] = convertToGeminiSchema(newSchema.properties[key]);
+      }
+      newSchema.properties = newProps;
+    }
+    if (newSchema.items) {
+      newSchema.items = convertToGeminiSchema(newSchema.items);
+    }
+    return newSchema;
+  }
+  return schema;
 }
 
 async function analyzeExcelWithAnthropic(
@@ -259,80 +309,133 @@ async function analyzeExcelWithAnthropic(
   filename: string,
   supplierColumnMap: Record<string, string> | null
 ): Promise<{ success: boolean; headers?: string[]; header_row_index?: number; column_map?: any; note?: string; error?: string }> {
-  try {
-    const apiKey = await getApiKey();
-    const truncated = rows.slice(0, 50);
-    
-    let supplierHint = "";
-    if (supplierColumnMap && Object.keys(supplierColumnMap).length > 0) {
-      supplierHint = `\n\nProfil furnizor cunoscut (mapping coloane din importuri anterioare): ${JSON.stringify(supplierColumnMap)}. Folosește acest profil ca referință pentru a identifica coloanele, dar verifică dacă se potrivește cu datele actuale.`;
-    }
+  const truncated = rows.slice(0, 50);
+  
+  let supplierHint = "";
+  if (supplierColumnMap && Object.keys(supplierColumnMap).length > 0) {
+    supplierHint = `\n\nProfil furnizor cunoscut (mapping coloane din importuri anterioare): ${JSON.stringify(supplierColumnMap)}. Folosește acest profil ca referință pentru a identifica coloanele, dar verifică dacă se potrivește cu datele actuale.`;
+  }
 
-    const systemPrompt = `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
+  const systemPrompt = `Ești expert în structurarea datelor din fișiere Excel de liste de prețuri pentru materiale de construcții din România.
 Primești o matrice 2D de strings extrasă din primele rânduri ale unui fișier Excel.
 Sarcina ta: identifică indexul rândului de antet (0-based) și returnează acest index, împreună cu denumirile coloanelor din antet și maparea acestor coloane (column_map).
 IMPORTANT: Identifică și returnează un column_map care specifică ce coloană corespunde fiecărui tip de informație (denumire, pret, um, cod_furnizor, cantitate_palet, consum, etc.).
 Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`;
 
-    const userPrompt = `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, antetul și returnează header_row_index, headers și column_map.${supplierHint}`;
+  const userPrompt = `Fișier: ${filename}\nDate brute (primele ${truncated.length} rânduri):\n${JSON.stringify(truncated)}\n\nIdentifică structura, antetul și returnează header_row_index, headers și column_map.${supplierHint}`;
 
-    const toolSchema = {
-      name: "extract_price_table",
-      description: "Structured extraction of a price list table from Excel data with column mapping",
-      input_schema: {
-        type: "object",
-        properties: {
-          header_row_index: { type: "number", description: "0-based index of the header row in the provided raw rows" },
-          headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
-          column_map: {
-            type: "object",
-            properties: {
-              denumire: { type: "number", description: "Index (0-based) of the product name column" },
-              pret: { type: "number", description: "Index of the price column" },
-              um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
-              cod_furnizor: { type: "number", description: "Index of the supplier product code column, or -1 if not present" },
-              cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
-              consum: { type: "number", description: "Index of consumption column, or -1 if not present" }
-            },
-            description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found."
+  const toolSchema = {
+    name: "extract_price_table",
+    description: "Structured extraction of a price list table from Excel data with column mapping",
+    input_schema: {
+      type: "object",
+      properties: {
+        header_row_index: { type: "number", description: "0-based index of the header row in the provided raw rows" },
+        headers: { type: "array", items: { type: "string" }, description: "Column names from the header row" },
+        column_map: {
+          type: "object",
+          properties: {
+            denumire: { type: "number", description: "Index (0-based) of the product name column" },
+            pret: { type: "number", description: "Index of the price column" },
+            um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
+            cod_furnizor: { type: "number", description: "Index of the supplier product code column, or -1 if not present" },
+            cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
+            consum: { type: "number", description: "Index of consumption column, or -1 if not present" }
           },
-          note: { type: "string", description: "Optional: observation about data quality" }
+          description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found."
         },
-        required: ["header_row_index", "headers", "column_map"]
-      }
-    };
+        note: { type: "string", description: "Optional: observation about data quality" }
+      },
+      required: ["header_row_index", "headers", "column_map"]
+    }
+  };
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+  // 1. Încercăm cu Anthropic
+  try {
+    const apiKey = await getAnthropicKey();
+    if (apiKey) {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userPrompt }],
+          tools: [toolSchema],
+          tool_choice: { type: "tool", name: "extract_price_table" }
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+        if (toolCall?.input) {
+          const input = toolCall.input;
+          return {
+            success: true,
+            headers: input.headers,
+            header_row_index: input.header_row_index,
+            column_map: input.column_map,
+            note: input.note
+          };
+        }
+      } else {
+        const err = await response.text();
+        console.warn("Anthropic API returned error in Excel analysis, falling back to Gemini:", response.status, err);
+      }
+    }
+  } catch (err) {
+    console.warn("Anthropic Excel analysis failed, trying Gemini fallback...", err);
+  }
+
+  // 2. Fallback la Google Gemini
+  try {
+    const geminiKey = await getGeminiKey();
+    if (!geminiKey) {
+      throw new Error("Nicio cheie API (Anthropic sau Gemini) nu a fost găsită în configurație.");
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    
+    const response = await fetch(url, {
       method: "POST",
       headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: "extract_price_table" }
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }]
+          }
+        ],
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
       }),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      return { success: false, error: `Eroare API Anthropic (${response.status}): ${err}` };
+      throw new Error(`Eroare API Gemini (${response.status}): ${err}`);
     }
 
     const data = await response.json();
-    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
-    
-    if (!toolCall?.input) {
-      return { success: false, error: "Modelul nu a returnat date structurate" };
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      throw new Error("Modelul Gemini nu a returnat date structurate valabile.");
     }
 
-    const input = toolCall.input;
+    const input = JSON.parse(text.trim());
     return {
       success: true,
       headers: input.headers,
@@ -340,8 +443,9 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`;
       column_map: input.column_map,
       note: input.note
     };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Eroare necunoscută la analiza AI" };
+  } catch (geminiErr: any) {
+    console.error("Gemini Excel analysis fallback failed:", geminiErr);
+    return { success: false, error: `Eroare analiză Excel. Gemini: ${geminiErr.message}` };
   }
 }
 
@@ -530,15 +634,29 @@ const ImportOcr = () => {
     resetTableState();
     try {
       const base64 = await fileToBase64(file);
-      const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { action: "ocr-image", image_base64: base64, mime_type: file.type || "image/jpeg" }
-      });
-      if (error) throw new Error(error.message);
-      if (!data?.success) throw new Error(data?.error || "Extragere eșuată");
-      loadAiResult(data.headers, data.rows, data.note);
-      toast.success(`${data.rows.length} rânduri extrase din imagine`);
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Eroare scanare imagine"); }
-    finally { setOcrRunning(false); }
+      
+      // 1. Încercăm prin funcția edge Supabase
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-product-info", {
+          body: { action: "ocr-image", image_base64: base64, mime_type: file.type || "image/jpeg" }
+        });
+        if (error) throw new Error(error.message);
+        if (!data?.success) throw new Error(data?.error || "Extragere eșuată");
+        loadAiResult(data.headers, data.rows, data.note);
+        toast.success(`${data.rows.length} rânduri extrase din imagine`);
+      } catch (edgeErr) {
+        console.warn("Funcția edge OCR a eșuat, încercăm fallback direct din browser...", edgeErr);
+        
+        // 2. Fallback direct din browser (care are fallback-ul Gemini integrat)
+        const data = await extractTableFromImageWithAnthropic(base64, file.type || "image/jpeg", "price_list");
+        loadAiResult(data.headers, data.rows, null);
+        toast.success(`${data.rows.length} rânduri extrase direct din browser (Gemini)`);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare scanare imagine");
+    } finally {
+      setOcrRunning(false);
+    }
   };
 
   const handleExcelFileSelect = async (f: File) => {

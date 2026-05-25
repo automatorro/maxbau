@@ -9,12 +9,116 @@ const corsHeaders = {
 
 const CACHE_TTL_DAYS = 30;
 
+function convertToGeminiSchema(schema: any): any {
+  if (!schema) return schema;
+  if (Array.isArray(schema)) {
+    return schema.map(item => convertToGeminiSchema(item));
+  }
+  if (typeof schema === "object") {
+    const newSchema = { ...schema };
+    if (typeof newSchema.type === "string") {
+      newSchema.type = newSchema.type.toUpperCase();
+    }
+    delete newSchema.additionalProperties;
+    
+    if (newSchema.properties) {
+      const newProps: any = {};
+      for (const key of Object.keys(newSchema.properties)) {
+        newProps[key] = convertToGeminiSchema(newSchema.properties[key]);
+      }
+      newSchema.properties = newProps;
+    }
+    if (newSchema.items) {
+      newSchema.items = convertToGeminiSchema(newSchema.items);
+    }
+    return newSchema;
+  }
+  return schema;
+}
+
+async function callGeminiDirect(
+  geminiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  toolSchema: any,
+  imageBase64?: string,
+  mimeType?: string
+): Promise<any> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+  
+  const parts: any[] = [];
+  if (imageBase64 && mimeType) {
+    parts.push({
+      inlineData: {
+        mimeType: mimeType,
+        data: imageBase64
+      }
+    });
+  }
+  parts.push({ text: userPrompt });
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts
+      }
+    ],
+    systemInstruction: {
+      parts: [{ text: systemPrompt }]
+    },
+    generationConfig: {
+      responseMimeType: "application/json"
+    }
+  };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Direct Gemini API Error in edge function:", response.status, errText);
+    throw new Error(`Direct Gemini API Error (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    throw new Error("Direct Gemini did not return structured data.");
+  }
+
+  return JSON.parse(text.trim());
+}
+
 async function callAI(
   apiKey: string,
   messages: { role: string; content: string }[],
   toolName: string,
   toolSchema: Record<string, unknown>
 ): Promise<Record<string, unknown> | null> {
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+  if (GEMINI_API_KEY) {
+    console.log("Using direct GEMINI_API_KEY inside callAI in edge function");
+    const systemPrompt = messages.find(m => m.role === "system")?.content || "";
+    const userPrompt = messages.find(m => m.role === "user")?.content || "";
+    try {
+      const result = await callGeminiDirect(
+        GEMINI_API_KEY,
+        systemPrompt,
+        userPrompt,
+        toolSchema
+      );
+      return result;
+    } catch (e) {
+      console.error("Direct Gemini call failed inside callAI, falling back to Lovable gateway", e);
+    }
+  }
+
   const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -94,16 +198,11 @@ serve(async (req) => {
       }
 
       const dataUrl = `data:${mimeType};base64,${imageBase64}`;
-
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          messages: [
-            {
-              role: "system",
-              content: `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
+      
+      const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+      let extracted: { headers: string[]; rows: string[][]; note?: string } | null = null;
+      
+      const systemPrompt = `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
 Extrage TOATE rândurile din tabel, inclusiv rândul de antet (header).
 Reguli stricte:
 - Păstrează denumirile produselor exact cum apar în imagine
@@ -111,66 +210,102 @@ Reguli stricte:
 - UM = unitate de măsură: sac, kg, m2, ml, buc, l, t, set etc.
 - Ignoră logo-uri, anteturi de companie, numere de pagină, ștampile
 - Toate rândurile returnate trebuie să aibă același număr de celule ca header-ul
-- Celulele goale se returnează ca string gol ""`,
-            },
-            {
-              role: "user",
-              content: [
-                { type: "image_url", image_url: { url: dataUrl } },
-                { type: "text", text: "Extrage tabelul complet din această imagine de listă prețuri. Include rândul de antet și toate rândurile de date." },
-              ],
-            },
-          ],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "extract_price_table",
-                description: "Structured extraction of a price list table",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    headers: { type: "array", items: { type: "string" }, description: "Column names from the header row, in Romanian if possible" },
-                    rows: {
-                      type: "array",
-                      items: { type: "array", items: { type: "string" } },
-                      description: "All data rows (excluding header). Each inner array has same length as headers.",
-                    },
-                    note: { type: "string", description: "Optional: observation about image quality or ambiguous content" },
-                  },
-                  required: ["headers", "rows"],
-                  additionalProperties: false,
+- Celulele goale se returnează ca string gol ""`;
+
+      const toolParameters = {
+        type: "object",
+        properties: {
+          headers: { type: "array", items: { type: "string" }, description: "Column names from the header row, in Romanian if possible" },
+          rows: {
+            type: "array",
+            items: { type: "array", items: { type: "string" } },
+            description: "All data rows (excluding header). Each inner array has same length as headers.",
+          },
+          note: { type: "string", description: "Optional: observation about image quality or ambiguous content" },
+        },
+        required: ["headers", "rows"],
+      };
+
+      if (GEMINI_API_KEY) {
+        console.log("Using direct GEMINI_API_KEY for image OCR in edge function");
+        try {
+          extracted = await callGeminiDirect(
+            GEMINI_API_KEY,
+            systemPrompt,
+            "Extrage tabelul complet din această imagine de listă prețuri. Include rândul de antet și toate rândurile de date.",
+            toolParameters,
+            imageBase64,
+            mimeType
+          );
+        } catch (e: any) {
+          console.error("Direct Gemini image OCR failed, falling back to Lovable gateway:", e);
+        }
+      }
+
+      if (!extracted) {
+        console.log("Falling back to Lovable gateway for image OCR");
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              {
+                role: "system",
+                content: systemPrompt,
+              },
+              {
+                role: "user",
+                content: [
+                  { type: "image_url", image_url: { url: dataUrl } },
+                  { type: "text", text: "Extrage tabelul complet din această imagine de listă prețuri. Include rândul de antet și toate rândurile de date." },
+                ],
+              },
+            ],
+            tools: [
+              {
+                type: "function",
+                function: {
+                  name: "extract_price_table",
+                  description: "Structured extraction of a price list table",
+                  parameters: toolParameters,
                 },
               },
-            },
-          ],
-          tool_choice: { type: "function", function: { name: "extract_price_table" } },
-        }),
-      });
-
-      if (!resp.ok) {
-        const status = resp.status;
-        if (status === 429) throw Object.assign(new Error("Rate limit depășit, încearcă mai târziu"), { status: 429 });
-        if (status === 402) throw Object.assign(new Error("Credit AI epuizat"), { status: 402 });
-        const errText = await resp.text();
-        console.error("ocr-image AI error:", status, errText);
-        throw new Error(`AI gateway error: ${status}`);
-      }
-
-      const aiData = await resp.json();
-      const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-      if (!toolCall?.function?.arguments) {
-        return new Response(JSON.stringify({ error: "Modelul nu a returnat date structurate" }), {
-          status: 422,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+            ],
+            tool_choice: { type: "function", function: { name: "extract_price_table" } },
+          }),
         });
+
+        if (!resp.ok) {
+          const status = resp.status;
+          if (status === 429) throw Object.assign(new Error("Rate limit depășit, încearcă mai târziu"), { status: 429 });
+          if (status === 402) throw Object.assign(new Error("Credit AI epuizat"), { status: 402 });
+          const errText = await resp.text();
+          console.error("ocr-image AI error:", status, errText);
+          throw new Error(`AI gateway error: ${status}`);
+        }
+
+        const aiData = await resp.json();
+        const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+        if (!toolCall?.function?.arguments) {
+          return new Response(JSON.stringify({ error: "Modelul nu a returnat date structurate" }), {
+            status: 422,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        try {
+          extracted = JSON.parse(toolCall.function.arguments);
+        } catch {
+          return new Response(JSON.stringify({ error: "Răspuns invalid de la model" }), {
+            status: 422,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
-      let extracted: { headers: string[]; rows: string[][]; note?: string };
-      try {
-        extracted = JSON.parse(toolCall.function.arguments);
-      } catch {
-        return new Response(JSON.stringify({ error: "Răspuns invalid de la model" }), {
+      if (!extracted || !extracted.headers) {
+        return new Response(JSON.stringify({ error: "Modelul nu a returnat date structurate" }), {
           status: 422,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
