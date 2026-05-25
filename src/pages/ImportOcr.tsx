@@ -71,23 +71,66 @@ function getBrandFromName(name: string): string | null {
 
 function matchKeywordsFromText(input: string): string[] {
   const norm = normalizeMatchText(input);
-  const tokens = norm.split(/[^a-z0-9]+/g).filter(Boolean);
+  // Treat 'x' flanked by digits as a dimensional separator (e.g. "1200x2500x3.5" → ["1200","2500","3","5"])
+  // Also split on common separators: spaces, punctuation, 'x/X' between digits
+  const withSplitX = norm.replace(/(\d)x(\d)/g, "$1 $2");
+  const tokens = withSplitX.split(/[^a-z0-9]+/g).filter(Boolean);
   return Array.from(new Set(tokens.filter((t) => t.length >= 2)));
 }
 
+// Synonyms map for common abbreviations used in construction material names
+const SYNONYMS: Record<string, string[]> = {
+  "zn":    ["zincat", "zincare", "galvanizat"],
+  "zincat":["zn"],
+  "mp":    ["m2"],
+  "ml":    ["m1", "ml"],
+  "buc":   ["bucata", "bucati"],
+  "grd":   ["gard"],
+};
+
+function expandSynonyms(tokens: string[]): string[] {
+  const expanded = new Set(tokens);
+  for (const t of tokens) {
+    const syns = SYNONYMS[t];
+    if (syns) syns.forEach((s) => expanded.add(s));
+  }
+  return Array.from(expanded);
+}
+
 function suggestProductsForName(name: string, products: ProductForMatch[], limit: number): { product: ProductForMatch; score: number }[] {
-  const keywords = matchKeywordsFromText(name);
+  const keywords = expandSynonyms(matchKeywordsFromText(name));
   if (keywords.length === 0) return [];
   const scored: { product: ProductForMatch; score: number; matchedLength: number }[] = [];
   for (const p of products) {
-    const target = normalizeMatchText(`${p.denumire_completa} ${p.cod_intern || ""}`);
-    let matchedCount = 0;
+    const targetRaw = normalizeMatchText(`${p.denumire_completa} ${p.cod_intern || ""}`);
+    // Also tokenize target with the same X-split so numbers like "1200" match regardless of separator style
+    const targetTokens = expandSynonyms(matchKeywordsFromText(`${p.denumire_completa} ${p.cod_intern || ""}`));
+    const targetStr = targetTokens.join(" ");
+
+    // Forward score: how many import keywords match the DB product
+    let fwdMatched = 0;
     let matchedLength = 0;
     for (const kw of keywords) {
-      if (target.includes(kw)) { matchedCount += 1; matchedLength += kw.length; }
+      if (targetStr.includes(kw) || targetRaw.includes(kw)) {
+        fwdMatched += 1;
+        matchedLength += kw.length;
+      }
     }
-    const score = matchedCount / keywords.length;
-    if (score < 0.5) continue;
+    const fwdScore = fwdMatched / keywords.length;
+
+    // Reverse score: how many DB product tokens are covered by import keywords (handles long DB names)
+    const dbKeywords = expandSynonyms(matchKeywordsFromText(`${p.denumire_completa}`));
+    const importStr = keywords.join(" ");
+    let revMatched = 0;
+    for (const dk of dbKeywords) {
+      if (importStr.includes(dk)) revMatched += 1;
+    }
+    const revScore = dbKeywords.length > 0 ? revMatched / dbKeywords.length : 0;
+
+    // Combined score: weighted average favouring forward (import→DB) but boosted by reverse
+    const score = fwdScore * 0.65 + revScore * 0.35;
+
+    if (score < 0.45) continue;
     scored.push({ product: p, score, matchedLength });
   }
   scored.sort((a, b) => b.score - a.score || b.matchedLength - a.matchedLength);
@@ -759,7 +802,8 @@ const ImportOcr = () => {
 
       if (results.length > 0) {
         nextSuggestions[r.id] = results.map((s) => s.product.id);
-        if (results[0].score >= 0.85) nextMatched[r.id] = results[0].product.id;
+        // Auto-confirm if best score is high enough; 0.75 covers cases where DB has longer/richer names
+        if (results[0].score >= 0.75) nextMatched[r.id] = results[0].product.id;
       }
     }
     setSuggestionsByRowId(nextSuggestions);
