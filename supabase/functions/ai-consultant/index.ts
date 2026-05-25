@@ -163,7 +163,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnon = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
+    const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
 
     const supabaseAuth = createClient(supabaseUrl, supabaseAnon, {
       global: { headers: { Authorization: authHeader } },
@@ -206,6 +206,32 @@ serve(async (req) => {
     });
 
     if (!resp.ok) {
+      const geminiKey = Deno.env.get("GEMINI_API_KEY");
+      if (geminiKey) {
+        const geminiResp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: aiMessages
+                .filter((m) => m.role !== "system")
+                .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+              systemInstruction: { parts: [{ text: aiMessages.find((m) => m.role === "system")?.content || "" }] },
+              generationConfig: { maxOutputTokens: 2048, temperature: 0.7 },
+            }),
+          }
+        );
+        if (geminiResp.ok) {
+          const gData = await geminiResp.json();
+          const gContent = gData.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (gContent) {
+            return new Response(JSON.stringify({ response: gContent }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
       if (resp.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit depășit, încearcă mai târziu" }),
