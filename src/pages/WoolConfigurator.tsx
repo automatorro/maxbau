@@ -16,7 +16,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Calculator, AlertTriangle, CheckCircle2, Plus, Sparkles, Loader2, Info, ArrowRight, Layers, Box, Check, HelpCircle
+  Calculator, AlertTriangle, Plus, Sparkles, Loader2, Info, ArrowRight, Layers, Box, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_PERCENT, TVA_RATE } from "@/lib/utils";
