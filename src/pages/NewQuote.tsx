@@ -21,7 +21,8 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Trash2, Save, Send, Plus, Download } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Trash2, Save, Send, Plus, Download, Calculator } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_PERCENT, TVA_RATE } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
@@ -72,6 +73,81 @@ const NewQuote = () => {
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [items, setItems] = useState<QuoteItem[]>([]);
   const [loaded, setLoaded] = useState(!isEdit);
+
+  // States for Proposal 1: Save as Recipe
+  const [saveAsRecipeOpen, setSaveAsRecipeOpen] = useState(false);
+  const [recipeName, setRecipeName] = useState("");
+  const [recipeCategory, setRecipeCategory] = useState("Tencuieli & Gleturi");
+  const [customCategory, setCustomCategory] = useState("");
+  const [referenceQuantity, setReferenceQuantity] = useState("100");
+  const [referenceUnit, setReferenceUnit] = useState("m²");
+  const [savingRecipe, setSavingRecipe] = useState(false);
+
+  const handleSaveAsRecipe = async () => {
+    if (!user) {
+      toast.error("Nu sunteți autentificat");
+      return;
+    }
+    const name = recipeName.trim();
+    if (!name) {
+      toast.error("Vă rugăm să introduceți un nume pentru rețetă");
+      return;
+    }
+    const refQty = parseFloat(referenceQuantity);
+    if (!refQty || refQty <= 0) {
+      toast.error("Cantitatea de referință trebuie să fie mai mare decât 0");
+      return;
+    }
+
+    const finalCategory = recipeCategory === "custom" ? customCategory.trim() : recipeCategory;
+    if (!finalCategory) {
+      toast.error("Vă rugăm să specificați o categorie");
+      return;
+    }
+
+    setSavingRecipe(true);
+    try {
+      const materials = items.map((item, idx) => {
+        const nameTokens = item.denumire
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .split(/[^a-z0-9ăâîșț]+/g)
+          .filter((t) => t.length >= 2);
+
+        return {
+          position: idx + 1,
+          description: item.denumire,
+          um: item.unit,
+          consumption_per_m2: Number((item.quantity / refQty).toFixed(5)),
+          keywords: Array.from(new Set(nameTokens)),
+          cod_intern: item.cod_intern,
+        };
+      });
+
+      const { error } = await supabase.from("retete_constructii").insert({
+        id: crypto.randomUUID(),
+        recipe_name: name,
+        category: finalCategory,
+        unit: referenceUnit,
+        status: "active",
+        materials: materials as any,
+      });
+
+      if (error) throw error;
+
+      toast.success(`Rețeta „${name}” a fost creată cu succes și este disponibilă în modulul de rețete!`);
+      setSaveAsRecipeOpen(false);
+      setRecipeName("");
+      setCustomCategory("");
+      setRecipeCategory("Tencuieli & Gleturi");
+      setReferenceQuantity("100");
+    } catch (e: any) {
+      toast.error(e instanceof Error ? e.message : "Eroare la crearea rețetei");
+    } finally {
+      setSavingRecipe(false);
+    }
+  };
 
   // Load existing quote for editing
   const { data: existingQuote } = useQuery({
@@ -630,6 +706,17 @@ const NewQuote = () => {
         <div className="flex flex-col sm:flex-row gap-3 sm:justify-end pb-8">
           <Button
             disabled={items.length === 0}
+            variant="outline"
+            className="w-full sm:w-auto gap-1 border-primary/30 text-primary hover:bg-primary/5 sm:mr-auto"
+            onClick={() => {
+              setRecipeName(clientName ? `Rețetă ${clientName}` : "");
+              setSaveAsRecipeOpen(true);
+            }}
+          >
+            <Calculator className="h-4 w-4" /> Salvează ca rețetă
+          </Button>
+          <Button
+            disabled={items.length === 0}
             className="w-full sm:w-auto"
             onClick={() => {
               exportQuoteToExcel(
@@ -671,6 +758,136 @@ const NewQuote = () => {
             <Send className="h-4 w-4 mr-1" /> Trimite oferta
           </Button>
         </div>
+
+        {/* Dialog pentru Salvare ca Rețetă */}
+        <Dialog open={saveAsRecipeOpen} onOpenChange={setSaveAsRecipeOpen}>
+          <DialogContent className="max-w-md sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Salvează ca rețetă / șablon</DialogTitle>
+              <DialogDescription>
+                Convertește produsele din această ofertă într-o rețetă reutilizabilă pe bază de suprafață.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-3">
+              <div>
+                <Label htmlFor="recipe-name" className="text-xs font-semibold">Nume Rețetă / Șablon</Label>
+                <Input
+                  id="recipe-name"
+                  value={recipeName}
+                  onChange={(e) => setRecipeName(e.target.value)}
+                  placeholder="Ex: Tencuială mecanizată MPI 25 + BetonPrimer"
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="recipe-category" className="text-xs font-semibold">Categorie</Label>
+                  <Select value={recipeCategory} onValueChange={setRecipeCategory}>
+                    <SelectTrigger id="recipe-category" className="mt-1">
+                      <SelectValue placeholder="Alege categorie" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Tencuieli & Gleturi">Tencuieli & Gleturi</SelectItem>
+                      <SelectItem value="Termoizolații">Termoizolații</SelectItem>
+                      <SelectItem value="Adezivi & Șape">Adezivi & Șape</SelectItem>
+                      <SelectItem value="Gips-Carton">Gips-Carton</SelectItem>
+                      <SelectItem value="Pardoseli">Pardoseli</SelectItem>
+                      <SelectItem value="Altele">Altele</SelectItem>
+                      <SelectItem value="custom" className="text-primary font-medium">✨ Categorie personalizată...</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="reference-unit" className="text-xs font-semibold">U.M. de Referință</Label>
+                  <Select value={referenceUnit} onValueChange={setReferenceUnit}>
+                    <SelectTrigger id="reference-unit" className="mt-1">
+                      <SelectValue placeholder="Alege U.M." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="m²">m² (mp)</SelectItem>
+                      <SelectItem value="ml">ml (metri liniari)</SelectItem>
+                      <SelectItem value="buc">buc (bucăți)</SelectItem>
+                      <SelectItem value="mc">mc (metri cubi)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {recipeCategory === "custom" && (
+                <div className="animate-in slide-in-from-top-1 duration-200">
+                  <Label htmlFor="custom-category" className="text-xs font-semibold text-primary">Nume Categorie Personalizată</Label>
+                  <Input
+                    id="custom-category"
+                    value={customCategory}
+                    onChange={(e) => setCustomCategory(e.target.value)}
+                    placeholder="Introduceți o categorie nouă (ex: Zidărie, Acoperișuri)"
+                    className="mt-1 border-primary/40 focus-visible:ring-primary"
+                  />
+                </div>
+              )}
+
+              <div>
+                <Label htmlFor="reference-qty" className="text-xs font-semibold">
+                  Cantitate / Suprafață de Referință a Ofertei
+                </Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <Input
+                    id="reference-qty"
+                    type="number"
+                    min={0.01}
+                    value={referenceQuantity}
+                    onChange={(e) => setReferenceQuantity(e.target.value)}
+                    className="flex-1"
+                  />
+                  <span className="text-sm font-medium text-muted-foreground bg-muted px-3 py-2 rounded-md border">
+                    {referenceUnit}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Sistemul va împărți cantitățile din ofertă la această suprafață pentru a determina consumul specific per {referenceUnit}.
+                </p>
+              </div>
+
+              {/* Preview Table */}
+              <div className="border rounded-md overflow-hidden bg-muted/20">
+                <div className="bg-muted/50 px-3 py-1.5 border-b flex justify-between text-xs font-semibold text-muted-foreground">
+                  <span>Material preview</span>
+                  <span>Consum calculat</span>
+                </div>
+                <div className="max-h-[140px] overflow-y-auto px-3 divide-y divide-border/40">
+                  {items.map((item) => {
+                    const qty = item.quantity;
+                    const ref = parseFloat(referenceQuantity) || 100;
+                    const consumption = ref > 0 ? (qty / ref).toFixed(4) : "0.0000";
+                    return (
+                      <div key={item.tempId} className="py-2 flex items-center justify-between text-xs gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium truncate">{item.denumire}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">
+                            {qty} {item.unit} în ofertă
+                          </p>
+                        </div>
+                        <div className="shrink-0 font-bold text-primary text-right whitespace-nowrap">
+                          {consumption} {item.unit} / {referenceUnit}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSaveAsRecipeOpen(false)} disabled={savingRecipe}>
+                Anulează
+              </Button>
+              <Button onClick={handleSaveAsRecipe} disabled={savingRecipe || !recipeName.trim() || (recipeCategory === "custom" && !customCategory.trim())}>
+                {savingRecipe ? "Se salvează..." : "Creează Rețetă"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
