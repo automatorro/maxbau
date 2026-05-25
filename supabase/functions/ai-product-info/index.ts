@@ -44,7 +44,7 @@ async function callGeminiDirect(
   imageBase64?: string,
   mimeType?: string
 ): Promise<any> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
   
   const parts: any[] = [];
   if (imageBase64 && mimeType) {
@@ -106,17 +106,14 @@ async function callAI(
     console.log("Using direct GEMINI_API_KEY inside callAI in edge function");
     const systemPrompt = messages.find(m => m.role === "system")?.content || "";
     const userPrompt = messages.find(m => m.role === "user")?.content || "";
-    try {
-      const result = await callGeminiDirect(
-        GEMINI_API_KEY,
-        systemPrompt,
-        userPrompt,
-        toolSchema
-      );
-      return result;
-    } catch (e) {
-      console.error("Direct Gemini call failed inside callAI, falling back to Lovable gateway", e);
-    }
+    // Dacă GEMINI_API_KEY există, folosim DOAR Google direct - nu cădea pe Lovable gateway (care e fără credite)
+    const result = await callGeminiDirect(
+      GEMINI_API_KEY,
+      systemPrompt,
+      userPrompt,
+      toolSchema
+    );
+    return result;
   }
 
   const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
