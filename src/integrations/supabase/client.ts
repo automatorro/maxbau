@@ -2,13 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://placeholder-project.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "placeholder-key";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://rkzypnfumeusqxloapdb.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrenlwbmZ1bWV1c3F4bG9hcGRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzMjAzNzksImV4cCI6MjA5MDg5NjM3OX0.FHbTpFqSt4GvLIylycHKjm8gxzgYn6_0FuAYsqQyGwI";
 
 if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) {
   console.warn(
     "⚠️ AVERTISMENT: Variabilele de mediu VITE_SUPABASE_URL sau VITE_SUPABASE_PUBLISHABLE_KEY lipsesc! " +
-    "Aplicația a pornit în mod de siguranță cu date placeholder. Vă rugăm să configurați variabilele de mediu în Vercel/Lovable."
+    "Aplicația folosește credențialele reale MaxBau ca fallback de siguranță."
   );
 }
 
