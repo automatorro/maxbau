@@ -57,6 +57,13 @@ async function callGeminiDirect(
   }
   parts.push({ text: userPrompt });
 
+  const generationConfig: any = {
+    responseMimeType: "application/json",
+  };
+  if (toolSchema) {
+    generationConfig.responseSchema = convertToGeminiSchema(toolSchema);
+  }
+
   const body = {
     contents: [
       {
@@ -67,9 +74,7 @@ async function callGeminiDirect(
     systemInstruction: {
       parts: [{ text: systemPrompt }]
     },
-    generationConfig: {
-      responseMimeType: "application/json"
-    }
+    generationConfig
   };
 
   const response = await fetch(url, {
@@ -692,28 +697,56 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`,
     let aiResults: Record<string, unknown> = {};
 
     if (needsAi.length > 0) {
+      // Use sequential index in prompt so we can match results by position, not by cod_intern
+      // (AI may invent or mistype codes)
       const productList = needsAi.map((p, i) =>
-        `${i + 1}. [${p.cod_intern}] ${p.denumire_completa} (brand: ${p.brand || "necunoscut"}, UM: ${p.unit || "buc"}, preț: ${p.pret_lista} lei)`
+        `PRODUS_${i + 1}: [${p.cod_intern}] ${p.denumire_completa} (brand: ${p.brand || "necunoscut"}, UM: ${p.unit || "buc"}, preț: ${p.pret_lista} lei)`
       ).join("\n");
 
       const systemPrompt = `Ești expert în materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Leier, Bramac, etc.).
 Răspunde DOAR cu informații pe care le cunoști cu certitudine. Dacă nu ești sigur, spune "necunoscut".
-Toate prețurile sunt FĂRĂ TVA.`;
+Toate prețurile sunt FĂRĂ TVA.
+IMPORTANT: Returnează exact câte elemente există în lista de produse, în ACEEAȘI ordine. Folosește câmpul index (1-based) pentru a identifica produsul.`;
 
-      const userPrompt = `Pentru următoarele produse, furnizează date tehnice:
+      const userPrompt = `Pentru următoarele ${needsAi.length} produse, furnizează date tehnice:
 
 ${productList}
 
 ${clientRequest ? `Context cerere client: "${clientRequest}"` : ""}
 
-Pentru FIECARE produs returnează:
+Pentru FIECARE produs returnează (în ordinea din listă):
+- index: numărul de ordine al produsului (1, 2, 3...)
 - consum: consum estimat per mp sau per unitate (ex: "4-6 kg/mp", "1.5 buc/mp") sau "N/A" dacă nu se aplică
 - ambalaj: tip și greutate ambalaj (ex: "sac 25 kg", "galeata 20 kg")
 - alternative: lista de maxim 3 produse alternative echivalente (brand + denumire), doar produse reale
 - compatibilitati: cu ce materiale/suporturi e compatibil
 - utilizare: interior/exterior/ambele + aplicații specifice`;
 
-      let parsed: { products?: { cod_intern: string; consum: string; ambalaj: string; alternative: string[]; compatibilitati: string; utilizare: string }[] } = { products: [] };
+      const techInfoSchema = {
+        type: "object",
+        properties: {
+          products: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                index: { type: "number", description: "1-based position of the product in the input list" },
+                consum: { type: "string", description: "Consumption per sqm or unit" },
+                ambalaj: { type: "string", description: "Packaging type and weight" },
+                alternative: { type: "array", items: { type: "string" }, description: "Up to 3 equivalent alternative products" },
+                compatibilitati: { type: "string" },
+                utilizare: { type: "string" },
+              },
+              required: ["index", "consum", "ambalaj", "alternative", "compatibilitati", "utilizare"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["products"],
+        additionalProperties: false,
+      };
+
+      let parsed: { products?: { index: number; consum: string; ambalaj: string; alternative: string[]; compatibilitati: string; utilizare: string }[] } = { products: [] };
       try {
         const result = await callAI(
           LOVABLE_API_KEY,
@@ -724,29 +757,7 @@ Pentru FIECARE produs returnează:
           "product_tech_info",
           {
             description: "Return technical info for each product",
-            parameters: {
-              type: "object",
-              properties: {
-                products: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      cod_intern: { type: "string" },
-                      consum: { type: "string", description: "Consumption per sqm or unit" },
-                      ambalaj: { type: "string", description: "Packaging type and weight" },
-                      alternative: { type: "array", items: { type: "string" }, description: "Up to 3 equivalent alternative products" },
-                      compatibilitati: { type: "string" },
-                      utilizare: { type: "string" },
-                    },
-                    required: ["cod_intern", "consum", "ambalaj", "alternative", "compatibilitati", "utilizare"],
-                    additionalProperties: false,
-                  },
-                },
-              },
-              required: ["products"],
-              additionalProperties: false,
-            },
+            parameters: techInfoSchema,
           }
         );
         if (result) parsed = result as typeof parsed;
@@ -762,8 +773,13 @@ Pentru FIECARE produs returnează:
       }
 
       for (const aiProd of (parsed.products || [])) {
-        const matchingProduct = needsAi.find((p) => p.cod_intern === aiProd.cod_intern);
-        if (!matchingProduct) continue;
+        // Match by 1-based index position — robust against AI inventing or mistyping cod_intern
+        const idx = typeof aiProd.index === "number" ? aiProd.index - 1 : -1;
+        const matchingProduct = idx >= 0 && idx < needsAi.length ? needsAi[idx] : undefined;
+        if (!matchingProduct) {
+          console.warn("ai-product-info: no matching product for index", aiProd.index);
+          continue;
+        }
 
         const aiInfo = {
           consum: aiProd.consum || "N/A",

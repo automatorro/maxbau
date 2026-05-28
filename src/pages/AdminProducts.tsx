@@ -366,8 +366,9 @@ const AdminProducts = () => {
   const fetchAiData = async (productId: string) => {
     setAiLoadingId(productId);
     try {
-      const { data, error } = await supabase.functions.invoke("ai-product-info", {
-        body: { product_ids: [productId] },
+      // Apelăm RPC-ul PostgreSQL în loc de edge function (edge function are un bug cu matching-ul după cod_intern)
+      const { data, error } = await supabase.rpc("get_ai_product_info", {
+        p_product_id: productId,
       });
 
       if (error) throw error;
@@ -375,17 +376,9 @@ const AdminProducts = () => {
 
       const aiResult = data.data?.[productId] as AiInfo | undefined;
       if (aiResult) {
-        const p = products.find(prod => prod.id === productId);
-        if (p) {
-          const existingSpecs = (p.specifications as Record<string, unknown>) || {};
-          const newSpecs = {
-            ...existingSpecs,
-            ai_info: { ...aiResult, updated_at: new Date().toISOString() },
-          };
-          await supabase.from("products").update({ specifications: newSpecs }).eq("id", productId);
-          queryClient.invalidateQueries({ queryKey: ["admin-products"] });
-          toast({ title: "Date tehnice AI obținute și salvate" });
-        }
+        // RPC-ul salvează deja în DB — doar invalidăm query cache-ul
+        queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+        toast({ title: "Date tehnice AI obținute și salvate" });
       } else {
         toast({ title: "AI nu a returnat date pentru acest produs" });
       }
