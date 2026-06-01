@@ -89,10 +89,26 @@ export default function WoolConfigurator() {
         .order("denumire_completa");
 
       if (searchQuery.trim()) {
-        const tokens = searchQuery.trim().split(/\s+/).filter(Boolean);
-        for (const raw of tokens) {
-          const token = raw.replace(/,/g, "\\,");
-          q = q.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        const cleanTokens = searchQuery
+          .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/gi, "")
+          .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie ext|vata|bazaltica|minerala|sticla)\b/gi, "")
+          .toLowerCase()
+          .split(/[\s,]+/)
+          .filter(t => t.length > 2); // only significant words
+
+        if (cleanTokens.length > 0) {
+          const orConditions = cleanTokens.flatMap(t => [
+            `denumire_completa.ilike.%${t}%`,
+            `cod_intern.ilike.%${t}%`,
+            `brand.ilike.%${t}%`,
+            `brand_slug.ilike.%${t}%`
+          ]).join(",");
+          q = q.or(orConditions);
+        } else {
+          // Fallback if all words were stripped (e.g. user just typed "vata 150 mp")
+          const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
+          const orFilters = brandTerms.map(term => `denumire_completa.ilike.%${term}%,brand.ilike.%${term}%`).join(",");
+          q = q.or(orFilters);
         }
       } else {
         const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
@@ -102,7 +118,7 @@ export default function WoolConfigurator() {
         q = q.or(orFilters);
       }
 
-      const { data, error } = await q.limit(100);
+      const { data, error } = await q.limit(200);
       if (error) {
         console.error("Error fetching wool products:", error);
         return [];
@@ -113,17 +129,35 @@ export default function WoolConfigurator() {
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return dbProducts.slice(0, 8);
-    const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
     
-    return dbProducts.filter(p => {
+    const tokens = searchQuery
+      .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/gi, "")
+      .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie ext)\b/gi, "")
+      .toLowerCase()
+      .split(/[\s,]+/)
+      .filter(t => t.length > 1);
+
+    if (tokens.length === 0) return dbProducts.slice(0, 10);
+
+    const scored = dbProducts.map(p => {
       const name = p.denumire_completa?.toLowerCase() || "";
       const code = p.cod_intern?.toLowerCase() || "";
       const brand = p.brand?.toLowerCase() || "";
       
-      return tokens.every(token => 
-        name.includes(token) || code.includes(token) || brand.includes(token)
-      );
-    }).slice(0, 10);
+      let score = 0;
+      for (const t of tokens) {
+        if (name.includes(t) || code.includes(t) || brand.includes(t)) {
+          score += 1;
+        }
+      }
+      return { product: p, score };
+    });
+
+    return scored
+      .filter(s => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map(s => s.product)
+      .slice(0, 10);
   }, [dbProducts, searchQuery]);
 
   // Extract wool area automatically from text query (e.g. "vata bp-70 10cm 150 mp" -> 150)
