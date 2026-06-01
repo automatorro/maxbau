@@ -116,6 +116,12 @@ const AdminProducts = () => {
   const [syncing, setSyncing] = useState(false);
   const [syncLog, setSyncLog] = useState<Array<{ brand: string; status: string; count?: number; error?: string }>>([]);
   const [syncSummary, setSyncSummary] = useState<{ imported: number; updated: number; deactivated: number; errors: number } | null>(null);
+
+  // Brand selector dialog
+  const [brandSelectorOpen, setBrandSelectorOpen] = useState(false);
+  const [availableBrands, setAvailableBrands] = useState<string[]>([]);
+  const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
+  const [loadingBrands, setLoadingBrands] = useState(false);
   
   // Expanded row and Edit states
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -215,7 +221,30 @@ const AdminProducts = () => {
 
   const SCRAPE_BATCH = 5;
 
-  const handleBrandSync = async () => {
+  // Deschide dialogul de selecție branduri, încarcă lista de pe /marci
+  const openBrandSelector = async () => {
+    setLoadingBrands(true);
+    setBrandSelectorOpen(true);
+    setSyncLog([]);
+    setSyncSummary(null);
+    try {
+      const { data: brandsData, error: brandsError } = await supabase.functions.invoke("scrape-maxbau", {
+        body: { action: "list-brands" },
+      });
+      if (brandsError || !brandsData?.success) throw new Error(brandsData?.error || brandsError?.message);
+      const slugs: string[] = brandsData.slugs || [];
+      setAvailableBrands(slugs);
+      setSelectedBrands(new Set(slugs)); // toate selectate implicit
+    } catch (err) {
+      toast({ title: "Eroare la încărcarea brandurilor", description: err instanceof Error ? err.message : "Eroare", variant: "destructive" });
+      setBrandSelectorOpen(false);
+    } finally {
+      setLoadingBrands(false);
+    }
+  };
+
+  const handleBrandSync = async (slugsToSync: string[]) => {
+    setBrandSelectorOpen(false);
     setSyncing(true);
     setSyncLog([]);
     setSyncSummary(null);
@@ -224,26 +253,14 @@ const AdminProducts = () => {
     let totalErrors = 0;
 
     try {
-      // 1. Obține lista de branduri
-      setSyncLog([{ brand: "...", status: "Se descoperă brandurile de pe maxbau.ro/marci..." }]);
-      const { data: brandsData, error: brandsError } = await supabase.functions.invoke("scrape-maxbau", {
-        body: { action: "list-brands" },
-      });
-      if (brandsError || !brandsData?.success) throw new Error(brandsData?.error || brandsError?.message);
+      setSyncLog([{ brand: "✓", status: `${slugsToSync.length} brand${slugsToSync.length !== 1 ? "uri" : ""} selectat${slugsToSync.length !== 1 ? "e" : ""} pentru sincronizare` }]);
 
-      const slugs: string[] = brandsData.slugs || [];
-      setSyncLog([{ brand: "✓", status: `${slugs.length} branduri găsite`, count: slugs.length }]);
-
-      // 2. Per brand: colectează toate URL-urile, apoi scrape
-      for (const slug of slugs) {
-        const brandLog = { brand: slug, status: "Se colectează URL-uri...", count: 0 };
-        setSyncLog((prev) => [...prev, brandLog]);
+      for (const slug of slugsToSync) {
+        setSyncLog((prev) => [...prev, { brand: slug, status: "Se colectează URL-uri...", count: 0 }]);
 
         try {
-          // Colectează toate URL-urile din toate paginile brandului
           const allUrls: string[] = [];
 
-          // Prima pagină — aflăm și totalPages
           const { data: p1, error: p1Err } = await supabase.functions.invoke("scrape-maxbau", {
             body: { action: "list-brand-products", brandSlug: slug, page: 1 },
           });
@@ -251,7 +268,6 @@ const AdminProducts = () => {
           allUrls.push(...(p1.productUrls || []));
           const totalPages = p1.totalPages || 1;
 
-          // Restul paginilor
           for (let pg = 2; pg <= totalPages; pg++) {
             const { data: pgData } = await supabase.functions.invoke("scrape-maxbau", {
               body: { action: "list-brand-products", brandSlug: slug, page: pg },
@@ -265,7 +281,6 @@ const AdminProducts = () => {
             )
           );
 
-          // Scrape în batch-uri
           let brandImported = 0;
           let brandErrors = 0;
           for (let i = 0; i < allUrls.length; i += SCRAPE_BATCH) {
@@ -281,7 +296,6 @@ const AdminProducts = () => {
             }
           }
 
-          // Dezactivează produse lipsă
           const { data: deactData } = await supabase.functions.invoke("scrape-maxbau", {
             body: { action: "deactivate-missing", brandSlug: slug, urls: allUrls },
           });
@@ -519,7 +533,7 @@ const AdminProducts = () => {
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button
-              onClick={handleBrandSync}
+              onClick={openBrandSelector}
               disabled={syncing || importing}
               size="sm"
               className="bg-primary"
@@ -856,6 +870,98 @@ const AdminProducts = () => {
           </div>
         )}
       </div>
+
+      {/* Brand Selector Dialog */}
+      <Dialog open={brandSelectorOpen} onOpenChange={(o) => !o && setBrandSelectorOpen(false)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-primary" />
+              Selectează brandurile de sincronizat
+            </DialogTitle>
+            <DialogDescription>
+              Alege unul sau mai multe branduri. Se vor re-scrapa toate produsele brandurilor selectate.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingBrands ? (
+            <div className="flex items-center justify-center py-10 gap-3 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm">Se încarcă brandurile de pe maxbau.ro...</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Select all / none */}
+              <div className="flex gap-2 pb-2 border-b">
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => setSelectedBrands(new Set(availableBrands))}
+                >
+                  Selectează toate ({availableBrands.length})
+                </Button>
+                <Button
+                  size="sm" variant="ghost"
+                  onClick={() => setSelectedBrands(new Set())}
+                >
+                  Deselectează toate
+                </Button>
+              </div>
+
+              {/* Brand list */}
+              <ScrollArea className="h-72 pr-2">
+                <div className="space-y-1">
+                  {availableBrands.map((slug) => {
+                    const checked = selectedBrands.has(slug);
+                    const label = slug === "alte-branduri"
+                      ? "Alte branduri (842+ produse)"
+                      : slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                    return (
+                      <button
+                        key={slug}
+                        onClick={() => {
+                          setSelectedBrands((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(slug)) next.delete(slug);
+                            else next.add(slug);
+                            return next;
+                          });
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm text-left transition-colors ${
+                          checked
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "hover:bg-muted text-foreground"
+                        }`}
+                      >
+                        <div className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${
+                          checked ? "bg-primary border-primary" : "border-border"
+                        }`}>
+                          {checked && <span className="text-primary-foreground text-[10px] font-bold">✓</span>}
+                        </div>
+                        <span className="font-mono text-xs text-muted-foreground w-32 shrink-0">{slug}</span>
+                        <span>{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBrandSelectorOpen(false)}>
+              Anulează
+            </Button>
+            <Button
+              onClick={() => handleBrandSync(Array.from(selectedBrands))}
+              disabled={selectedBrands.size === 0 || loadingBrands}
+              className="gap-2"
+            >
+              <Building2 className="h-4 w-4" />
+              Sincronizează {selectedBrands.size > 0 ? `${selectedBrands.size} brand${selectedBrands.size !== 1 ? "uri" : ""}` : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={Boolean(editProduct)} onOpenChange={(o) => !o && setEditProduct(null)}>
