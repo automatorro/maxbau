@@ -44,7 +44,7 @@ function extractSection(markdown: string, titles: string[]): string | null {
   for (const p of paragraphs) {
     if (p.startsWith("#")) continue;
     if (/lei/i.test(p)) continue;
-    if (/^(\d+\.)\s+/.test(p)) continue;
+    if (/(^\d+\.)\s+/.test(p)) continue;
     const plain = p.replace(/\s+/g, " ").trim();
     if (plain.length >= 60) return plain.slice(0, 2000);
   }
@@ -66,7 +66,7 @@ function extractFirstMatch(markdown: string, patterns: RegExp[]): string | null 
 
 function extractBrandFromHtml(html: string): string | null {
   if (!html) return null;
-  const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+  const imgTags = html.match(/]*>/gi) || [];
   for (const tag of imgTags) {
     if (!/cs-photos\/brands/i.test(tag)) continue;
     const alt = tag.match(/\balt\s*=\s*["']([^"']+)["']/i)?.[1]?.trim();
@@ -112,7 +112,7 @@ function extractLabeledValue(markdown: string, labels: string[]): string | null 
           if (value) return value.slice(0, 200);
         }
       }
-      const dashMatch = cleaned.match(/^(.+?)\s*[-=]\s*(.+)$/);
+      const dashMatch = cleaned.match(/^(.*?)\s*[-=]\s*(.+)$/);
       if (dashMatch) {
         const key = dashMatch[1].trim();
         if (normalizeForSearch(key).includes(label)) {
@@ -150,7 +150,7 @@ function parseBrandListingPage(html: string, brandSlug: string): {
   // Extrage URL-uri produse din href-urile cu pattern -NNNNN.html (fără domeniu)
   const hrefPattern = /href="([^"]*-\d{5,}\.html)"/gi;
   let m: RegExpExecArray | null;
-  const seen = new Set<string>();
+  const seen = new Set();
   while ((m = hrefPattern.exec(html)) !== null) {
     const href = m[1];
     // Exclude link-uri de wishlist sau coș
@@ -163,7 +163,7 @@ function parseBrandListingPage(html: string, brandSlug: string): {
   }
 
   // Extrage numărul de pagini din paginatorul HTML
-  // Ex: <a href="marci/baumit/pag-8" title="Pagina 8">8</a>
+  // Ex: 8
   let totalPages = 1;
   const pagPattern = new RegExp(`marci/${brandSlug}/pag-(\\d+)`, "g");
   let pagMatch: RegExpExecArray | null;
@@ -180,7 +180,7 @@ function parseBrandListingPage(html: string, brandSlug: string): {
  */
 function parseBrandsPage(html: string): string[] {
   const slugs: string[] = [];
-  const seen = new Set<string>();
+  const seen = new Set();
   // Pattern: href="marci/SLUG" sau href="/marci/SLUG"
   const pattern = /href=["'](?:https?:\/\/maxbau\.ro)?\/marci\/([a-z0-9-]+)["']/gi;
   let m: RegExpExecArray | null;
@@ -205,14 +205,14 @@ function parseProduct(markdown: string, url: string, html?: string, knownBrandSl
   const productName = h1Match ? h1Match[1].trim() : null;
   if (!productName) return null;
 
-  // Preț — format ContentSpeed: <div class="price">23<sup>55</sup> LEI</div>
+  // Preț — format ContentSpeed: <span>2355</span><sup>00</sup> LEI
   // În markdown apare ca ceva de tipul: "23\n55\n LEI" sau "2355 LEI"
   let price = 0;
   let unit = "BUC";
 
   // Încearcă formatul nou cu sup (din HTML direct)
   if (html) {
-    const priceHtmlMatch = html.match(/<div[^>]*class="[^"]*price[^"]*"[^>]*>\s*(\d+)\s*<sup>(\d+)<\/sup>\s*LEI/i);
+    const priceHtmlMatch = html.match(/]*class="[^"]*price[^"]*"[^>]*>\s*(\d+)\s*(\d+)<\/sup>\s*LEI/i);
     if (priceHtmlMatch) {
       price = parseInt(priceHtmlMatch[1], 10) + parseInt(priceHtmlMatch[2], 10) / 100;
     }
