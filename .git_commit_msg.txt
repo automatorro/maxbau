@@ -1,8 +1,0 @@
-feat: selector de branduri inainte de sincronizare
-
-- Dialog de selectie branduri la apasarea butonului "Sincronizare pe branduri"
-- Incarca lista de branduri live de pe maxbau.ro/marci
-- Toate brandurile selectate implicit, se poate deselecta individual sau toate
-- Buton "Selecteaza toate / Deselecteaza toate"
-- Sincronizarea ruleaza doar pentru brandurile selectate
-- "alte-branduri" afisat cu nota "842+ produse"
