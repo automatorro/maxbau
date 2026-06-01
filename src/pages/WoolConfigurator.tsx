@@ -106,12 +106,11 @@ export default function WoolConfigurator() {
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return dbProducts.slice(0, 8);
     
-    // Clean string: remove areas and generic construction words
+    // Clean string: remove ONLY areas (like "150 mp") so we don't accidentally match dimensions
     const normSearch = searchQuery
       .normalize("NFD").replace(/[̀-ͯ]/g, "")
       .toLowerCase()
-      .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/g, "")
-      .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie|grosime)\b/g, " ");
+      .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/g, "");
 
     const tokens = normSearch.split(/[^a-z0-9]+/).filter(t => t.length > 1);
 
@@ -121,8 +120,9 @@ export default function WoolConfigurator() {
       const name = (p.denumire_completa || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
       const code = (p.cod_intern || "").toLowerCase();
       const brand = (p.brand || "").toLowerCase();
+      const specs = p.specifications ? JSON.stringify(p.specifications).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase() : "";
       
-      const target = `${name} ${code} ${brand}`;
+      const target = `${name} ${code} ${brand} ${specs}`;
       const targetNoSpaces = target.replace(/\s+/g, "");
       
       let score = 0;
@@ -130,7 +130,7 @@ export default function WoolConfigurator() {
         if (target.includes(t)) {
           score += t.length * 2; // match direct
         } else if (targetNoSpaces.includes(t)) {
-          score += t.length; // match fara spatii (ex: fibrangeo == fibran geo)
+          score += t.length; // match fara spatii
         }
       }
       return { product: p, score };
