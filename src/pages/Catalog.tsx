@@ -94,11 +94,16 @@ const Catalog = () => {
         .order("denumire_completa");
 
       if (search) {
-        const tokens = search.split(/\s+/).filter(Boolean);
-        for (const raw of tokens) {
-          const token = raw.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
-        }
+        // OR cumulat — toți tokenii într-un singur .or(), caută și în brand
+        const tokens = search.split(/\s+/).filter(Boolean).map((t) => t.replace(/,/g, "\\,"));
+        const orFilter = tokens
+          .flatMap((t) => [
+            `denumire_completa.ilike.%${t}%`,
+            `cod_intern.ilike.%${t}%`,
+            `brand.ilike.%${t}%`,
+          ])
+          .join(",");
+        query = query.or(orFilter);
       }
 
       if (categoryIds) {

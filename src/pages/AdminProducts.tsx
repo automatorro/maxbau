@@ -111,6 +111,11 @@ const AdminProducts = () => {
   const [page, setPage] = useState(0);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [supplierFilter, setSupplierFilter] = useState<string>("all");
+
+  // Brand sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncLog, setSyncLog] = useState<Array<{ brand: string; status: string; count?: number; error?: string }>>([]);
+  const [syncSummary, setSyncSummary] = useState<{ imported: number; updated: number; deactivated: number; errors: number } | null>(null);
   
   // Expanded row and Edit states
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -146,11 +151,16 @@ const AdminProducts = () => {
         .order("cod_intern");
 
       if (search) {
-        const tokens = search.split(/\s+/).filter(Boolean);
-        for (const raw of tokens) {
-          const token = raw.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
-        }
+        // OR cumulat — toți tokenii într-un singur .or(), caută și în brand
+        const tokens = search.split(/\s+/).filter(Boolean).map((t) => t.replace(/,/g, "\\,"));
+        const orFilter = tokens
+          .flatMap((t) => [
+            `denumire_completa.ilike.%${t}%`,
+            `cod_intern.ilike.%${t}%`,
+            `brand.ilike.%${t}%`,
+          ])
+          .join(",");
+        query = query.or(orFilter);
       }
 
       if (categoryFilter !== "all") {
@@ -201,6 +211,110 @@ const AdminProducts = () => {
     setSearch(val);
     setPage(0);
     setExpandedRowId(null);
+  };
+
+  const SCRAPE_BATCH = 5;
+
+  const handleBrandSync = async () => {
+    setSyncing(true);
+    setSyncLog([]);
+    setSyncSummary(null);
+    let totalImported = 0;
+    let totalDeactivated = 0;
+    let totalErrors = 0;
+
+    try {
+      // 1. Obține lista de branduri
+      setSyncLog([{ brand: "...", status: "Se descoperă brandurile de pe maxbau.ro/marci..." }]);
+      const { data: brandsData, error: brandsError } = await supabase.functions.invoke("scrape-maxbau", {
+        body: { action: "list-brands" },
+      });
+      if (brandsError || !brandsData?.success) throw new Error(brandsData?.error || brandsError?.message);
+
+      const slugs: string[] = brandsData.slugs || [];
+      setSyncLog([{ brand: "✓", status: `${slugs.length} branduri găsite`, count: slugs.length }]);
+
+      // 2. Per brand: colectează toate URL-urile, apoi scrape
+      for (const slug of slugs) {
+        const brandLog = { brand: slug, status: "Se colectează URL-uri...", count: 0 };
+        setSyncLog((prev) => [...prev, brandLog]);
+
+        try {
+          // Colectează toate URL-urile din toate paginile brandului
+          const allUrls: string[] = [];
+
+          // Prima pagină — aflăm și totalPages
+          const { data: p1, error: p1Err } = await supabase.functions.invoke("scrape-maxbau", {
+            body: { action: "list-brand-products", brandSlug: slug, page: 1 },
+          });
+          if (p1Err || !p1?.success) throw new Error(p1?.error || p1Err?.message);
+          allUrls.push(...(p1.productUrls || []));
+          const totalPages = p1.totalPages || 1;
+
+          // Restul paginilor
+          for (let pg = 2; pg <= totalPages; pg++) {
+            const { data: pgData } = await supabase.functions.invoke("scrape-maxbau", {
+              body: { action: "list-brand-products", brandSlug: slug, page: pg },
+            });
+            if (pgData?.success) allUrls.push(...(pgData.productUrls || []));
+          }
+
+          setSyncLog((prev) =>
+            prev.map((l) =>
+              l.brand === slug ? { ...l, status: `${allUrls.length} produse găsite. Se importă...`, count: allUrls.length } : l
+            )
+          );
+
+          // Scrape în batch-uri
+          let brandImported = 0;
+          let brandErrors = 0;
+          for (let i = 0; i < allUrls.length; i += SCRAPE_BATCH) {
+            const batch = allUrls.slice(i, i + SCRAPE_BATCH);
+            const { data: scrapeData, error: scrapeError } = await supabase.functions.invoke("scrape-maxbau", {
+              body: { action: "scrape", urls: batch, brandSlug: slug },
+            });
+            if (!scrapeError && scrapeData?.success) {
+              brandImported += scrapeData.imported || 0;
+              brandErrors += scrapeData.errors || 0;
+            } else {
+              brandErrors += batch.length;
+            }
+          }
+
+          // Dezactivează produse lipsă
+          const { data: deactData } = await supabase.functions.invoke("scrape-maxbau", {
+            body: { action: "deactivate-missing", brandSlug: slug, urls: allUrls },
+          });
+          const deactivated = deactData?.deactivated || 0;
+          totalDeactivated += deactivated;
+          totalImported += brandImported;
+          totalErrors += brandErrors;
+
+          setSyncLog((prev) =>
+            prev.map((l) =>
+              l.brand === slug
+                ? { ...l, status: `✓ ${brandImported} importate${deactivated > 0 ? `, ${deactivated} dezactivate` : ""}${brandErrors > 0 ? `, ${brandErrors} erori` : ""}` }
+                : l
+            )
+          );
+        } catch (err) {
+          totalErrors++;
+          setSyncLog((prev) =>
+            prev.map((l) =>
+              l.brand === slug ? { ...l, status: `✗ Eroare: ${err instanceof Error ? err.message : "necunoscută"}`, error: "true" } : l
+            )
+          );
+        }
+      }
+
+      setSyncSummary({ imported: totalImported, updated: 0, deactivated: totalDeactivated, errors: totalErrors });
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      toast({ title: `Sincronizare completă: ${totalImported} produse, ${totalDeactivated} dezactivate` });
+    } catch (err) {
+      toast({ title: "Eroare la sincronizare", description: err instanceof Error ? err.message : "Eroare", variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const handleImport = async () => {
@@ -403,15 +517,30 @@ const AdminProducts = () => {
             <h1 className="text-2xl font-bold text-foreground">Administrare produse</h1>
             <p className="text-muted-foreground">Gestionează catalogul și datele tehnice ale produselor</p>
           </div>
-          <Button onClick={handleImport} disabled={importing} size="sm">
-            {importing ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4 mr-2" />
-            )}
-            <span className="hidden sm:inline">{importing ? "Se importă..." : "Import de pe maxbau.ro"}</span>
-            <span className="sm:hidden">{importing ? "..." : "Import"}</span>
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              onClick={handleBrandSync}
+              disabled={syncing || importing}
+              size="sm"
+              className="bg-primary"
+            >
+              {syncing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Building2 className="h-4 w-4 mr-2" />
+              )}
+              <span>{syncing ? "Sincronizare..." : "Sincronizare pe branduri"}</span>
+            </Button>
+            <Button onClick={handleImport} disabled={importing || syncing} size="sm" variant="outline">
+              {importing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
+              <span className="hidden sm:inline">{importing ? "Se importă..." : "Import clasic"}</span>
+              <span className="sm:hidden">{importing ? "..." : "Import"}</span>
+            </Button>
+          </div>
         </div>
 
         {importing && (
@@ -419,6 +548,31 @@ const AdminProducts = () => {
             <p className="text-sm text-muted-foreground">{importStatus}</p>
             <Progress value={importProgress} className="h-2" />
             <p className="text-xs text-muted-foreground text-right">{importProgress}%</p>
+          </div>
+        )}
+
+        {(syncing || syncLog.length > 0) && (
+          <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              {syncing && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+              <p className="text-sm font-medium">Sincronizare pe branduri</p>
+            </div>
+            <div className="max-h-56 overflow-y-auto space-y-1 font-mono text-xs bg-background rounded-md border p-2">
+              {syncLog.map((entry, i) => (
+                <div key={i} className={`flex gap-2 ${entry.error ? "text-destructive" : "text-foreground"}`}>
+                  <span className="text-muted-foreground w-32 shrink-0 truncate">{entry.brand}</span>
+                  <span>{entry.status}</span>
+                </div>
+              ))}
+              {syncing && <div className="text-muted-foreground animate-pulse">▌</div>}
+            </div>
+            {syncSummary && (
+              <div className="flex gap-4 text-xs text-muted-foreground border-t pt-2">
+                <span className="text-green-600 font-medium">✓ {syncSummary.imported} importate</span>
+                {syncSummary.deactivated > 0 && <span className="text-amber-600 font-medium">⊘ {syncSummary.deactivated} dezactivate</span>}
+                {syncSummary.errors > 0 && <span className="text-destructive font-medium">✗ {syncSummary.errors} erori</span>}
+              </div>
+            )}
           </div>
         )}
 

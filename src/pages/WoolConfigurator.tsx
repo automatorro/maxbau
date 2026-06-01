@@ -83,11 +83,26 @@ export default function WoolConfigurator() {
   const { data: dbProducts = [], isFetching: dbLoading } = useQuery({
     queryKey: ["wool-products-search", searchQuery],
     queryFn: async () => {
+      // Build a broad OR filter: match vata/lana + major insulation brands + search term
+      const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
+      const orFilters = brandTerms
+        .map(term => `denumire_completa.ilike.%${term}%`)
+        .join(",");
+
       let q = supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity")
-        .or("denumire_completa.ilike.%vata%,description.ilike.%vata%");
-      
+        .or(orFilters);
+
+      // If the user typed something, add a broader text filter too
+      if (searchQuery.trim()) {
+        const term = searchQuery.trim();
+        q = supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity")
+          .or(`denumire_completa.ilike.%${term}%,cod_intern.ilike.%${term}%,${orFilters}`);
+      }
+
       const { data, error } = await q.limit(100);
       if (error) {
         console.error("Error fetching wool products:", error);
@@ -101,8 +116,8 @@ export default function WoolConfigurator() {
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return dbProducts.slice(0, 8);
     const q = searchQuery.toLowerCase();
-    return dbProducts.filter(p => 
-      p.denumire_completa.toLowerCase().includes(q) || 
+    return dbProducts.filter(p =>
+      p.denumire_completa.toLowerCase().includes(q) ||
       p.cod_intern.toLowerCase().includes(q)
     ).slice(0, 10);
   }, [dbProducts, searchQuery]);
@@ -597,7 +612,7 @@ export default function WoolConfigurator() {
               Auto-clarificare cu AI
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">
-              Configurator Inteligente Vată & Sisteme
+              Configurator Vată & Sisteme
             </h1>
             <p className="text-sm text-muted-foreground">
               Rezolvați cererile ambigue cu AI, calculați baxurile întregi și propuneți sisteme complete.
