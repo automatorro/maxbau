@@ -223,11 +223,8 @@ const AdminProducts = () => {
     setSyncLog([]);
     setSyncSummary(null);
     try {
-      const { data: brandsData, error: brandsError } = await supabase.functions.invoke("scrape-maxbau", {
-        body: { action: "list-brands" },
-      });
-      if (brandsError || !brandsData?.success) throw new Error(brandsData?.error || brandsError?.message);
-      const slugs: string[] = brandsData.slugs || [];
+      const html = await fetchWithProxy("https://maxbau.ro/marci");
+      const slugs = parseBrandsPage(html);
       setAvailableBrands(slugs);
       setSelectedBrands(new Set(slugs)); // toate selectate implicit
     } catch (err) {
@@ -256,18 +253,14 @@ const AdminProducts = () => {
         try {
           const allUrls: string[] = [];
 
-          const { data: p1, error: p1Err } = await supabase.functions.invoke("scrape-maxbau", {
-            body: { action: "list-brand-products", brandSlug: slug, page: 1 },
-          });
-          if (p1Err || !p1?.success) throw new Error(p1?.error || p1Err?.message);
-          allUrls.push(...(p1.productUrls || []));
-          const totalPages = p1.totalPages || 1;
+          const htmlP1 = await fetchWithProxy(`https://maxbau.ro/marci/${slug}`);
+          const { productUrls: p1Urls, totalPages } = parseBrandListingPage(htmlP1, slug);
+          allUrls.push(...p1Urls);
 
           for (let pg = 2; pg <= totalPages; pg++) {
-            const { data: pgData } = await supabase.functions.invoke("scrape-maxbau", {
-              body: { action: "list-brand-products", brandSlug: slug, page: pg },
-            });
-            if (pgData?.success) allUrls.push(...(pgData.productUrls || []));
+            const htmlPg = await fetchWithProxy(`https://maxbau.ro/marci/${slug}/pag-${pg}`);
+            const { productUrls: pgUrls } = parseBrandListingPage(htmlPg, slug);
+            allUrls.push(...pgUrls);
           }
 
           setSyncLog((prev) =>
@@ -291,10 +284,22 @@ const AdminProducts = () => {
             }
           }
 
-          const { data: deactData } = await supabase.functions.invoke("scrape-maxbau", {
-            body: { action: "deactivate-missing", brandSlug: slug, urls: allUrls },
-          });
-          const deactivated = deactData?.deactivated || 0;
+          let deactivated = 0;
+          const { data: existingProducts } = await supabase
+            .from("products")
+            .select("id, product_url")
+            .eq("brand_slug", slug)
+            .eq("is_active", true);
+
+          if (existingProducts) {
+            const currentUrlSet = new Set(allUrls.map(u => u.split('?')[0]));
+            const toDeactivate = existingProducts.filter(p => !currentUrlSet.has(p.product_url?.split('?')[0]));
+            for (const p of toDeactivate) {
+              await supabase.from("products").update({ is_active: false }).eq("id", p.id);
+            }
+            deactivated = toDeactivate.length;
+          }
+
           totalDeactivated += deactivated;
           totalImported += brandImported;
           totalErrors += brandErrors;
