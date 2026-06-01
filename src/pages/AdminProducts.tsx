@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { fetchWithProxy, parseBrandsPage, parseBrandListingPage } from "../utils/scraperUtils";
 
 const BATCH_SIZE = 5;
 const PAGE_SIZE = 50;
