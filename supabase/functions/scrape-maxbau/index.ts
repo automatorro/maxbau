@@ -182,7 +182,7 @@ function parseBrandsPage(html: string): string[] {
   const slugs: string[] = [];
   const seen = new Set();
   // Pattern: href="marci/SLUG" sau href="/marci/SLUG"
-  const pattern = /href=["'](?:https?:\/\/maxbau\.ro)?\/marci\/([a-z0-9-]+)["']/gi;
+  const pattern = /href=["'](?:https?:\/\/maxbau\.ro)?\/?marci\/([a-z0-9-]+)["']/gi;
   let m: RegExpExecArray | null;
   while ((m = pattern.exec(html)) !== null) {
     const slug = m[1];
