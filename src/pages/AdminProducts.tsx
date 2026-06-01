@@ -224,8 +224,28 @@ const AdminProducts = () => {
     setSyncLog([]);
     setSyncSummary(null);
     try {
-      const html = await fetchWithProxy("https://maxbau.ro/marci");
-      const slugs = parseBrandsPage(html);
+      const { data: brandsData, error: brandsError } = await supabase.functions.invoke("scrape-maxbau", {
+        body: { action: "list-brands" },
+      });
+      if (brandsError || !brandsData?.success) throw new Error(brandsData?.error || brandsError?.message);
+      
+      let slugs: string[] = brandsData.slugs || [];
+      
+      // Fallback: Dacă Edge function-ul returnează 0 branduri din cauza vechiului regex bug, folosim o listă hardcodată de rezervă
+      if (slugs.length === 0) {
+        const hardcoded = [
+          "adeplast", "allianz-tc", "apla", "austrotherm", "baufan", "baumit", "bison", "bochemit", "bostik",
+          "ceresit", "cesal", "cesarom", "den-braven", "duraziv", "fassa-bortolo", "fibran", "hasit", "holcim",
+          "isomat", "isover", "kai", "knauf", "knauf-insulation", "kober", "leier", "macon", "masterplast",
+          "murexin", "penosil", "policolor", "porotherm", "rigips", "rockwool", "romcim", "sika", "somaco",
+          "swisspor", "tytan", "urso", "weber", "wienerberger", "yato", "brikston", "tassullo"
+        ];
+        // Adaugam si brandurile deja existente in DB
+        const { data: dbProds } = await supabase.from("products").select("brand_slug");
+        const dbSlugs = (dbProds || []).map((p: any) => p.brand_slug).filter(Boolean);
+        slugs = Array.from(new Set([...hardcoded, ...dbSlugs]));
+      }
+
       setAvailableBrands(slugs);
       setSelectedBrands(new Set(slugs)); // toate selectate implicit
     } catch (err) {
@@ -254,14 +274,18 @@ const AdminProducts = () => {
         try {
           const allUrls: string[] = [];
 
-          const htmlP1 = await fetchWithProxy(`https://maxbau.ro/marci/${slug}`);
-          const { productUrls: p1Urls, totalPages } = parseBrandListingPage(htmlP1, slug);
-          allUrls.push(...p1Urls);
+          const { data: p1, error: p1Err } = await supabase.functions.invoke("scrape-maxbau", {
+            body: { action: "list-brand-products", brandSlug: slug, page: 1 },
+          });
+          if (p1Err || !p1?.success) throw new Error(p1?.error || p1Err?.message);
+          allUrls.push(...(p1.productUrls || []));
+          const totalPages = p1.totalPages || 1;
 
           for (let pg = 2; pg <= totalPages; pg++) {
-            const htmlPg = await fetchWithProxy(`https://maxbau.ro/marci/${slug}/pag-${pg}`);
-            const { productUrls: pgUrls } = parseBrandListingPage(htmlPg, slug);
-            allUrls.push(...pgUrls);
+            const { data: pgData } = await supabase.functions.invoke("scrape-maxbau", {
+              body: { action: "list-brand-products", brandSlug: slug, page: pg },
+            });
+            if (pgData?.success) allUrls.push(...(pgData.productUrls || []));
           }
 
           setSyncLog((prev) =>
@@ -285,22 +309,10 @@ const AdminProducts = () => {
             }
           }
 
-          let deactivated = 0;
-          const { data: existingProducts } = await supabase
-            .from("products")
-            .select("id, product_url")
-            .eq("brand_slug", slug)
-            .eq("is_active", true);
-
-          if (existingProducts) {
-            const currentUrlSet = new Set(allUrls.map(u => u.split('?')[0]));
-            const toDeactivate = existingProducts.filter(p => !currentUrlSet.has(p.product_url?.split('?')[0]));
-            for (const p of toDeactivate) {
-              await supabase.from("products").update({ is_active: false }).eq("id", p.id);
-            }
-            deactivated = toDeactivate.length;
-          }
-
+          const { data: deactData } = await supabase.functions.invoke("scrape-maxbau", {
+            body: { action: "deactivate-missing", brandSlug: slug, urls: allUrls },
+          });
+          const deactivated = deactData?.deactivated || 0;
           totalDeactivated += deactivated;
           totalImported += brandImported;
           totalErrors += brandErrors;
