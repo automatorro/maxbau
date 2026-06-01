@@ -274,18 +274,14 @@ const AdminProducts = () => {
         try {
           const allUrls: string[] = [];
 
-          const { data: p1, error: p1Err } = await supabase.functions.invoke("scrape-maxbau", {
-            body: { action: "list-brand-products", brandSlug: slug, page: 1 },
-          });
-          if (p1Err || !p1?.success) throw new Error(p1?.error || p1Err?.message);
-          allUrls.push(...(p1.productUrls || []));
-          const totalPages = p1.totalPages || 1;
+          const htmlP1 = await fetchWithProxy(`https://maxbau.ro/marci/${slug}`);
+          const { productUrls: p1Urls, totalPages } = parseBrandListingPage(htmlP1, slug);
+          allUrls.push(...p1Urls);
 
           for (let pg = 2; pg <= totalPages; pg++) {
-            const { data: pgData } = await supabase.functions.invoke("scrape-maxbau", {
-              body: { action: "list-brand-products", brandSlug: slug, page: pg },
-            });
-            if (pgData?.success) allUrls.push(...(pgData.productUrls || []));
+            const htmlPg = await fetchWithProxy(`https://maxbau.ro/marci/${slug}/pag-${pg}`);
+            const { productUrls: pgUrls } = parseBrandListingPage(htmlPg, slug);
+            allUrls.push(...pgUrls);
           }
 
           setSyncLog((prev) =>

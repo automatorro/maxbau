@@ -1,7 +1,7 @@
-export const CORS_PROXY = "https://corsproxy.io/?";
+export const CORS_PROXY = "https://api.codetabs.com/v1/proxy/?quest=";
 
 export async function fetchWithProxy(url: string): Promise<string> {
-  const res = await fetch(CORS_PROXY + encodeURIComponent(url));
+  const res = await fetch(CORS_PROXY + url);
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return await res.text();
 }
