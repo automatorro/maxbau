@@ -70,12 +70,12 @@ export function MultiProductPicker({
         // AND logic pe cuvinte (fiabil); numerele se verifică client-side cu word-boundary
         for (const t of wordTokens) {
           const token = t.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%`);
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
         }
       } else if (phraseVariants.length > 0) {
         // No multi-char word tokens — fall back to OR phrase search (e.g., search is just "E")
         const phraseOr = phraseVariants
-          .map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%`)
+          .map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`)
           .join(",");
         query = query.or(phraseOr);
       }

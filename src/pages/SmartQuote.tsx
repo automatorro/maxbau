@@ -176,8 +176,8 @@ const SmartQuote = () => {
     queryFn: async (): Promise<SuggestedProduct[]> => {
       if (tokens.length === 0 && phraseVariants.length === 0) return [];
       // OR logic — broad match (tokens) + phrase variants for code-suffix searches like "AF E"→"af-e"
-      const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%`);
-      const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%`);
+      const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`);
+      const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`);
       const orFilter = [...tokenParts, ...phraseParts].join(",");
       const { data, error } = await supabase
         .from("products")
@@ -236,7 +236,7 @@ const SmartQuote = () => {
         const toks = tokenize(alt).slice(0, 4);
         if (toks.length === 0) { results[alt] = null; return; }
         let q = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
-        for (const t of toks) q = q.ilike("denumire_completa", `%${t}%`);
+        for (const t of toks) q = q.or(`denumire_completa.ilike.%${t}%,brand.ilike.%${t}%`);
         const { data } = await q;
         results[alt] = data?.[0] ?? null;
       })

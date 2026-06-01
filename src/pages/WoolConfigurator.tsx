@@ -83,24 +83,23 @@ export default function WoolConfigurator() {
   const { data: dbProducts = [], isFetching: dbLoading } = useQuery({
     queryKey: ["wool-products-search", searchQuery],
     queryFn: async () => {
-      // Build a broad OR filter: match vata/lana + major insulation brands + search term
-      const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
-      const orFilters = brandTerms
-        .map(term => `denumire_completa.ilike.%${term}%`)
-        .join(",");
-
       let q = supabase
         .from("products")
-        .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity")
-        .or(orFilters);
+        .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity, brand, brand_slug")
+        .order("denumire_completa");
 
-      // If the user typed something, add a broader text filter too
       if (searchQuery.trim()) {
-        const term = searchQuery.trim();
-        q = supabase
-          .from("products")
-          .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity")
-          .or(`denumire_completa.ilike.%${term}%,cod_intern.ilike.%${term}%,${orFilters}`);
+        const tokens = searchQuery.trim().split(/\s+/).filter(Boolean);
+        for (const raw of tokens) {
+          const token = raw.replace(/,/g, "\\,");
+          q = q.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        }
+      } else {
+        const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
+        const orFilters = brandTerms
+          .map(term => `denumire_completa.ilike.%${term}%,brand.ilike.%${term}%`)
+          .join(",");
+        q = q.or(orFilters);
       }
 
       const { data, error } = await q.limit(100);
@@ -112,14 +111,19 @@ export default function WoolConfigurator() {
     }
   });
 
-  // Filter local search results
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return dbProducts.slice(0, 8);
-    const q = searchQuery.toLowerCase();
-    return dbProducts.filter(p =>
-      p.denumire_completa.toLowerCase().includes(q) ||
-      p.cod_intern.toLowerCase().includes(q)
-    ).slice(0, 10);
+    const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+    
+    return dbProducts.filter(p => {
+      const name = p.denumire_completa?.toLowerCase() || "";
+      const code = p.cod_intern?.toLowerCase() || "";
+      const brand = p.brand?.toLowerCase() || "";
+      
+      return tokens.every(token => 
+        name.includes(token) || code.includes(token) || brand.includes(token)
+      );
+    }).slice(0, 10);
   }, [dbProducts, searchQuery]);
 
   // Extract wool area automatically from text query (e.g. "vata bp-70 10cm 150 mp" -> 150)

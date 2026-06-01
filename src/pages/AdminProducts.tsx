@@ -157,16 +157,11 @@ const AdminProducts = () => {
         .order("cod_intern");
 
       if (search) {
-        // OR cumulat — toți tokenii într-un singur .or(), caută și în brand
-        const tokens = search.split(/\s+/).filter(Boolean).map((t) => t.replace(/,/g, "\\,"));
-        const orFilter = tokens
-          .flatMap((t) => [
-            `denumire_completa.ilike.%${t}%`,
-            `cod_intern.ilike.%${t}%`,
-            `brand.ilike.%${t}%`,
-          ])
-          .join(",");
-        query = query.or(orFilter);
+        const tokens = search.split(/\s+/).filter(Boolean);
+        for (const raw of tokens) {
+          const token = raw.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        }
       }
 
       if (categoryFilter !== "all") {

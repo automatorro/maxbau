@@ -1,0 +1,7 @@
+fix: restore AND logic between search terms with cross-column OR match
+
+- Fixed AdminProducts.tsx, Catalog.tsx
+- Fixed WoolConfigurator.tsx to use token-based search against brand and denumire
+- Fixed MultiProductPicker and ProductPicker
+- Fixed OCR and Antemasuratori matchers
+- Ensures "vata 10cm fibran" matches products with these terms spread across denumire_completa, cod_intern, brand, and brand_slug

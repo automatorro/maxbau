@@ -524,7 +524,7 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
   const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2).slice(0, 5);
   let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand");
   if (keywords.length > 0) {
-    const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${makeIlikePattern(kw)}%`).join(",");
+    const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${makeIlikePattern(kw)}%,brand.ilike.%${makeIlikePattern(kw)}%`).join(",");
     textQuery = textQuery.or(ilikeConditions);
   }
   const { data: textProducts } = await textQuery.limit(500);

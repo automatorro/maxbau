@@ -686,7 +686,7 @@ export default function AntemasuratorImport() {
       
       for (const raw of tokens) {
         const fuzzyToken = raw.replace(/[aăâ]/gi, '_').replace(/[iî]/gi, '_').replace(/[sșş]/gi, '_').replace(/[tțţ]/gi, '_').replace(/,/g, "\\,");
-        dbQuery = dbQuery.or(`denumire_completa.ilike.%${fuzzyToken}%,cod_intern.ilike.%${fuzzyToken}%`);
+        dbQuery = dbQuery.or(`denumire_completa.ilike.%${fuzzyToken}%,cod_intern.ilike.%${fuzzyToken}%,brand.ilike.%${fuzzyToken}%,brand_slug.ilike.%${fuzzyToken}%`);
       }
       
       const { data: directMatches } = await dbQuery;

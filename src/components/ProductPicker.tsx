@@ -43,9 +43,11 @@ export function ProductPicker({ onSelect, trigger }: ProductPickerProps) {
         .limit(30);
 
       if (search.length >= 2) {
-        query = query.or(
-          `denumire_completa.ilike.%${search}%,cod_intern.ilike.%${search}%`
-        );
+        const tokens = search.split(/\s+/).filter(Boolean);
+        for (const raw of tokens) {
+          const token = raw.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        }
       }
 
       const { data, error } = await query;

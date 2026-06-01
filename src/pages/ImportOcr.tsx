@@ -196,12 +196,19 @@ function InlineProductSearch({
     queryKey: ["product-search-inline", searchText],
     queryFn: async () => {
       if (searchText.length < 2) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, unit, pret_lista")
-        .or(`denumire_completa.ilike.%${searchText}%,cod_intern.ilike.%${searchText}%`)
         .order("denumire_completa")
         .limit(10);
+      
+      const tokens = searchText.split(/\s+/).filter(Boolean);
+      for (const raw of tokens) {
+        const token = raw.replace(/,/g, "\\,");
+        query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+      }
+      
+      const { data, error } = await query;
       if (error) throw error;
       return data as ProductForMatch[];
     },
