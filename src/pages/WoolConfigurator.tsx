@@ -83,42 +83,18 @@ export default function WoolConfigurator() {
   const { data: dbProducts = [], isFetching: dbLoading } = useQuery({
     queryKey: ["wool-products-search", searchQuery],
     queryFn: async () => {
+      // Fetch a broad set of wool products to score locally
+      const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc", "swisspor"];
+      const orFilters = brandTerms.map(term => `denumire_completa.ilike.%${term}%,brand.ilike.%${term}%,brand_slug.ilike.%${term}%`).join(",");
+
       let q = supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, specifications, packaging, pack_quantity, brand, brand_slug")
-        .order("denumire_completa");
+        .or(orFilters)
+        .order("denumire_completa")
+        .limit(1000);
 
-      if (searchQuery.trim()) {
-        const cleanTokens = searchQuery
-          .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/gi, "")
-          .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie ext|vata|bazaltica|minerala|sticla)\b/gi, "")
-          .toLowerCase()
-          .split(/[\s,]+/)
-          .filter(t => t.length > 2); // only significant words
-
-        if (cleanTokens.length > 0) {
-          const orConditions = cleanTokens.flatMap(t => [
-            `denumire_completa.ilike.%${t}%`,
-            `cod_intern.ilike.%${t}%`,
-            `brand.ilike.%${t}%`,
-            `brand_slug.ilike.%${t}%`
-          ]).join(",");
-          q = q.or(orConditions);
-        } else {
-          // Fallback if all words were stripped (e.g. user just typed "vata 150 mp")
-          const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
-          const orFilters = brandTerms.map(term => `denumire_completa.ilike.%${term}%,brand.ilike.%${term}%`).join(",");
-          q = q.or(orFilters);
-        }
-      } else {
-        const brandTerms = ["vata", "fibran", "rockwool", "knauf", "isover", "ursa", "paroc"];
-        const orFilters = brandTerms
-          .map(term => `denumire_completa.ilike.%${term}%,brand.ilike.%${term}%`)
-          .join(",");
-        q = q.or(orFilters);
-      }
-
-      const { data, error } = await q.limit(200);
+      const { data, error } = await q;
       if (error) {
         console.error("Error fetching wool products:", error);
         return [];
@@ -130,24 +106,31 @@ export default function WoolConfigurator() {
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return dbProducts.slice(0, 8);
     
-    const tokens = searchQuery
-      .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/gi, "")
-      .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie ext)\b/gi, "")
+    // Clean string: remove areas and generic construction words
+    const normSearch = searchQuery
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
       .toLowerCase()
-      .split(/[\s,]+/)
-      .filter(t => t.length > 1);
+      .replace(/(\d+(?:\.\d+)?)\s*(?:mp|m2|metri|mp\b)/g, "")
+      .replace(/\b(fatada|fatade|exterior|interior|mansarda|acoperis|pereti|etics|izolatie|grosime)\b/g, " ");
+
+    const tokens = normSearch.split(/[^a-z0-9]+/).filter(t => t.length > 1);
 
     if (tokens.length === 0) return dbProducts.slice(0, 10);
 
     const scored = dbProducts.map(p => {
-      const name = p.denumire_completa?.toLowerCase() || "";
-      const code = p.cod_intern?.toLowerCase() || "";
-      const brand = p.brand?.toLowerCase() || "";
+      const name = (p.denumire_completa || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const code = (p.cod_intern || "").toLowerCase();
+      const brand = (p.brand || "").toLowerCase();
+      
+      const target = `${name} ${code} ${brand}`;
+      const targetNoSpaces = target.replace(/\s+/g, "");
       
       let score = 0;
       for (const t of tokens) {
-        if (name.includes(t) || code.includes(t) || brand.includes(t)) {
-          score += 1;
+        if (target.includes(t)) {
+          score += t.length * 2; // match direct
+        } else if (targetNoSpaces.includes(t)) {
+          score += t.length; // match fara spatii (ex: fibrangeo == fibran geo)
         }
       }
       return { product: p, score };
