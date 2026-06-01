@@ -85,6 +85,9 @@ BEGIN
   )::TEXT;
 
   -- 6. Apel HTTP sincron catre Gemini (extensia http)
+  -- Setam timeout-ul la 30s (default este 5s) pentru a evita "Operation timed out after 5000 milliseconds"
+  PERFORM http_set_curlopt('CURLOPT_TIMEOUT', '30');
+
   SELECT * INTO v_resp FROM http_post(
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' || v_gemini_key,
     v_body,
