@@ -509,9 +509,10 @@ const AdminProducts = () => {
       });
 
       if (error) throw error;
-      if (!data?.success) throw new Error(data?.error || "Eroare AI");
+      const result = data as any;
+      if (!result?.success) throw new Error(result?.error || "Eroare AI");
 
-      const aiResult = data.data?.[productId] as AiInfo | undefined;
+      const aiResult = result.data?.[productId] as AiInfo | undefined;
       if (aiResult) {
         // RPC-ul salvează deja în DB — doar invalidăm query cache-ul
         queryClient.invalidateQueries({ queryKey: ["admin-products"] });

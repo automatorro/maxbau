@@ -760,9 +760,9 @@ export default function AntemasuratorImport() {
           pret_final: pretUnitar,
           subtotal: pretUnitar * item.cantitate,
           cerere_initiala: item.descriere_client,
-          nota_echivalenta: match
-            ? `Echivalent propus AI (scor ${match.scor}/100): ${match.justificare}`
-            : "De procurat — nu există în catalogul maxbau",
+          nota_ai: match
+            ? { echivalent: `Echivalent propus AI (scor ${match.scor}/100): ${match.justificare}` }
+            : { echivalent: "De procurat — nu există în catalogul maxbau" },
         };
       });
 
