@@ -185,6 +185,7 @@ const Index = () => {
             </Link>
           ))}
         </div>
+        </div>
 
         {/* Admin features */}
         <div className="mt-10 mb-5">
