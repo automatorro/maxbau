@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
+import { DashboardLayout } from "@/components/DashboardLayout";
 import {
   Package,
   FilePlus,
@@ -118,63 +119,24 @@ const adminFeatures = [
   },
 ];
 
-const pillars = [
-  { icon: Zap, label: "Ofertare în minute, nu ore" },
-  { icon: Sparkles, label: "Echivalențe sugerate de AI" },
-  { icon: TrendingUp, label: "Prețuri mereu actualizate" },
-  { icon: Shield, label: "Date centralizate, sigure" },
-];
 
 const Index = () => {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Hero */}
-      <div className="relative overflow-hidden border-b border-border/60 bg-gradient-to-br from-primary/8 via-background to-background">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,hsl(var(--primary)/0.12),transparent)]" />
-        <div className="relative mx-auto max-w-6xl px-4 py-12 md:py-16 md:px-8">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-primary/10 text-primary ring-1 ring-primary/25">
-              <Sparkles className="h-3 w-3" />
-              Platformă digitală pentru forța de vânzări
-            </div>
-          </div>
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-foreground leading-tight">
-            Max Bau —{" "}
-            <span className="text-primary">mai rapid,</span>
-            <br className="hidden sm:block" /> mai precis, mai câștigat.
+    <DashboardLayout>
+      <div className="mx-auto max-w-6xl space-y-8">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Panou de control
           </h1>
-          <p className="mt-4 text-lg text-muted-foreground max-w-2xl">
-            Instrumentul intern care transformă orice cerere de client într-o ofertă
-            profesională în câteva minute. De la OCR pe liste de prețuri la echivalențe
-            sugerate de inteligența artificială.
+          <p className="text-muted-foreground">
+            {user ? `Bine ai venit, ${user.email}!` : "Gestionează oferte și produse MaxBau."}
           </p>
-
-          {user && (
-            <p className="mt-3 text-sm text-muted-foreground">
-              Conectat ca{" "}
-              <span className="font-medium text-foreground">{user.email}</span>
-            </p>
-          )}
-
-          {/* Pillars */}
-          <div className="mt-8 flex gap-2 sm:gap-3 overflow-x-auto pb-2 sm:flex-wrap sm:overflow-x-visible sm:pb-0">
-            {pillars.map((p) => (
-              <div
-                key={p.label}
-                className="flex items-center gap-2 rounded-full border border-border/70 bg-card/80 px-3 py-1.5 text-xs sm:text-sm text-foreground/80 whitespace-nowrap shrink-0 sm:shrink"
-              >
-                <p.icon className="h-3.5 w-3.5 text-primary" />
-                {p.label}
-              </div>
-            ))}
-          </div>
         </div>
-      </div>
 
-      {/* Sales features */}
-      <div className="mx-auto max-w-6xl px-4 py-10 md:px-8">
+        {/* Sales features */}
+        <div>
         <div className="mb-6">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
             Instrumente de vânzare
@@ -261,7 +223,7 @@ const Index = () => {
           ))}
         </div>
       </div>
-    </div>
+    </DashboardLayout>
   );
 };
 
