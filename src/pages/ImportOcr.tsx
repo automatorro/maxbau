@@ -1355,7 +1355,7 @@ const ImportOcr = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => runAutoMatch(bodyRows, matchNameColIdx, productsForMatch, columnMap)} disabled={bodyRows.length === 0}>
+                <Button variant="outline" size="sm" onClick={() => runAutoMatch(bodyRows, matchNameColIdx, productsForMatch, aiColumnMap)} disabled={bodyRows.length === 0}>
                   Potrivește automat
                 </Button>
                 <Button
