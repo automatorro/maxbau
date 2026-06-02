@@ -13,10 +13,6 @@ import {
   Tags,
   Table,
   ArrowRight,
-  Sparkles,
-  TrendingUp,
-  Zap,
-  Shield,
   Layers,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
