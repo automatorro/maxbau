@@ -779,7 +779,7 @@ const ImportOcr = () => {
 
     const validProducts = products.filter(p => {
       if (p.supplier_id && selectedSupplierId && p.supplier_id !== selectedSupplierId) return false;
-      const productBrand = getBrandFromName(p.denumire_completa) || (p.brand ? getBrandFromName(p.brand) : null);
+      const productBrand = getBrandFromName(p.denumire_completa);
       if (productBrand && importBrand && productBrand !== importBrand) return false;
       return true; 
     });
@@ -1355,7 +1355,7 @@ const ImportOcr = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => runAutoMatch(bodyRows, matchNameColIdx, productsForMatch)} disabled={bodyRows.length === 0}>
+                <Button variant="outline" size="sm" onClick={() => runAutoMatch(bodyRows, matchNameColIdx, productsForMatch, columnMap)} disabled={bodyRows.length === 0}>
                   Potrivește automat
                 </Button>
                 <Button
@@ -1475,7 +1475,7 @@ const ImportOcr = () => {
                                   productsById={productsById}
                                   onSelect={(pid) => setMatchedProductForRow(r.id, pid)}
                                   onClear={() => setMatchedProductForRow(r.id, null)}
-                                  importedName={searchKeyword}
+                                  importedName={r.cells[matchNameColIdx] || ""}
                                 />
                                 {!matchedProductIdByRowId[r.id] && (
                                   <Button variant="outline" size="sm" className="text-xs w-full" onClick={() => openCreateProduct(r)}>+ Creează produs nou</Button>
