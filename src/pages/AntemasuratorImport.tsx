@@ -824,8 +824,8 @@ export default function AntemasuratorImport() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-1">Import Antemasurătoare</h1>
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-xl md:text-2xl font-bold mb-1">Import Antemasurătoare</h1>
         <p className="text-muted-foreground mb-6">
           Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI
           identifică produsele echivalente din catalog și generează oferta.
