@@ -1046,15 +1046,16 @@ export default function AntemasuratorImport() {
                     </Table>
                   </div>
 
-                  <div className="mt-4 flex justify-end">
+                  <div className="mt-4 flex justify-stretch sm:justify-end">
                     <Button
                       onClick={startMatching}
                       size="lg"
                       disabled={validItems.length === 0}
+                      className="w-full sm:w-auto"
                     >
-                      <Sparkles className="w-4 h-4 mr-2" />
+                      <Sparkles className="w-4 h-4 mr-2 shrink-0" />
                       Caută echivalente AI ({validItems.length} produse)
-                      <ChevronRight className="w-4 h-4 ml-2" />
+                      <ChevronRight className="w-4 h-4 ml-2 shrink-0" />
                     </Button>
                   </div>
                 </div>
