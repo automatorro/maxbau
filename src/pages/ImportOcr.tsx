@@ -1226,7 +1226,7 @@ const ImportOcr = () => {
           <CardContent className="space-y-3">
             {/* Supplier selector */}
             <div className="flex flex-wrap gap-2 items-end">
-              <div className="min-w-[200px]">
+              <div className="flex-1 min-w-[180px]">
                 <Label className="text-xs flex items-center gap-1"><Building2 className="h-3 w-3" /> Furnizor</Label>
                 <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
                   <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Selectează furnizor..." /></SelectTrigger>
@@ -1237,10 +1237,10 @@ const ImportOcr = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex gap-1 items-end">
-                <div>
+              <div className="flex gap-1 items-end flex-1 min-w-[180px]">
+                <div className="flex-1">
                   <Label className="text-xs">Sau creează nou</Label>
-                  <Input value={newSupplierName} onChange={(e) => setNewSupplierName(e.target.value)} placeholder="Nume furnizor..." className="h-9 text-xs w-40" />
+                  <Input value={newSupplierName} onChange={(e) => setNewSupplierName(e.target.value)} placeholder="Nume furnizor..." className="h-9 text-xs w-full" />
                 </div>
                 <Button variant="outline" size="sm" onClick={createSupplier} disabled={!newSupplierName.trim() || creatingSupplier} className="h-9">
                   <Plus className="h-3 w-3" />
