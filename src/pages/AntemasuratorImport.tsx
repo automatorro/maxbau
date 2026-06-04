@@ -847,13 +847,13 @@ export default function AntemasuratorImport() {
                 value={activeTab}
                 onValueChange={(v) => setActiveTab(v as "file" | "text")}
               >
-                <TabsList className="mb-4">
-                  <TabsTrigger value="file">
-                    <Upload className="w-4 h-4 mr-2" />
+                <TabsList className="mb-4 h-auto flex flex-wrap w-full sm:w-auto">
+                  <TabsTrigger value="file" className="text-xs sm:text-sm whitespace-normal">
+                    <Upload className="w-4 h-4 mr-2 shrink-0" />
                     Fișier (PDF · Excel · Imagine)
                   </TabsTrigger>
-                  <TabsTrigger value="text">
-                    <FileText className="w-4 h-4 mr-2" />
+                  <TabsTrigger value="text" className="text-xs sm:text-sm whitespace-normal">
+                    <FileText className="w-4 h-4 mr-2 shrink-0" />
                     Text / Copy-paste
                   </TabsTrigger>
                 </TabsList>
