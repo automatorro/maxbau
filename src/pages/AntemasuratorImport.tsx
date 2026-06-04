@@ -1489,14 +1489,15 @@ export default function AntemasuratorImport() {
                 ) : null;
               })()}
 
-              <div className="flex items-center justify-between">
-                <Button variant="outline" onClick={() => setStep(2)}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <Button variant="outline" onClick={() => setStep(2)} className="w-full sm:w-auto">
                   ← Înapoi la matching
                 </Button>
                 <Button
                   onClick={generateQuote}
                   disabled={saving || !clientName.trim()}
                   size="lg"
+                  className="w-full sm:w-auto"
                 >
                   {saving && (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
