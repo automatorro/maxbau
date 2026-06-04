@@ -824,8 +824,8 @@ export default function AntemasuratorImport() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-1">Import Antemasurătoare</h1>
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-xl md:text-2xl font-bold mb-1">Import Antemasurătoare</h1>
         <p className="text-muted-foreground mb-6">
           Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI
           identifică produsele echivalente din catalog și generează oferta.
@@ -847,13 +847,13 @@ export default function AntemasuratorImport() {
                 value={activeTab}
                 onValueChange={(v) => setActiveTab(v as "file" | "text")}
               >
-                <TabsList className="mb-4">
-                  <TabsTrigger value="file">
-                    <Upload className="w-4 h-4 mr-2" />
+                <TabsList className="mb-4 h-auto flex flex-wrap w-full sm:w-auto">
+                  <TabsTrigger value="file" className="text-xs sm:text-sm whitespace-normal">
+                    <Upload className="w-4 h-4 mr-2 shrink-0" />
                     Fișier (PDF · Excel · Imagine)
                   </TabsTrigger>
-                  <TabsTrigger value="text">
-                    <FileText className="w-4 h-4 mr-2" />
+                  <TabsTrigger value="text" className="text-xs sm:text-sm whitespace-normal">
+                    <FileText className="w-4 h-4 mr-2 shrink-0" />
                     Text / Copy-paste
                   </TabsTrigger>
                 </TabsList>
@@ -861,7 +861,7 @@ export default function AntemasuratorImport() {
                 {/* File upload */}
                 <TabsContent value="file">
                   <div
-                    className="border-2 border-dashed border-muted rounded-lg p-10 text-center cursor-pointer hover:border-primary transition-colors"
+                    className="border-2 border-dashed border-muted rounded-lg p-6 md:p-10 text-center cursor-pointer hover:border-primary transition-colors"
                     onClick={() =>
                       !processing && fileInputRef.current?.click()
                     }
@@ -1046,15 +1046,16 @@ export default function AntemasuratorImport() {
                     </Table>
                   </div>
 
-                  <div className="mt-4 flex justify-end">
+                  <div className="mt-4 flex justify-stretch sm:justify-end">
                     <Button
                       onClick={startMatching}
                       size="lg"
                       disabled={validItems.length === 0}
+                      className="w-full sm:w-auto"
                     >
-                      <Sparkles className="w-4 h-4 mr-2" />
+                      <Sparkles className="w-4 h-4 mr-2 shrink-0" />
                       Caută echivalente AI ({validItems.length} produse)
-                      <ChevronRight className="w-4 h-4 ml-2" />
+                      <ChevronRight className="w-4 h-4 ml-2 shrink-0" />
                     </Button>
                   </div>
                 </div>
@@ -1280,8 +1281,8 @@ export default function AntemasuratorImport() {
               </div>
 
               {!matching && itemsWithMatches.length > 0 && (
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="flex gap-6 text-sm">
+                <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
                     <span className="text-green-700 font-medium">
                       <CheckCircle2 className="w-4 h-4 inline mr-1" />
                       {foundCount} găsite în catalog
@@ -1291,7 +1292,7 @@ export default function AntemasuratorImport() {
                       {procuratCount} de procurat
                     </span>
                   </div>
-                  <Button onClick={() => setStep(3)} size="lg">
+                  <Button onClick={() => setStep(3)} size="lg" className="w-full sm:w-auto">
                     Continuă la ofertă
                     <ChevronRight className="w-4 h-4 ml-2" />
                   </Button>
@@ -1489,14 +1490,15 @@ export default function AntemasuratorImport() {
                 ) : null;
               })()}
 
-              <div className="flex items-center justify-between">
-                <Button variant="outline" onClick={() => setStep(2)}>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <Button variant="outline" onClick={() => setStep(2)} className="w-full sm:w-auto">
                   ← Înapoi la matching
                 </Button>
                 <Button
                   onClick={generateQuote}
                   disabled={saving || !clientName.trim()}
                   size="lg"
+                  className="w-full sm:w-auto"
                 >
                   {saving && (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
