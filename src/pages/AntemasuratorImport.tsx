@@ -861,7 +861,7 @@ export default function AntemasuratorImport() {
                 {/* File upload */}
                 <TabsContent value="file">
                   <div
-                    className="border-2 border-dashed border-muted rounded-lg p-10 text-center cursor-pointer hover:border-primary transition-colors"
+                    className="border-2 border-dashed border-muted rounded-lg p-6 md:p-10 text-center cursor-pointer hover:border-primary transition-colors"
                     onClick={() =>
                       !processing && fileInputRef.current?.click()
                     }
