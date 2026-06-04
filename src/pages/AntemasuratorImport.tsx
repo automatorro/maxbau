@@ -1280,8 +1280,8 @@ export default function AntemasuratorImport() {
               </div>
 
               {!matching && itemsWithMatches.length > 0 && (
-                <div className="mt-4 flex items-center justify-between">
-                  <div className="flex gap-6 text-sm">
+                <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
                     <span className="text-green-700 font-medium">
                       <CheckCircle2 className="w-4 h-4 inline mr-1" />
                       {foundCount} găsite în catalog
@@ -1291,7 +1291,7 @@ export default function AntemasuratorImport() {
                       {procuratCount} de procurat
                     </span>
                   </div>
-                  <Button onClick={() => setStep(3)} size="lg">
+                  <Button onClick={() => setStep(3)} size="lg" className="w-full sm:w-auto">
                     Continuă la ofertă
                     <ChevronRight className="w-4 h-4 ml-2" />
                   </Button>
