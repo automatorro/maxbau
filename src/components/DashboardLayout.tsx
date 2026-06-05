@@ -12,7 +12,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
     <SidebarProvider>
       <div className="h-screen overflow-hidden flex w-full">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
           <header className="h-14 flex items-center border-b bg-card px-4 shrink-0 sticky top-0 z-10">
             <SidebarTrigger className="mr-4" />
             <div className="flex items-center gap-1 mr-2">
