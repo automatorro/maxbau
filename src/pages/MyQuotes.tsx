@@ -187,24 +187,26 @@ const MyQuotes = () => {
                         <p className="text-xs text-muted-foreground">cu TVA</p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-end gap-1 mt-3 pt-2 border-t border-border/40">
+                    <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-border/40">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        title="Exportă Excel"
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-1"
                         onClick={() => handleExport(quote)}
                       >
                         <Download className="h-4 w-4" />
+                        <span>Excel</span>
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8"
+                      <Button variant="outline" size="sm" className="w-full gap-1"
                         onClick={() => navigate(`/quote/${quote.id}/edit`)}>
                         <Pencil className="h-4 w-4" />
+                        <span>Editează</span>
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                          <Button variant="outline" size="sm" className="w-full gap-1 text-destructive border-destructive/40 hover:bg-destructive hover:text-destructive-foreground">
                             <Trash2 className="h-4 w-4" />
+                            <span>Șterge</span>
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
