@@ -45,8 +45,8 @@ const App = () => (
             <Route path="/quote/smart" element={<ProtectedRoute><SmartQuote /></ProtectedRoute>} />
             <Route path="/wool-configurator" element={<ProtectedRoute><WoolConfigurator /></ProtectedRoute>} />
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
-            <Route path="/admin/products" element={<ProtectedRoute><AdminProducts /></ProtectedRoute>} />
-            <Route path="/admin/discounts" element={<ProtectedRoute><AdminDiscounts /></ProtectedRoute>} />
+            <Route path="/admin/products" element={<AdminRoute><AdminProducts /></AdminRoute>} />
+            <Route path="/admin/discounts" element={<AdminRoute><AdminDiscounts /></AdminRoute>} />
 
             <Route path="/consultant" element={<ProtectedRoute><Consultant /></ProtectedRoute>} />
             <Route path="/quote/antemasuratori" element={<ProtectedRoute><AntemasuratorImport /></ProtectedRoute>} />
