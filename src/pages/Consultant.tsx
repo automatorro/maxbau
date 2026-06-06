@@ -117,110 +117,48 @@ const GREETING =
   "Sunt aici să vă ajut să găsiți materialele potrivite pentru proiectul dumneavoastră. " +
   "Ca să vă pot recomanda cel mai bine, spuneți-mi pe scurt: ce construiți sau renovați și în ce fază sunteți?";
 
-let cachedAnthropicKey: string | null = null;
-let cachedGeminiKey: string | null = null;
-
-async function getAnthropicKey(): Promise<string | null> {
-  if (cachedAnthropicKey) return cachedAnthropicKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-    if (!error && data?.value) {
-      cachedAnthropicKey = data.value.trim();
-      return cachedAnthropicKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Anthropic API key:", e);
-  }
-  return null;
-}
-
-async function getGeminiKey(): Promise<string | null> {
-  if (cachedGeminiKey) return cachedGeminiKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
-    if (!error && data?.value) {
-      cachedGeminiKey = data.value.trim();
-      return cachedGeminiKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Gemini API key:", e);
-  }
-  return null;
-}
-
 async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
-  // 1. Încercăm apelul cu Anthropic (Claude)
+  // 1. Încercăm apelul cu Anthropic (Claude) prin proxy-ul securizat server-side
   try {
-    const apiKey = await getAnthropicKey();
-    if (apiKey) {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
+    const { ok, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.content?.[0]?.text;
-        if (text) return text;
-      } else {
-        const err = await response.text();
-        console.warn("Anthropic API returned error, falling back to Gemini:", response.status, err);
-      }
+    if (ok) {
+      const text = data.content?.[0]?.text;
+      if (text) return text;
+    } else {
+      console.warn("Anthropic API returned error, falling back to Gemini:", data);
     }
   } catch (err) {
     console.warn("Anthropic call failed, falling back to Gemini:", err);
   }
 
-  // 2. Fallback la Google Gemini
+  // 2. Fallback la Google Gemini prin proxy
   try {
-    const geminiKey = await getGeminiKey();
-    if (!geminiKey) {
-      throw new Error("Nicio cheie API (Anthropic sau Gemini) nu a fost găsită în configurație.");
-    }
-
-    // gemini-2.5-flash: model stabil cu răspunsuri rapide și calitative la chat
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-    
-    // Măpăm mesajele în formatul de chat specific Gemini
     const contents = messages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const { ok, status, data } = await callAiProxy("gemini", {
+      contents,
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
       },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        generationConfig: {
-          maxOutputTokens: 2048,
-          temperature: 0.7,
-        },
-      }),
+      generationConfig: {
+        maxOutputTokens: 2048,
+        temperature: 0.7,
+      },
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Eroare API Gemini (${response.status}): ${err}`);
+    if (!ok) {
+      throw new Error(`Eroare API Gemini (${status}): ${data?.error || ""}`);
     }
 
-    const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) throw new Error("Răspuns gol de la Gemini");
     return text;
