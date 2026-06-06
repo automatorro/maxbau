@@ -148,7 +148,7 @@ async function getGeminiKey(): Promise<string | null> {
   return null;
 }
 
-async function callAnthropic(messages: Message[]): Promise<string> {
+async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   // 1. Încercăm apelul cu Anthropic (Claude)
   try {
     const apiKey = await getAnthropicKey();
