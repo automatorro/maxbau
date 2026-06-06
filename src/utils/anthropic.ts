@@ -115,36 +115,22 @@ async function callAnthropicTool(
   toolName: string
 ): Promise<any> {
   try {
-    const apiKey = await getAnthropicKey();
-    if (!apiKey) throw new Error("Anthropic API key is not configured.");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: toolName }
-      }),
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: toolName }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API Error:", response.status, errText);
-      throw new Error(`Eroare API Anthropic (${response.status})`);
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status})`);
     }
 
-    const data = await response.json();
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === toolName);
-    
+
     if (!toolCall?.input) {
       throw new Error("Modelul nu a returnat date structurate valabile.");
     }
