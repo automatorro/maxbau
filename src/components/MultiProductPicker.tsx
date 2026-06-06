@@ -29,6 +29,8 @@ interface MultiProductPickerProps {
   onConfirm: (products: PickedProduct[]) => void;
   title?: string;
   initialSearch?: string;
+  /** When provided, skip the independent DB query and filter locally from these pre-scored products. */
+  preloadedProducts?: PickedProduct[];
 }
 
 export function MultiProductPicker({
@@ -37,6 +39,7 @@ export function MultiProductPicker({
   onConfirm,
   title = "Selectează produse echivalente",
   initialSearch = "",
+  preloadedProducts,
 }: MultiProductPickerProps) {
   const [search, setSearch] = useState(initialSearch);
   const [selected, setSelected] = useState<Map<string, PickedProduct>>(new Map());
@@ -45,10 +48,30 @@ export function MultiProductPicker({
     if (open) setSearch(initialSearch);
   }, [open, initialSearch]);
 
-  const { data: products = [], isLoading } = useQuery({
+  // ── When preloadedProducts are provided, filter them locally by the search input.
+  // This ensures the modal shows the same result set as the inline list (no independent DB query).
+  const filteredPreloaded = preloadedProducts
+    ? (() => {
+        const norm = search
+          .trim()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+        if (norm.length < 2) return preloadedProducts;
+        return preloadedProducts.filter((p) => {
+          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+          return target.includes(norm);
+        });
+      })()
+    : null;
+
+  const { data: dbProducts = [], isLoading } = useQuery({
     queryKey: ["multi-picker-products", search],
     queryFn: async () => {
-      const norm = search.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+      const norm = search.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
       const allTokens = norm
         .split(/[^a-z0-9]+/)
         .filter((t) => t.length >= 2 || /^\d+$/.test(t));
@@ -60,24 +83,25 @@ export function MultiProductPicker({
       const phraseVariants = [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
         .filter((p) => p.length >= 2);
 
+      // Use OR logic (same as SmartQuote inline search) to ensure consistent counts.
+      // This avoids AND-logic returning far fewer results than the "X produse găsite" indicator shows.
+      const tokenParts = wordTokens.map(
+        (t) =>
+          `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`
+      );
+      const phraseParts = phraseVariants.map(
+        (p) =>
+          `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`
+      );
+      const orFilter = [...tokenParts, ...phraseParts].join(",");
+
       let query = supabase
         .from("products")
         .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, categories(name)")
-        .order("denumire_completa")
-        .limit(60);
+        .limit(100);
 
-      if (wordTokens.length > 0) {
-        // AND logic pe cuvinte (fiabil); numerele se verifică client-side cu word-boundary
-        for (const t of wordTokens) {
-          const token = t.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
-        }
-      } else if (phraseVariants.length > 0) {
-        // No multi-char word tokens — fall back to OR phrase search (e.g., search is just "E")
-        const phraseOr = phraseVariants
-          .map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`)
-          .join(",");
-        query = query.or(phraseOr);
+      if (orFilter) {
+        query = query.or(orFilter);
       }
 
       const { data, error } = await query;
@@ -89,28 +113,44 @@ export function MultiProductPicker({
       if (numTokens.length > 0) {
         results = results.filter((p) => {
           const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
-            .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
           return numTokens.every((n) =>
             new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
           );
         });
       }
 
-      // Sort: phrase-variant matches first (e.g., "af-e" ranks above generic "af" matches)
-      if (phraseVariants.length > 1) {
-        results = [...results].sort((a, b) => {
-          const ta = `${a.denumire_completa} ${a.cod_intern ?? ""}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-          const tb = `${b.denumire_completa} ${b.cod_intern ?? ""}`.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-          const sa = phraseVariants.reduce((best, p) => (ta.includes(p) ? Math.max(best, p.length) : best), 0);
-          const sb = phraseVariants.reduce((best, p) => (tb.includes(p) ? Math.max(best, p.length) : best), 0);
-          return sb - sa; // higher phrase score first; ties keep alphabetical order
-        });
-      }
+      // Client-side scoring: same token scoring as SmartQuote for consistent ranking
+      const scored = results
+        .map((p) => {
+          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+          const tokenScore = wordTokens.reduce(
+            (s, t) => s + (target.includes(t) ? t.length : 0),
+            0
+          );
+          const phraseBonus = phraseVariants.reduce(
+            (best, phrase) =>
+              target.includes(phrase) ? Math.max(best, phrase.length * 3) : best,
+            0
+          );
+          return { ...p, _score: tokenScore + phraseBonus };
+        })
+        .filter((p) => p._score > 0)
+        .sort((a, b) => b._score - a._score);
 
-      return results;
+      return scored as unknown as (PickedProduct & { categories: { name: string } | null })[];
     },
-    enabled: open,
+    // Skip DB query when preloadedProducts are provided
+    enabled: open && !preloadedProducts,
   });
+
+  // Use preloaded (locally filtered) products when available, otherwise fall back to DB results
+  const products = filteredPreloaded ?? dbProducts;
 
   const toggle = (product: PickedProduct) => {
     setSelected((prev) => {
