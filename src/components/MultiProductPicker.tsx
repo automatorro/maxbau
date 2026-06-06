@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, Plus } from "lucide-react";
 
 export interface PickedProduct {
@@ -179,7 +178,7 @@ export function MultiProductPicker({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-lg flex flex-col gap-3 overflow-hidden" style={{ maxHeight: "85vh" }}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <p className="text-xs text-muted-foreground">
@@ -213,7 +212,7 @@ export function MultiProductPicker({
           </div>
         )}
 
-        <ScrollArea className="flex-1 -mx-2 min-h-0">
+        <div className="-mx-2 overflow-y-auto" style={{ maxHeight: "55vh" }}>
           {isLoading ? (
             <div className="flex justify-center py-8">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -281,7 +280,7 @@ export function MultiProductPicker({
                 : "Niciun produs găsit"}
             </p>
           )}
-        </ScrollArea>
+        </div>
 
         <div className="flex justify-between items-center pt-2 border-t">
           <span className="text-xs text-muted-foreground">
