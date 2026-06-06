@@ -8,10 +8,8 @@ import {
   Calculator,
   ScanText,
   Lightbulb,
-  FlaskConical,
   Settings,
   Tags,
-  Table,
   ArrowRight,
   Layers,
 } from "lucide-react";
