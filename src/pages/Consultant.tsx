@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { callAiProxy } from "@/utils/aiProxy";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import ReactMarkdown from "react-markdown";
