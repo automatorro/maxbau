@@ -469,6 +469,68 @@ export default function Consultant() {
           </Button>
         </div>
       </div>
+
+      <Sheet
+        open={correctingIdx !== null}
+        onOpenChange={(open) => {
+          if (!open) setCorrectingIdx(null);
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Pencil className="h-4 w-4 text-primary" />
+              Corectează AI-ul
+            </SheetTitle>
+            <SheetDescription>
+              Regula salvată va fi folosită automat în conversațiile viitoare relevante (vizibilă întregii echipe).
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 py-4">
+            {correctingIdx !== null && (
+              <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground max-h-32 overflow-y-auto">
+                <p className="font-medium text-foreground mb-1">Răspuns AI corectat:</p>
+                {messages[correctingIdx]?.content}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Corecția ta</label>
+              <Textarea
+                value={correctionText}
+                onChange={(e) => setCorrectionText(e.target.value)}
+                placeholder="Ex: La calculul de polistiren adaugă mereu 7% pierderi, nu 5%."
+                rows={5}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Etichete <span className="text-muted-foreground font-normal">(opțional)</span>
+              </label>
+              <Input
+                value={correctionTags}
+                onChange={(e) => setCorrectionTags(e.target.value)}
+                placeholder="ex: calcul, polistiren, pierderi"
+              />
+              <p className="text-xs text-muted-foreground">Separate prin virgulă, ajută la regăsirea regulii.</p>
+            </div>
+          </div>
+
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCorrectingIdx(null)}
+              disabled={savingCorrection}
+            >
+              Anulează
+            </Button>
+            <Button onClick={handleSaveCorrection} disabled={savingCorrection || !correctionText.trim()}>
+              {savingCorrection ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvează regula"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </DashboardLayout>
   );
 }
