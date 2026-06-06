@@ -4,11 +4,22 @@ import { Button } from "@/components/ui/button";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, User, Send, Loader2, RotateCcw } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import { Bot, User, Send, Loader2, RotateCcw, Pencil, Brain } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAiMemory } from "@/hooks/useAiMemory";
 
 type MessageRole = "user" | "assistant";
 
@@ -137,7 +148,7 @@ async function getGeminiKey(): Promise<string | null> {
   return null;
 }
 
-async function callAnthropic(messages: Message[]): Promise<string> {
+async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   // 1. Încercăm apelul cu Anthropic (Claude)
   try {
     const apiKey = await getAnthropicKey();
@@ -153,7 +164,7 @@ async function callAnthropic(messages: Message[]): Promise<string> {
         body: JSON.stringify({
           model: "claude-3-5-sonnet-20241022",
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
@@ -195,7 +206,7 @@ async function callAnthropic(messages: Message[]): Promise<string> {
       body: JSON.stringify({
         contents,
         systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
+          parts: [{ text: systemPrompt }],
         },
         generationConfig: {
           maxOutputTokens: 2048,
@@ -227,6 +238,14 @@ export default function Consultant() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const { count: memoryCount, saveCorrection, searchMemory } = useAiMemory();
+
+  // Stare pentru panel-ul de corecție
+  const [correctingIdx, setCorrectingIdx] = useState<number | null>(null);
+  const [correctionText, setCorrectionText] = useState("");
+  const [correctionTags, setCorrectionTags] = useState("");
+  const [savingCorrection, setSavingCorrection] = useState(false);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -242,7 +261,25 @@ export default function Consultant() {
     setLoading(true);
 
     try {
-      const responseText = await callAnthropic(newMessages);
+      // RAG: căutăm reguli personalizate relevante și le injectăm în system prompt
+      let systemPrompt = SYSTEM_PROMPT;
+      try {
+        const matches = await searchMemory(text);
+        if (matches.length > 0) {
+          const rules = matches
+            .map((m, i) => `${i + 1}. ${m.correction}`)
+            .join("\n");
+          systemPrompt +=
+            "\n\n--- REGULI PERSONALIZATE STABILITE DE UTILIZATOR ---\n" +
+            "Respectă cu prioritate următoarele reguli/corecții stabilite intern. " +
+            "Dacă intră în conflict cu instrucțiunile generale, aceste reguli au prioritate:\n" +
+            rules;
+        }
+      } catch (memErr) {
+        console.warn("Memory search failed, continuing without rules:", memErr);
+      }
+
+      const responseText = await callAnthropic(newMessages, systemPrompt);
       setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -254,6 +291,49 @@ export default function Consultant() {
       setLoading(false);
     }
   };
+
+  const openCorrection = (idx: number) => {
+    setCorrectingIdx(idx);
+    setCorrectionText("");
+    setCorrectionTags("");
+  };
+
+  const handleSaveCorrection = async () => {
+    if (correctingIdx === null) return;
+    const correction = correctionText.trim();
+    if (!correction) {
+      toast.error("Scrie corecția înainte de a salva.");
+      return;
+    }
+    // Găsim ultimul mesaj al utilizatorului dinaintea răspunsului AI corectat
+    let promptContext = "";
+    for (let i = correctingIdx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        promptContext = messages[i].content;
+        break;
+      }
+    }
+    const aiMessage = messages[correctingIdx]?.content ?? "";
+
+    setSavingCorrection(true);
+    try {
+      await saveCorrection({
+        promptContext: promptContext || aiMessage,
+        aiMessage,
+        correction,
+        tags: correctionTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      toast.success("Regula a fost salvată. AI-ul o va folosi în conversațiile viitoare.");
+      setCorrectingIdx(null);
+      setCorrectionText("");
+      setCorrectionTags("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare la salvarea regulii.");
+    } finally {
+      setSavingCorrection(false);
+    }
+  };
+
 
   const handleReset = () => {
     setMessages([{ role: "assistant", content: GREETING }]);
@@ -281,16 +361,25 @@ export default function Consultant() {
               Inginer de vânzări MAXBAU — consultanță tehnică în timp real
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReset}
-            className="gap-1.5 shrink-0"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Conversație nouă</span>
-            <span className="sm:hidden">Nou</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {memoryCount > 0 && (
+              <Badge variant="secondary" className="gap-1.5 whitespace-nowrap">
+                <Brain className="h-3.5 w-3.5 text-primary" />
+                {memoryCount}
+                <span className="hidden sm:inline">reguli active</span>
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              className="gap-1.5 shrink-0"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Conversație nouă</span>
+              <span className="sm:hidden">Nou</span>
+            </Button>
+          </div>
         </div>
 
         <Card className="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -307,21 +396,33 @@ export default function Consultant() {
                         <Bot className="h-4 w-4 text-primary" />
                       </div>
                     )}
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap"
-                          : "bg-muted text-foreground rounded-bl-sm"
-                      }`}
-                    >
-                      {msg.role === "user" ? (
-                        msg.content
-                      ) : (
-                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-table:my-2 prose-td:py-1 prose-th:py-1">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
+                    <div className="flex flex-col gap-1 max-w-[80%] group">
+                      <div
+                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap"
+                            : "bg-muted text-foreground rounded-bl-sm"
+                        }`}
+                      >
+                        {msg.role === "user" ? (
+                          msg.content
+                        ) : (
+                          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-table:my-2 prose-td:py-1 prose-th:py-1">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                      {msg.role === "assistant" && idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => openCorrection(idx)}
+                          className="self-start flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-1 sm:opacity-0 sm:group-hover:opacity-100"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Corectează
+                        </button>
                       )}
                     </div>
                     {msg.role === "user" && (
@@ -368,6 +469,68 @@ export default function Consultant() {
           </Button>
         </div>
       </div>
+
+      <Sheet
+        open={correctingIdx !== null}
+        onOpenChange={(open) => {
+          if (!open) setCorrectingIdx(null);
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-md flex flex-col">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Pencil className="h-4 w-4 text-primary" />
+              Corectează AI-ul
+            </SheetTitle>
+            <SheetDescription>
+              Regula salvată va fi folosită automat în conversațiile viitoare relevante (vizibilă întregii echipe).
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 py-4">
+            {correctingIdx !== null && (
+              <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground max-h-32 overflow-y-auto">
+                <p className="font-medium text-foreground mb-1">Răspuns AI corectat:</p>
+                {messages[correctingIdx]?.content}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Corecția ta</label>
+              <Textarea
+                value={correctionText}
+                onChange={(e) => setCorrectionText(e.target.value)}
+                placeholder="Ex: La calculul de polistiren adaugă mereu 7% pierderi, nu 5%."
+                rows={5}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">
+                Etichete <span className="text-muted-foreground font-normal">(opțional)</span>
+              </label>
+              <Input
+                value={correctionTags}
+                onChange={(e) => setCorrectionTags(e.target.value)}
+                placeholder="ex: calcul, polistiren, pierderi"
+              />
+              <p className="text-xs text-muted-foreground">Separate prin virgulă, ajută la regăsirea regulii.</p>
+            </div>
+          </div>
+
+          <SheetFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCorrectingIdx(null)}
+              disabled={savingCorrection}
+            >
+              Anulează
+            </Button>
+            <Button onClick={handleSaveCorrection} disabled={savingCorrection || !correctionText.trim()}>
+              {savingCorrection ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvează regula"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </DashboardLayout>
   );
 }

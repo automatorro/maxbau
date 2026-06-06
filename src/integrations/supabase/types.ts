@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_memory: {
+        Row: {
+          ai_message: string | null
+          correction: string
+          created_at: string
+          id: string
+          prompt_context: string
+          tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_message?: string | null
+          correction: string
+          created_at?: string
+          id?: string
+          prompt_context: string
+          tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_message?: string | null
+          correction?: string
+          created_at?: string
+          id?: string
+          prompt_context?: string
+          tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       app_config: {
         Row: {
           key: string
@@ -753,6 +786,17 @@ export type Database = {
       http_set_curlopt: {
         Args: { curlopt: string; value: string }
         Returns: boolean
+      }
+      match_ai_memory: {
+        Args: { query_text: string }
+        Returns: {
+          ai_message: string
+          correction: string
+          id: string
+          prompt_context: string
+          rank: number
+          tags: string[]
+        }[]
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
