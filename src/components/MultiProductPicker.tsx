@@ -250,9 +250,9 @@ export function MultiProductPicker({
                           >
                             {product.cod_intern}
                           </Badge>
-                          {(product as { categories?: { name: string } | null }).categories && (
+                          {(product as unknown as { categories?: { name: string } | null }).categories && (
                             <span className="text-xs text-muted-foreground truncate">
-                              {(product as { categories: { name: string } }).categories.name}
+                              {(product as unknown as { categories: { name: string } }).categories.name}
                             </span>
                           )}
                         </div>
