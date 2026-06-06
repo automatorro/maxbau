@@ -1,0 +1,1 @@
+DELETE FROM public.app_config WHERE key IN ('anthropic_api_key', 'gemini_api_key');
