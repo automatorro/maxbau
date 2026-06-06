@@ -164,7 +164,7 @@ async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_
         body: JSON.stringify({
           model: "claude-3-5-sonnet-20241022",
           max_tokens: 1024,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: messages.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
