@@ -1023,7 +1023,7 @@ export default function WoolConfigurator() {
 
             <Card className="border-primary/40 shadow-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Sumar Deving / Deviz Ofertă</CardTitle>
+                <CardTitle className="text-base">Sumar Ofertă</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2 text-sm">
