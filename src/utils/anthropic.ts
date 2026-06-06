@@ -815,6 +815,20 @@ Dacă nu poți aproxima, folosește valori standard de piață rezonabile.`;
     );
 
     if (result) {
+      // Normalize numeric fields — Gemini can return numbers as strings
+      const normalized: StructuredPackagingInfo = {
+        brand:               String(result.brand || ""),
+        grosime_mm:          Number(result.grosime_mm)         || 100,
+        lungime_mm:          Number(result.lungime_mm)         || 1200,
+        latime_mm:           Number(result.latime_mm)          || 600,
+        placi_bax:           Number(result.placi_bax)          || 4,
+        acoperire_bax_mp:    Number(result.acoperire_bax_mp)   || 2.88,
+        baxuri_palet:        Number(result.baxuri_palet)        || 32,
+        acoperire_palet_mp:  Number(result.acoperire_palet_mp) || 92.16,
+        greutate_bax_kg:     Number(result.greutate_bax_kg)    || 24,
+        utilizare_recomandata: String(result.utilizare_recomandata || ""),
+      };
+
       // Save it back to products table
       const { data: currentProduct } = await supabase
         .from("products")
@@ -827,14 +841,14 @@ Dacă nu poți aproxima, folosește valori standard de piață rezonabile.`;
         .update({
           specifications: {
             ...existingSpecs,
-            packaging_details: result
+            packaging_details: normalized
           },
-          packaging: `Bax ${result.acoperire_bax_mp} mp (${result.placi_bax} placi)`,
-          pack_quantity: String(result.acoperire_bax_mp)
+          packaging: `Bax ${normalized.acoperire_bax_mp} mp (${normalized.placi_bax} placi)`,
+          pack_quantity: String(normalized.acoperire_bax_mp)
         })
         .eq("id", productId);
 
-      return result as StructuredPackagingInfo;
+      return normalized;
     }
   } catch (error) {
     console.error("Error enriching packaging info:", error);

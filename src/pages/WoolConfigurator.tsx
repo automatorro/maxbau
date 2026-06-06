@@ -175,7 +175,19 @@ export default function WoolConfigurator() {
       // Fetch dynamic packaging details using Claude
       const result = await enrichProductPackagingWithAI(product.id, product.denumire_completa);
       if (result) {
-        setPackagingInfo(result);
+        // Normalize numeric fields — AI (Gemini fallback) can return numbers as strings
+        const normalized: typeof result = {
+          ...result,
+          grosime_mm:        Number(result.grosime_mm)        || 100,
+          lungime_mm:        Number(result.lungime_mm)        || 1200,
+          latime_mm:         Number(result.latime_mm)         || 600,
+          placi_bax:         Number(result.placi_bax)         || 4,
+          acoperire_bax_mp:  Number(result.acoperire_bax_mp)  || 2.88,
+          baxuri_palet:      Number(result.baxuri_palet)      || 32,
+          acoperire_palet_mp:Number(result.acoperire_palet_mp)|| 92.16,
+          greutate_bax_kg:   Number(result.greutate_bax_kg)   || 24,
+        };
+        setPackagingInfo(normalized);
         setSystemType(result.utilizare_recomandata.includes("fatada") || result.utilizare_recomandata.includes("exterior") ? "exterior" : "interior");
         toast.success("Ambalarea a fost calculată inteligent prin AI!");
       } else {
