@@ -206,7 +206,7 @@ async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_
       body: JSON.stringify({
         contents,
         systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
+          parts: [{ text: systemPrompt }],
         },
         generationConfig: {
           maxOutputTokens: 2048,
