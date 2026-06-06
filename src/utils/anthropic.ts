@@ -192,45 +192,31 @@ Reguli stricte:
   };
 
   try {
-    const apiKey = await getAnthropicKey();
-    if (!apiKey) throw new Error("Anthropic API key is not configured.");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mimeType, data: imageBase64 }
-              },
-              { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
-            ]
-          }
-        ],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: "extract_price_table" }
-      }),
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mimeType, data: imageBase64 }
+            },
+            { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
+          ]
+        }
+      ],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API Error:", errText);
-      throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
     }
-    
-    const data = await response.json();
+
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
     if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din imagine.");
     
