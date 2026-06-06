@@ -296,36 +296,8 @@ function InlineProductSearch({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-let cachedAnthropicKey: string | null = null;
-let cachedGeminiKey: string | null = null;
+// API keys are handled server-side via the secure `ai-proxy` edge function.
 
-async function getAnthropicKey(): Promise<string | null> {
-  if (cachedAnthropicKey) return cachedAnthropicKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-    if (!error && data?.value) {
-      cachedAnthropicKey = data.value.trim();
-      return cachedAnthropicKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Anthropic API key:", e);
-  }
-  return null;
-}
-
-async function getGeminiKey(): Promise<string | null> {
-  if (cachedGeminiKey) return cachedGeminiKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
-    if (!error && data?.value) {
-      cachedGeminiKey = data.value.trim();
-      return cachedGeminiKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Gemini API key:", e);
-  }
-  return null;
-}
 
 function convertToGeminiSchema(schema: any): any {
   if (!schema) return schema;
