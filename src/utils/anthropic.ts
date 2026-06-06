@@ -61,14 +61,6 @@ async function callGeminiTool(
   toolSchema: any,
   imageInput?: { mimeType: string; base64: string }
 ): Promise<any> {
-  const geminiKey = await getGeminiKey();
-  if (!geminiKey) {
-    throw new Error("Cheia API Google Gemini nu a fost găsită în configurație (gemini_api_key).");
-  }
-
-  // gemini-2.5-flash: model stabil și rapid, cu suport Vision și JSON output (disponibil din mai 2026)
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-  
   const parts: any[] = [];
   if (imageInput) {
     parts.push({
@@ -81,7 +73,6 @@ async function callGeminiTool(
   parts.push({ text: userPrompt });
 
   // Append the expected JSON schema to the system prompt so Gemini knows the exact output structure.
-  // Previously toolSchema was passed but completely ignored in the request body.
   const schemaHint = toolSchema?.input_schema
     ? `\n\nRăspunde EXCLUSIV cu un obiect JSON valid care respectă exact această schemă:\n${JSON.stringify(toolSchema.input_schema, null, 2)}`
     : "";
@@ -102,21 +93,12 @@ async function callGeminiTool(
     }
   };
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Gemini API Error:", response.status, errText);
-    throw new Error(`Eroare API Gemini (${response.status}): ${errText}`);
+  const { ok, status, data } = await callAiProxy("gemini", body);
+  if (!ok) {
+    console.error("Gemini API Error:", status, data);
+    throw new Error(`Eroare API Gemini (${status}): ${data?.error || ""}`);
   }
 
-  const data = await response.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) {
     throw new Error("Gemini nu a returnat date structurate valabile.");
