@@ -1,43 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
+import { callAiProxy } from "@/utils/aiProxy";
 
-// Re-use API key logic
-let cachedAnthropicKey: string | null = null;
-let cachedGeminiKey: string | null = null;
+// API keys are stored server-side and used only inside the `ai-proxy` edge
+// function. The browser never has access to them.
 
-export async function getAnthropicKey(): Promise<string | null> {
-  if (cachedAnthropicKey) return cachedAnthropicKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-    if (!error && data?.value) {
-      cachedAnthropicKey = data.value.trim();
-      return cachedAnthropicKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Anthropic API key from DB:", e);
-  }
-  return null;
-}
-
-export async function getGeminiKey(): Promise<string | null> {
-  if (cachedGeminiKey) return cachedGeminiKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
-    if (!error && data?.value) {
-      cachedGeminiKey = data.value.trim();
-      return cachedGeminiKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Gemini API key from DB:", e);
-  }
-  return null;
-}
-
-// Keep the old getApiKey for compatibility or backward reference if needed
-export async function getApiKey(): Promise<string> {
-  const key = await getAnthropicKey();
-  if (!key) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
-  return key;
-}
 
 // Helper to make text queries accent-insensitive in PostgreSQL ilike
 function makeIlikePattern(word: string): string {
@@ -95,14 +61,6 @@ async function callGeminiTool(
   toolSchema: any,
   imageInput?: { mimeType: string; base64: string }
 ): Promise<any> {
-  const geminiKey = await getGeminiKey();
-  if (!geminiKey) {
-    throw new Error("Cheia API Google Gemini nu a fost găsită în configurație (gemini_api_key).");
-  }
-
-  // gemini-2.5-flash: model stabil și rapid, cu suport Vision și JSON output (disponibil din mai 2026)
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-  
   const parts: any[] = [];
   if (imageInput) {
     parts.push({
@@ -115,7 +73,6 @@ async function callGeminiTool(
   parts.push({ text: userPrompt });
 
   // Append the expected JSON schema to the system prompt so Gemini knows the exact output structure.
-  // Previously toolSchema was passed but completely ignored in the request body.
   const schemaHint = toolSchema?.input_schema
     ? `\n\nRăspunde EXCLUSIV cu un obiect JSON valid care respectă exact această schemă:\n${JSON.stringify(toolSchema.input_schema, null, 2)}`
     : "";
@@ -136,21 +93,12 @@ async function callGeminiTool(
     }
   };
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Gemini API Error:", response.status, errText);
-    throw new Error(`Eroare API Gemini (${response.status}): ${errText}`);
+  const { ok, status, data } = await callAiProxy("gemini", body);
+  if (!ok) {
+    console.error("Gemini API Error:", status, data);
+    throw new Error(`Eroare API Gemini (${status}): ${data?.error || ""}`);
   }
 
-  const data = await response.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) {
     throw new Error("Gemini nu a returnat date structurate valabile.");
@@ -167,36 +115,22 @@ async function callAnthropicTool(
   toolName: string
 ): Promise<any> {
   try {
-    const apiKey = await getAnthropicKey();
-    if (!apiKey) throw new Error("Anthropic API key is not configured.");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: toolName }
-      }),
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: toolName }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API Error:", response.status, errText);
-      throw new Error(`Eroare API Anthropic (${response.status})`);
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status})`);
     }
 
-    const data = await response.json();
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === toolName);
-    
+
     if (!toolCall?.input) {
       throw new Error("Modelul nu a returnat date structurate valabile.");
     }
@@ -258,45 +192,31 @@ Reguli stricte:
   };
 
   try {
-    const apiKey = await getAnthropicKey();
-    if (!apiKey) throw new Error("Anthropic API key is not configured.");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mimeType, data: imageBase64 }
-              },
-              { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
-            ]
-          }
-        ],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: "extract_price_table" }
-      }),
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mimeType, data: imageBase64 }
+            },
+            { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
+          ]
+        }
+      ],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API Error:", errText);
-      throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
     }
-    
-    const data = await response.json();
+
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
     if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din imagine.");
     
@@ -368,33 +288,19 @@ Reguli stricte:
   };
 
   try {
-    const apiKey = await getAnthropicKey();
-    if (!apiKey) throw new Error("Anthropic API key is not configured.");
-
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
-        tools: [toolSchema],
-        tool_choice: { type: "tool", name: "extract_price_table" }
-      }),
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Anthropic API Error:", errText);
-      throw new Error(`Eroare API Anthropic (${response.status}): ${errText}`);
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
     }
-    const data = await response.json();
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
     if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
     
