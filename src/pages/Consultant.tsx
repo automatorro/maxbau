@@ -238,6 +238,14 @@ export default function Consultant() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const { count: memoryCount, saveCorrection, searchMemory } = useAiMemory();
+
+  // Stare pentru panel-ul de corecție
+  const [correctingIdx, setCorrectingIdx] = useState<number | null>(null);
+  const [correctionText, setCorrectionText] = useState("");
+  const [correctionTags, setCorrectionTags] = useState("");
+  const [savingCorrection, setSavingCorrection] = useState(false);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
@@ -253,7 +261,25 @@ export default function Consultant() {
     setLoading(true);
 
     try {
-      const responseText = await callAnthropic(newMessages);
+      // RAG: căutăm reguli personalizate relevante și le injectăm în system prompt
+      let systemPrompt = SYSTEM_PROMPT;
+      try {
+        const matches = await searchMemory(text);
+        if (matches.length > 0) {
+          const rules = matches
+            .map((m, i) => `${i + 1}. ${m.correction}`)
+            .join("\n");
+          systemPrompt +=
+            "\n\n--- REGULI PERSONALIZATE STABILITE DE UTILIZATOR ---\n" +
+            "Respectă cu prioritate următoarele reguli/corecții stabilite intern. " +
+            "Dacă intră în conflict cu instrucțiunile generale, aceste reguli au prioritate:\n" +
+            rules;
+        }
+      } catch (memErr) {
+        console.warn("Memory search failed, continuing without rules:", memErr);
+      }
+
+      const responseText = await callAnthropic(newMessages, systemPrompt);
       setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -265,6 +291,49 @@ export default function Consultant() {
       setLoading(false);
     }
   };
+
+  const openCorrection = (idx: number) => {
+    setCorrectingIdx(idx);
+    setCorrectionText("");
+    setCorrectionTags("");
+  };
+
+  const handleSaveCorrection = async () => {
+    if (correctingIdx === null) return;
+    const correction = correctionText.trim();
+    if (!correction) {
+      toast.error("Scrie corecția înainte de a salva.");
+      return;
+    }
+    // Găsim ultimul mesaj al utilizatorului dinaintea răspunsului AI corectat
+    let promptContext = "";
+    for (let i = correctingIdx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        promptContext = messages[i].content;
+        break;
+      }
+    }
+    const aiMessage = messages[correctingIdx]?.content ?? "";
+
+    setSavingCorrection(true);
+    try {
+      await saveCorrection({
+        promptContext: promptContext || aiMessage,
+        aiMessage,
+        correction,
+        tags: correctionTags.split(",").map((t) => t.trim()).filter(Boolean),
+      });
+      toast.success("Regula a fost salvată. AI-ul o va folosi în conversațiile viitoare.");
+      setCorrectingIdx(null);
+      setCorrectionText("");
+      setCorrectionTags("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Eroare la salvarea regulii.");
+    } finally {
+      setSavingCorrection(false);
+    }
+  };
+
 
   const handleReset = () => {
     setMessages([{ role: "assistant", content: GREETING }]);
