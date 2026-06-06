@@ -361,16 +361,25 @@ export default function Consultant() {
               Inginer de vânzări MAXBAU — consultanță tehnică în timp real
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReset}
-            className="gap-1.5 shrink-0"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Conversație nouă</span>
-            <span className="sm:hidden">Nou</span>
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {memoryCount > 0 && (
+              <Badge variant="secondary" className="gap-1.5 whitespace-nowrap">
+                <Brain className="h-3.5 w-3.5 text-primary" />
+                {memoryCount}
+                <span className="hidden sm:inline">reguli active</span>
+              </Badge>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              className="gap-1.5 shrink-0"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Conversație nouă</span>
+              <span className="sm:hidden">Nou</span>
+            </Button>
+          </div>
         </div>
 
         <Card className="flex-1 overflow-hidden flex flex-col min-h-0">
