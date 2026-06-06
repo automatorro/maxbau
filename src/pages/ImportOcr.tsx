@@ -372,86 +372,57 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`;
     }
   };
 
-  // 1. Încercăm cu Anthropic
+  // 1. Încercăm cu Anthropic prin proxy-ul securizat
   try {
-    const apiKey = await getAnthropicKey();
-    if (apiKey) {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-3-5-sonnet-20241022",
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: [{ role: "user", content: userPrompt }],
-          tools: [toolSchema],
-          tool_choice: { type: "tool", name: "extract_price_table" }
-        }),
-      });
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
+    });
 
-      if (response.ok) {
-        const data = await response.json();
-        const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
-        if (toolCall?.input) {
-          const input = toolCall.input;
-          return {
-            success: true,
-            headers: input.headers,
-            header_row_index: input.header_row_index,
-            column_map: input.column_map,
-            note: input.note
-          };
-        }
-      } else {
-        const err = await response.text();
-        console.warn("Anthropic API returned error in Excel analysis, falling back to Gemini:", response.status, err);
+    if (ok) {
+      const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+      if (toolCall?.input) {
+        const input = toolCall.input;
+        return {
+          success: true,
+          headers: input.headers,
+          header_row_index: input.header_row_index,
+          column_map: input.column_map,
+          note: input.note
+        };
       }
+    } else {
+      console.warn("Anthropic API returned error in Excel analysis, falling back to Gemini:", status, data);
     }
   } catch (err) {
     console.warn("Anthropic Excel analysis failed, trying Gemini fallback...", err);
   }
 
-  // 2. Fallback la Google Gemini
+  // 2. Fallback la Google Gemini prin proxy
   try {
-    const geminiKey = await getGeminiKey();
-    if (!geminiKey) {
-      throw new Error("Nicio cheie API (Anthropic sau Gemini) nu a fost găsită în configurație.");
-    }
-
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-    
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: userPrompt }]
-          }
-        ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          responseMimeType: "application/json"
+    const { ok, status, data } = await callAiProxy("gemini", {
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userPrompt }]
         }
-      }),
+      ],
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Eroare API Gemini (${response.status}): ${err}`);
+    if (!ok) {
+      throw new Error(`Eroare API Gemini (${status}): ${data?.error || ""}`);
     }
 
-    const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) {
       throw new Error("Modelul Gemini nu a returnat date structurate valabile.");
