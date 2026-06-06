@@ -396,21 +396,33 @@ export default function Consultant() {
                         <Bot className="h-4 w-4 text-primary" />
                       </div>
                     )}
-                    <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap"
-                          : "bg-muted text-foreground rounded-bl-sm"
-                      }`}
-                    >
-                      {msg.role === "user" ? (
-                        msg.content
-                      ) : (
-                        <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-table:my-2 prose-td:py-1 prose-th:py-1">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {msg.content}
-                          </ReactMarkdown>
-                        </div>
+                    <div className="flex flex-col gap-1 max-w-[80%] group">
+                      <div
+                        className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap"
+                            : "bg-muted text-foreground rounded-bl-sm"
+                        }`}
+                      >
+                        {msg.role === "user" ? (
+                          msg.content
+                        ) : (
+                          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-table:my-2 prose-td:py-1 prose-th:py-1">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                      {msg.role === "assistant" && idx > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => openCorrection(idx)}
+                          className="self-start flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors px-1 sm:opacity-0 sm:group-hover:opacity-100"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Corectează
+                        </button>
                       )}
                     </div>
                     {msg.role === "user" && (
