@@ -634,7 +634,7 @@ export default function AntemasuratorImport() {
         }
 
         const echivalente: MatchedProduct[] = (data.echivalente ?? [])
-          .filter((e: any) => e.scor >= 35)
+          .filter((e: any) => e.scor >= 20)
           .slice(0, 5);
 
         const found = echivalente.length > 0;
@@ -662,7 +662,7 @@ export default function AntemasuratorImport() {
       }
     });
 
-    await runWithConcurrency(tasks, 5, (done) => {
+    await runWithConcurrency(tasks, 2, (done) => {
       setMatchProgress(Math.round((done / validItems.length) * 100));
     });
 
@@ -680,33 +680,67 @@ export default function AntemasuratorImport() {
     try {
       const desc = (currentItem as ItemWithMatch).descriere_client;
       
-      // 1. Încercăm o căutare clasică rapidă în DB (fără diacritice, exact ca în Catalog)
-      const tokens = desc.split(/\s+/).filter(Boolean);
-      let dbQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit").limit(5);
-      
-      for (const raw of tokens) {
-        const fuzzyToken = raw.replace(/[aăâ]/gi, '_').replace(/[iî]/gi, '_').replace(/[sșş]/gi, '_').replace(/[tțţ]/gi, '_').replace(/,/g, "\\,");
-        dbQuery = dbQuery.or(`denumire_completa.ilike.%${fuzzyToken}%,cod_intern.ilike.%${fuzzyToken}%,brand.ilike.%${fuzzyToken}%,brand_slug.ilike.%${fuzzyToken}%`);
-      }
-      
-      const { data: directMatches } = await dbQuery;
+      // 1. Căutare rapidă în DB: OR pe cei mai semnificativi tokeni (ignorăm stop-words scurte)
+      const rawTokens = desc
+        .split(/\s+/)
+        .map((t) => t.replace(/[.,;:()"']+/g, "").trim())
+        .filter((t) => t.length >= 4); // ignorăm cuvinte scurte ("de", "la", "cu" etc.)
+
+      // Luăm maxim 3 tokeni cei mai lungi (mai specifici) pentru OR search
+      const topTokens = [...rawTokens]
+        .sort((a, b) => b.length - a.length)
+        .slice(0, 3);
+
       let echivalente: MatchedProduct[] = [];
 
-      if (directMatches && directMatches.length > 0) {
-        echivalente = directMatches.map(p => ({
-          product_id: p.id,
-          cod_intern: p.cod_intern,
-          denumire_completa: p.denumire_completa,
-          pret_lista: p.pret_lista,
-          unit: p.unit,
-          justificare: "Potrivire rapidă (Catalog)",
-          scor: 100
-        }));
-      } else {
-        // 2. Dacă nu găsim nimic exact, recurgem la AI
+      if (topTokens.length > 0) {
+        const orParts = topTokens.map((raw) => {
+          const fuzzy = raw
+            .replace(/[aăâ]/gi, "_")
+            .replace(/[iî]/gi, "_")
+            .replace(/[sșş]/gi, "_")
+            .replace(/[tțţ]/gi, "_")
+            .replace(/,/g, "\\,");
+          return `denumire_completa.ilike.%${fuzzy}%,cod_intern.ilike.%${fuzzy}%,brand.ilike.%${fuzzy}%`;
+        });
+        const orFilter = orParts.join(",");
+
+        const { data: directMatches } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit")
+          .or(orFilter)
+          .limit(8);
+
+        if (directMatches && directMatches.length > 0) {
+          // Scor local: câți tokeni din descriere se regăsesc în denumire
+          const descNorm = desc.toLowerCase();
+          const scored = directMatches
+            .map((p) => {
+              const pNorm = (p.denumire_completa || "").toLowerCase();
+              const matchCount = topTokens.filter((t) =>
+                pNorm.includes(t.toLowerCase())
+              ).length;
+              return { ...p, _score: matchCount };
+            })
+            .sort((a, b) => b._score - a._score);
+
+          echivalente = scored.map((p) => ({
+            product_id: p.id,
+            cod_intern: p.cod_intern,
+            denumire_completa: p.denumire_completa,
+            pret_lista: p.pret_lista,
+            unit: p.unit,
+            justificare: "Potrivire rapidă (Catalog)",
+            scor: Math.max(50, Math.round((p._score / topTokens.length) * 100)),
+          }));
+        }
+      }
+
+      // 2. Fallback AI dacă DB-ul n-a găsit nimic util
+      if (echivalente.length === 0) {
         const data = await findEquivalentWithAnthropic(desc);
         if (data?.success && data.echivalente) {
-          echivalente = data.echivalente.filter((e: any) => e.scor >= 35).slice(0, 5);
+          echivalente = data.echivalente.filter((e: any) => e.scor >= 20).slice(0, 5);
         }
       }
 
