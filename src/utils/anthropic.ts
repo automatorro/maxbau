@@ -1,43 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
+import { callAiProxy } from "@/utils/aiProxy";
 
-// Re-use API key logic
-let cachedAnthropicKey: string | null = null;
-let cachedGeminiKey: string | null = null;
+// API keys are stored server-side and used only inside the `ai-proxy` edge
+// function. The browser never has access to them.
 
-export async function getAnthropicKey(): Promise<string | null> {
-  if (cachedAnthropicKey) return cachedAnthropicKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "anthropic_api_key").single();
-    if (!error && data?.value) {
-      cachedAnthropicKey = data.value.trim();
-      return cachedAnthropicKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Anthropic API key from DB:", e);
-  }
-  return null;
-}
-
-export async function getGeminiKey(): Promise<string | null> {
-  if (cachedGeminiKey) return cachedGeminiKey;
-  try {
-    const { data, error } = await supabase.from("app_config").select("value").eq("key", "gemini_api_key").single();
-    if (!error && data?.value) {
-      cachedGeminiKey = data.value.trim();
-      return cachedGeminiKey;
-    }
-  } catch (e) {
-    console.warn("Could not load Gemini API key from DB:", e);
-  }
-  return null;
-}
-
-// Keep the old getApiKey for compatibility or backward reference if needed
-export async function getApiKey(): Promise<string> {
-  const key = await getAnthropicKey();
-  if (!key) throw new Error("Cheia API Anthropic nu a fost găsită în configurație.");
-  return key;
-}
 
 // Helper to make text queries accent-insensitive in PostgreSQL ilike
 function makeIlikePattern(word: string): string {
