@@ -114,6 +114,12 @@ async function callGeminiTool(
   }
   parts.push({ text: userPrompt });
 
+  // Append the expected JSON schema to the system prompt so Gemini knows the exact output structure.
+  // Previously toolSchema was passed but completely ignored in the request body.
+  const schemaHint = toolSchema?.input_schema
+    ? `\n\nRăspunde EXCLUSIV cu un obiect JSON valid care respectă exact această schemă:\n${JSON.stringify(toolSchema.input_schema, null, 2)}`
+    : "";
+
   const body = {
     contents: [
       {
@@ -122,11 +128,10 @@ async function callGeminiTool(
       }
     ],
     systemInstruction: {
-      parts: [{ text: systemPrompt }]
+      parts: [{ text: systemPrompt + schemaHint }]
     },
     generationConfig: {
-      // Nu folosim responseSchema deoarece Gemini nu suportă array de array-uri în schema.
-      // responseMimeType asigură că modelul returnează JSON valid ghidat de promptul de sistem.
+      // responseMimeType asigură că modelul returnează JSON valid.
       responseMimeType: "application/json"
     }
   };
@@ -590,9 +595,28 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
   );
 
   const productMap = new Map(products.map((p) => [p.cod_intern, p]));
+  // Also build a lowercase-trimmed map for fuzzy fallback (Gemini sometimes returns slightly different casing/spacing)
+  const productMapLower = new Map(
+    products.map((p) => [(p.cod_intern || "").toLowerCase().trim(), p])
+  );
+
   const echivalente = (ranking.echivalente || [])
     .map((r: any) => {
-      const p = productMap.get(r.cod_intern);
+      // 1. Exact match
+      let p = productMap.get(r.cod_intern);
+      // 2. Case-insensitive / trimmed fallback
+      if (!p) {
+        p = productMapLower.get((r.cod_intern || "").toLowerCase().trim());
+      }
+      // 3. Partial-match fallback: find the product whose cod_intern best overlaps
+      if (!p) {
+        const rCode = (r.cod_intern || "").toLowerCase().trim();
+        p = products.find(
+          (prod) =>
+            (prod.cod_intern || "").toLowerCase().includes(rCode) ||
+            rCode.includes((prod.cod_intern || "").toLowerCase())
+        );
+      }
       if (!p) return null;
       return {
         product_id: p.id,
