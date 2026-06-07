@@ -171,6 +171,38 @@ function guessPriceColumnIndex(headerCells: string[]): number {
   return Math.max(0, headerCells.length - 1);
 }
 
+// Try to read a minimum quantity from a price-column header like "1-2PAL", "3-4 paleti", "5+", "peste 5"
+function parseMinQuantityFromHeader(header: string): number {
+  const h = (header || "").toLowerCase();
+  const peste = h.match(/(?:peste|>=?|\+)\s*(\d+)/) || h.match(/(\d+)\s*\+/);
+  if (peste) return Math.max(1, Number(peste[1]) || 1);
+  const range = h.match(/(\d+)\s*[-–]\s*\d+/);
+  if (range) return Math.max(1, Number(range[1]) || 1);
+  const single = h.match(/\d+/);
+  if (single) return Math.max(1, Number(single[0]) || 1);
+  return 1;
+}
+
+// Detect every column that looks like a price column (mostly numeric body cells),
+// so multi-tier price lists (1-2PAL / 3-4PAL / 5+PAL) are mapped automatically.
+function detectPriceColumns(headerCells: string[], bodyRows: string[][]): number[] {
+  const sample = bodyRows.slice(0, 20);
+  const result: number[] = [];
+  for (let i = 0; i < headerCells.length; i++) {
+    let numeric = 0;
+    let nonEmpty = 0;
+    for (const row of sample) {
+      const cell = (row[i] ?? "").toString().trim();
+      if (!cell) continue;
+      nonEmpty++;
+      if (parsePriceCell(cell) !== null) numeric++;
+    }
+    // A price column has enough non-empty numeric values (≥60%)
+    if (nonEmpty >= 2 && numeric / nonEmpty >= 0.6) result.push(i);
+  }
+  return result;
+}
+
 // ── Inline Product Search ─────────────────────────────────────────────────────
 
 function InlineProductSearch({
