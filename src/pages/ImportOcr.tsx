@@ -1504,6 +1504,14 @@ const ImportOcr = () => {
                     </div>
                   </div>
                 </h4>
+
+                <div className="rounded bg-muted/50 border border-dashed p-2 text-[11px] text-muted-foreground leading-relaxed">
+                  Fiecare <strong>coloană de preț</strong> din tabel = un <strong>tip de preț</strong> salvat separat (în funcție de cantitate).
+                  Coloanele de preț au fost detectate automat mai jos — verifică doar denumirile și cantitatea minimă, apoi apasă <strong>„Actualizează Catalogul"</strong>.
+                  <br />Ex: <em>1-2PAL → Preț listă (cant. min. 1)</em>, <em>3-4PAL → cant. min. 3</em>, <em>5+PAL → cant. min. 5</em>. Primul tier devine „Preț listă" (prețul de bază al produsului).
+                </div>
+
+
                 
                 <div className="flex flex-col gap-3">
                   {priceMappings.map((mapping, idx) => (
