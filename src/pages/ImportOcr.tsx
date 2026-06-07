@@ -171,6 +171,38 @@ function guessPriceColumnIndex(headerCells: string[]): number {
   return Math.max(0, headerCells.length - 1);
 }
 
+// Try to read a minimum quantity from a price-column header like "1-2PAL", "3-4 paleti", "5+", "peste 5"
+function parseMinQuantityFromHeader(header: string): number {
+  const h = (header || "").toLowerCase();
+  const peste = h.match(/(?:peste|>=?|\+)\s*(\d+)/) || h.match(/(\d+)\s*\+/);
+  if (peste) return Math.max(1, Number(peste[1]) || 1);
+  const range = h.match(/(\d+)\s*[-–]\s*\d+/);
+  if (range) return Math.max(1, Number(range[1]) || 1);
+  const single = h.match(/\d+/);
+  if (single) return Math.max(1, Number(single[0]) || 1);
+  return 1;
+}
+
+// Detect every column that looks like a price column (mostly numeric body cells),
+// so multi-tier price lists (1-2PAL / 3-4PAL / 5+PAL) are mapped automatically.
+function detectPriceColumns(headerCells: string[], bodyRows: string[][]): number[] {
+  const sample = bodyRows.slice(0, 20);
+  const result: number[] = [];
+  for (let i = 0; i < headerCells.length; i++) {
+    let numeric = 0;
+    let nonEmpty = 0;
+    for (const row of sample) {
+      const cell = (row[i] ?? "").toString().trim();
+      if (!cell) continue;
+      nonEmpty++;
+      if (parsePriceCell(cell) !== null) numeric++;
+    }
+    // A price column has enough non-empty numeric values (≥60%)
+    if (nonEmpty >= 2 && numeric / nonEmpty >= 0.6) result.push(i);
+  }
+  return result;
+}
+
 // ── Inline Product Search ─────────────────────────────────────────────────────
 
 function InlineProductSearch({
@@ -610,7 +642,22 @@ const ImportOcr = () => {
     const nameIdx = columnMap?.denumire != null && columnMap.denumire >= 0 ? columnMap.denumire : guessNameColumnIndex(headers);
     const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
-    setPriceMappings([{ id: crypto.randomUUID(), colIdx: priceIdx, priceType: "Preț listă", minQuantity: 1 }]);
+
+    // Auto-detect ALL price columns (multi-tier price lists: 1-2PAL / 3-4PAL / 5+PAL).
+    // Exclude the name column from candidates.
+    const detected = detectPriceColumns(headers, rows).filter((i) => i !== nameIdx);
+    const priceCols = detected.length > 0 ? detected : [priceIdx];
+    const newMappings = priceCols.map((colIdx, i) => ({
+      id: crypto.randomUUID(),
+      colIdx,
+      // The first (smallest-quantity) tier becomes the base "Preț listă"
+      priceType: i === 0 ? "Preț listă" : (headers[colIdx]?.trim() || `Preț ${i + 1}`),
+      minQuantity: parseMinQuantityFromHeader(headers[colIdx] || ""),
+    }));
+    setPriceMappings(newMappings);
+    if (priceCols.length > 1) {
+      toast.info(`${priceCols.length} coloane de preț detectate — toate vor fi salvate ca tipuri de preț distincte.`);
+    }
 
     if (columnMap) setAiColumnMap(columnMap);
     if (catRows && catRows.length > 0) {
@@ -1457,6 +1504,14 @@ const ImportOcr = () => {
                     </div>
                   </div>
                 </h4>
+
+                <div className="rounded bg-muted/50 border border-dashed p-2 text-[11px] text-muted-foreground leading-relaxed">
+                  Fiecare <strong>coloană de preț</strong> din tabel = un <strong>tip de preț</strong> salvat separat (în funcție de cantitate).
+                  Coloanele de preț au fost detectate automat mai jos — verifică doar denumirile și cantitatea minimă, apoi apasă <strong>„Actualizează Catalogul"</strong>.
+                  <br />Ex: <em>1-2PAL → Preț listă (cant. min. 1)</em>, <em>3-4PAL → cant. min. 3</em>, <em>5+PAL → cant. min. 5</em>. Primul tier devine „Preț listă" (prețul de bază al produsului).
+                </div>
+
+
                 
                 <div className="flex flex-col gap-3">
                   {priceMappings.map((mapping, idx) => (
