@@ -495,9 +495,21 @@ const ImportOcr = () => {
   const { data: productsForMatch = [] } = useQuery({
     queryKey: ["products-for-ocr-match"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("products").select("id, cod_intern, denumire_completa, unit, pret_lista, supplier_id");
-      if (error) throw error;
-      return data as ProductForMatch[];
+      // Supabase returns max 1000 rows per request — paginate to load the full catalog
+      const pageSize = 1000;
+      const all: ProductForMatch[] = [];
+      for (let from = 0; ; from += pageSize) {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, unit, pret_lista, supplier_id")
+          .order("id")
+          .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...(data as ProductForMatch[]));
+        if (data.length < pageSize) break;
+      }
+      return all;
     },
   });
 
