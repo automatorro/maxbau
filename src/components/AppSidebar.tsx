@@ -36,9 +36,8 @@ const mainItems = [
   { title: "Import OCR/Excel", url: "/import", icon: ScanText },
   { title: "Ofertă nouă", url: "/quote/new", icon: FilePlus },
   { title: "Ofertă din cerere client", url: "/quote/smart", icon: Lightbulb },
-  { title: "Configurator Vată & Ambalaj", url: "/wool-configurator", icon: Layers },
+  { title: "Configurator Vatâ & Sisteme", url: "/recipe-quote", icon: Layers },
   { title: "Import Antemasurătoare", url: "/quote/antemasuratori", icon: ClipboardList },
-  { title: "Generare rețetă", url: "/recipe-quote", icon: Calculator },
   { title: "Ofertele mele", url: "/quotes", icon: FileText },
   { title: "Consultant AI", url: "/consultant", icon: MessageSquare },
 ];
