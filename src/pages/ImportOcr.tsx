@@ -642,7 +642,22 @@ const ImportOcr = () => {
     const nameIdx = columnMap?.denumire != null && columnMap.denumire >= 0 ? columnMap.denumire : guessNameColumnIndex(headers);
     const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
-    setPriceMappings([{ id: crypto.randomUUID(), colIdx: priceIdx, priceType: "Preț listă", minQuantity: 1 }]);
+
+    // Auto-detect ALL price columns (multi-tier price lists: 1-2PAL / 3-4PAL / 5+PAL).
+    // Exclude the name column from candidates.
+    const detected = detectPriceColumns(headers, rows).filter((i) => i !== nameIdx);
+    const priceCols = detected.length > 0 ? detected : [priceIdx];
+    const newMappings = priceCols.map((colIdx, i) => ({
+      id: crypto.randomUUID(),
+      colIdx,
+      // The first (smallest-quantity) tier becomes the base "Preț listă"
+      priceType: i === 0 ? "Preț listă" : (headers[colIdx]?.trim() || `Preț ${i + 1}`),
+      minQuantity: parseMinQuantityFromHeader(headers[colIdx] || ""),
+    }));
+    setPriceMappings(newMappings);
+    if (priceCols.length > 1) {
+      toast.info(`${priceCols.length} coloane de preț detectate — toate vor fi salvate ca tipuri de preț distincte.`);
+    }
 
     if (columnMap) setAiColumnMap(columnMap);
     if (catRows && catRows.length > 0) {
