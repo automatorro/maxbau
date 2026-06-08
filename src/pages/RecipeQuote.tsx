@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { WoolPackagingBlock, type WoolCalcResult } from "@/components/WoolPackagingBlock";
+import { GenericPackagingBlock, type GenericCalcResult, getSystemType } from "@/components/GenericPackagingBlock";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -293,12 +293,11 @@ const RecipeQuote = () => {
   const [lines, setLines] = useState<GeneratedLine[]>([]);
   const [generated, setGenerated] = useState(false);
 
-  // ── Vată tab state ────────────────────────────────────────────────────────
-  const [woolCalc, setWoolCalc] = useState<WoolCalcResult | null>(null);
-  const [selectedThickness, setSelectedThickness] = useState<number | null>(10);
+  // ── Main product state ───────────────────────────────────────────────────
+  const [woolCalc, setWoolCalc] = useState<GenericCalcResult | null>(null);
 
-  // Stable callback to avoid WoolPackagingBlock re-render loops
-  const handleWoolCalculated = useCallback((result: WoolCalcResult | null) => {
+  // Stable callback to avoid GenericPackagingBlock re-render loops
+  const handleWoolCalculated = useCallback((result: GenericCalcResult | null) => {
     setWoolCalc(result);
   }, []);
 
@@ -359,8 +358,15 @@ const RecipeQuote = () => {
     }
   }, [activeTab, vataRecipes, selectedRecipeId]);
 
+  // Reset main product when recipe or tab changes
+  useEffect(() => {
+    setWoolCalc(null);
+    setLines([]);
+    setGenerated(false);
+  }, [selectedRecipeId, activeTab]);
+
   // ── Auto-generate recipe lines ────────────────────────────────────────────
-  // Regenerate lines from scratch ONLY when the recipe, tab, wool selection, or loaded products change
+  // Regenerate lines from scratch ONLY when the recipe, tab, main product selection, or loaded products change
   useEffect(() => {
     if (!selectedRecipe) {
       setLines([]);
@@ -368,7 +374,8 @@ const RecipeQuote = () => {
       return;
     }
 
-    if (activeTab === "vata" && !woolCalc) {
+    const systemType = getSystemType(selectedRecipe.recipe_name, selectedRecipe.category);
+    if (systemType !== "generic" && !woolCalc) {
       setLines([]);
       setGenerated(false);
       return;
@@ -529,22 +536,22 @@ const RecipeQuote = () => {
   // ── Totals ────────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
     let net = lines.reduce((s, l) => s + (l.excluded ? 0 : l.line_total), 0);
-    // Add vată cost if tab active
-    if (activeTab === "vata" && woolCalc) {
+    if (woolCalc) {
       net += woolCalc.woolTotalCost + woolCalc.palletGuarantee;
     }
     const tva = net * TVA_RATE;
     const totalList = lines.reduce((s, l) => s + (l.excluded ? 0 : l.quantity * l.list_unit_price), 0) +
-      (activeTab === "vata" && woolCalc ? woolCalc.woolTotalCost : 0);
-    const overallDiscountPercent = totalList > 0 ? (1 - (net - (activeTab === "vata" && woolCalc ? woolCalc.palletGuarantee : 0)) / totalList) * 100 : 0;
+      (woolCalc ? woolCalc.woolTotalCost : 0);
+    const overallDiscountPercent = totalList > 0 ? (1 - (net - (woolCalc ? woolCalc.palletGuarantee : 0)) / totalList) * 100 : 0;
     return { net, tva, gross: net + tva, totalList, overallDiscountPercent };
-  }, [lines, activeTab, woolCalc]);
+  }, [lines, woolCalc]);
 
   // ── Save quote ────────────────────────────────────────────────────────────
   const handleCreateQuote = async () => {
     if (!user) return;
-    if (activeTab === "vata" && !woolCalc) {
-      toast.error("Selectează produsul de vată înainte de a salva.");
+    const systemType = selectedRecipe ? getSystemType(selectedRecipe.recipe_name, selectedRecipe.category) : "generic";
+    if (systemType !== "generic" && !woolCalc) {
+      toast.error("Selectează produsul principal înainte de a salva.");
       return;
     }
 
@@ -561,8 +568,8 @@ const RecipeQuote = () => {
       .from("quotes")
       .insert({
         user_id: user.id,
-        project_description: activeTab === "vata" && woolCalc
-          ? `${selectedRecipe?.recipe_name} — Vată: ${woolCalc.productName} × ${surface} mp`
+        project_description: woolCalc
+          ? `${selectedRecipe?.recipe_name} — Produs: ${woolCalc.productName} × ${surface} mp`
           : `${selectedRecipe?.recipe_name} × ${surface} m²`,
         status: "draft" as const,
         total_net: totals.net,
@@ -577,10 +584,10 @@ const RecipeQuote = () => {
 
     const items: any[] = [];
 
-    // Linia 0: vată principală
-    if (activeTab === "vata" && woolCalc) {
+    // Linia 0: produs principal
+    if (woolCalc) {
       const pkg = woolCalc.packagingInfo;
-      const isPerBax = woolCalc.unitDb?.toUpperCase() === "BAX";
+      const isPerBax = woolCalc.unitDb?.toUpperCase() === "BAX" || woolCalc.unitDb?.toUpperCase() === "PALET";
       items.push({
         quote_id: quote.id,
         product_id: woolCalc.productId,
@@ -593,7 +600,7 @@ const RecipeQuote = () => {
         pret_final: woolCalc.pretUnitar,
         subtotal: woolCalc.woolTotalCost,
         nota_ai: {
-          ambalare: `${woolCalc.packsNeeded} baxuri × ${pkg.acoperire_bax_mp} mp`,
+          ambalare: `${woolCalc.packsNeeded} pachete × ${pkg.acoperire_bax_mp} ${woolCalc.unitDb}`,
           grosime: `${pkg.grosime_mm} mm`,
           recomandare: pkg.utilizare_recomandata,
         },
@@ -861,8 +868,8 @@ const RecipeQuote = () => {
             <Card>
               <CardContent className="pt-5 space-y-5">
 
-                {/* Row: sistem + suprafata + grosime + discount */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                {/* Row: sistem + suprafata + discount */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                   <div>
                     <Label>Sistem auxiliar vată</Label>
                     <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); }}>
@@ -886,30 +893,6 @@ const RecipeQuote = () => {
                     />
                   </div>
                   <div>
-                    <Label>Grosime izolație (cm)</Label>
-                    <div className="flex gap-1 mt-1 flex-wrap">
-                      {[5, 8, 10, 12, 15, 20].map((t) => (
-                        <Button
-                          key={t}
-                          type="button"
-                          variant={selectedThickness === t ? "default" : "outline"}
-                          className="h-9 px-2.5 text-xs font-semibold"
-                          onClick={() => setSelectedThickness(t)}
-                        >
-                          {t} cm
-                        </Button>
-                      ))}
-                      <Button
-                        type="button"
-                        variant={selectedThickness === null ? "default" : "outline"}
-                        className="h-9 px-2.5 text-xs font-semibold"
-                        onClick={() => setSelectedThickness(null)}
-                      >
-                        Toate
-                      </Button>
-                    </div>
-                  </div>
-                  <div>
                     <Label>Discount global auxiliare (%)</Label>
                     <Input
                       type="number" min={0} max={100} step="0.5"
@@ -920,18 +903,18 @@ const RecipeQuote = () => {
                   </div>
                 </div>
 
-                {/* Wool packaging block */}
+                {/* Main product packaging block */}
                 <div className="border rounded-xl p-4 bg-gradient-to-br from-primary/[0.02] to-transparent border-primary/15">
                   <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-3 text-primary">
                     <Layers className="h-4 w-4" />
-                    Produs vată principal — Calcul ambalare
+                    Produs principal — Calcul ambalare
                   </h3>
-                  <WoolPackagingBlock
+                  <GenericPackagingBlock
                     surface={surface}
                     onSurfaceChange={setSurface}
                     onCalculated={handleWoolCalculated}
-                    selectedRecipeName={selectedRecipe?.recipe_name}
-                    selectedThickness={selectedThickness}
+                    recipeName={selectedRecipe?.recipe_name || ""}
+                    recipeCategory={selectedRecipe?.category || null}
                   />
                 </div>
               </CardContent>
@@ -946,7 +929,7 @@ const RecipeQuote = () => {
                     <Badge variant="secondary">{surface} mp</Badge>
                     {woolCalc && (
                       <Badge variant="outline" className="text-primary border-primary/30">
-                        Vată: {woolCalc.productName.split(" ").slice(0, 3).join(" ")}
+                        Produs: {woolCalc.productName.split(" ").slice(0, 4).join(" ")}
                       </Badge>
                     )}
                   </CardTitle>
@@ -963,11 +946,11 @@ const RecipeQuote = () => {
           ════════════════════════════════════════════════ */}
           <TabsContent value="altele" className="mt-4">
             <Card>
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
-                  <div className="sm:col-span-2 lg:col-span-2">
+              <CardContent className="pt-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                  <div>
                     <Label>Tip lucrare</Label>
-                    <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); setLines([]); setGenerated(false); }}>
+                    <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); }}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Alege rețetă..." />
                       </SelectTrigger>
@@ -979,7 +962,7 @@ const RecipeQuote = () => {
                     </Select>
                   </div>
                   <div>
-                    <Label>Suprafată (m²)</Label>
+                    <Label>Suprafată (mp)</Label>
                     <Input type="number" min={0} step="0.1" value={surface} onChange={(e) => setSurface(e.target.value)} className="mt-1" />
                   </div>
                   <div>
@@ -987,7 +970,23 @@ const RecipeQuote = () => {
                     <Input type="number" min={0} max={100} step="0.5" value={discount} onChange={(e) => setDiscount(e.target.value)} className="mt-1" />
                   </div>
                 </div>
-                {/* Generated automatically, button not needed */}
+
+                {/* Main product selector for other recipes */}
+                {selectedRecipe && (
+                  <div className="border rounded-xl p-4 bg-gradient-to-br from-primary/[0.02] to-transparent border-primary/15 mt-4">
+                    <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-3 text-primary">
+                      <Layers className="h-4 w-4" />
+                      Produs principal — Calcul ambalare
+                    </h3>
+                    <GenericPackagingBlock
+                      surface={surface}
+                      onSurfaceChange={setSurface}
+                      onCalculated={handleWoolCalculated}
+                      recipeName={selectedRecipe.recipe_name}
+                      recipeCategory={selectedRecipe.category}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -996,7 +995,12 @@ const RecipeQuote = () => {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     {selectedRecipe?.recipe_name}
-                    <Badge variant="secondary">{surface} m²</Badge>
+                    <Badge variant="secondary">{surface} mp</Badge>
+                    {woolCalc && (
+                      <Badge variant="outline" className="text-primary border-primary/30">
+                        Produs: {woolCalc.productName.split(" ").slice(0, 4).join(" ")}
+                      </Badge>
+                    )}
                     {parseFloat(discount) > 0 && <Badge variant="outline">-{discount}%</Badge>}
                   </CardTitle>
                 </CardHeader>
@@ -1014,10 +1018,19 @@ const RecipeQuote = () => {
             <Card>
               <CardContent className="pt-4">
                 <div className="flex flex-col items-end gap-1 text-sm">
-                  {activeTab === "vata" && woolCalc && (
+                  {woolCalc && (
                     <>
                       <div className="flex justify-between w-full max-w-xs text-muted-foreground">
-                        <span>Vată principală:</span>
+                        <span>
+                          {(() => {
+                            const sysType = selectedRecipe ? getSystemType(selectedRecipe.recipe_name, selectedRecipe.category) : "generic";
+                            if (sysType === "wool") return "Vată principală:";
+                            if (sysType === "polystyrene") return "Polistiren principal:";
+                            if (sysType === "drywall") return "Plăci gips principale:";
+                            if (sysType === "masonry") return "Zidărie principală:";
+                            return "Produs principal:";
+                          })()}
+                        </span>
                         <span className="font-medium">{woolCalc.woolTotalCost.toFixed(2)} lei</span>
                       </div>
                       <div className="flex justify-between w-full max-w-xs text-amber-700">
@@ -1027,7 +1040,7 @@ const RecipeQuote = () => {
                       <div className="flex justify-between w-full max-w-xs text-muted-foreground">
                         <span>Materiale auxiliare:</span>
                         <span className="font-medium">
-                          {lines.reduce((s, l) => s + l.line_total, 0).toFixed(2)} lei
+                          {lines.reduce((s, l) => s + (l.excluded ? 0 : l.line_total), 0).toFixed(2)} lei
                         </span>
                       </div>
                       <div className="w-full max-w-xs border-t my-1" />
