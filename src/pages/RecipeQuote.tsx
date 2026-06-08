@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -53,6 +54,7 @@ interface GeneratedLine {
   price_sheet_item_id?: string | null;
   price_variant_id?: string | null;
   alternatives: Product[];
+  excluded?: boolean;
 }
 
 type Product = {
@@ -125,10 +127,12 @@ const ProductSelector = ({
   line,
   allProducts,
   onSelect,
+  disabled = false,
 }: {
   line: GeneratedLine;
   allProducts: Product[];
   onSelect: (productId: string) => void;
+  disabled?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -150,12 +154,13 @@ const ProductSelector = ({
   const selectedProduct = allProducts.find((p) => p.id === line.product_id);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open && !disabled} onOpenChange={(val) => !disabled && setOpen(val)}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="w-full justify-between text-left font-normal text-xs h-auto py-1.5 min-h-[36px] whitespace-normal bg-card hover:bg-accent/5 border-primary/20"
         >
           <span className="truncate max-w-[280px] sm:max-w-[350px] block">
@@ -428,7 +433,9 @@ const RecipeQuote = () => {
         const qtyRaw = Math.round(l.editedConsumption * surfaceNum * 100) / 100;
         const packsNeeded = Math.ceil(qtyRaw / l.pack_size);
         const unitPrice = l.unit_price || l.list_unit_price;
-        const lineTotal = packsNeeded * unitPrice * (1 - discountNum / 100);
+        const lineTotal = l.excluded
+          ? 0
+          : packsNeeded * unitPrice * (1 - discountNum / 100);
 
         return {
           ...l,
@@ -456,8 +463,9 @@ const RecipeQuote = () => {
         const surfaceNum = parseFloat(surface) || 0;
         const qtyRaw = Math.round(updated.editedConsumption * surfaceNum * 100) / 100;
         const packsNeeded = Math.ceil(qtyRaw / updated.pack_size);
-        const lineTotal =
-          packsNeeded * updated.unit_price * (1 - updated.discount_percent / 100);
+        const lineTotal = updated.excluded
+          ? 0
+          : packsNeeded * updated.unit_price * (1 - updated.discount_percent / 100);
         return {
           ...updated,
           qty_raw: qtyRaw,
@@ -520,13 +528,13 @@ const RecipeQuote = () => {
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
-    let net = lines.reduce((s, l) => s + l.line_total, 0);
+    let net = lines.reduce((s, l) => s + (l.excluded ? 0 : l.line_total), 0);
     // Add vată cost if tab active
     if (activeTab === "vata" && woolCalc) {
       net += woolCalc.woolTotalCost + woolCalc.palletGuarantee;
     }
     const tva = net * TVA_RATE;
-    const totalList = lines.reduce((s, l) => s + l.quantity * l.list_unit_price, 0) +
+    const totalList = lines.reduce((s, l) => s + (l.excluded ? 0 : l.quantity * l.list_unit_price), 0) +
       (activeTab === "vata" && woolCalc ? woolCalc.woolTotalCost : 0);
     const overallDiscountPercent = totalList > 0 ? (1 - (net - (activeTab === "vata" && woolCalc ? woolCalc.palletGuarantee : 0)) / totalList) * 100 : 0;
     return { net, tva, gross: net + tva, totalList, overallDiscountPercent };
@@ -608,24 +616,26 @@ const RecipeQuote = () => {
     }
 
     // Materiale auxiliare din rețetă (salvăm toate materialele din rețetă)
-    const auxiliaryItems = lines.map((l) => ({
-      quote_id: quote.id,
-      product_id: l.product_id,
-      cod_intern: l.cod_intern || "MANUAL",
-      denumire: l.product_name || l.description,
-      quantity: l.quantity,    // număr de pachete (saci/role/cutii)
-      unit: l.um,
-      pret_unitar: l.unit_price,
-      discount_percent: l.discount_percent,
-      pret_final: l.unit_price * (1 - l.discount_percent / 100),
-      subtotal: l.line_total,
-      nota_ai: {
-        consum_per_m2: l.editedConsumption,
-        qty_raw: l.qty_raw,
-        pack_size: l.pack_size,
-        status: l.status,
-      },
-    }));
+    const auxiliaryItems = lines
+      .filter((l) => !l.excluded && l.quantity > 0)
+      .map((l) => ({
+        quote_id: quote.id,
+        product_id: l.product_id,
+        cod_intern: l.cod_intern || "MANUAL",
+        denumire: l.product_name || l.description,
+        quantity: l.quantity,    // număr de pachete (saci/role/cutii)
+        unit: l.um,
+        pret_unitar: l.unit_price,
+        discount_percent: l.discount_percent,
+        pret_final: l.unit_price * (1 - l.discount_percent / 100),
+        subtotal: l.line_total,
+        nota_ai: {
+          consum_per_m2: l.editedConsumption,
+          qty_raw: l.qty_raw,
+          pack_size: l.pack_size,
+          status: l.status,
+        },
+      }));
     items.push(...auxiliaryItems);
 
     if (items.length > 0) {
@@ -657,15 +667,23 @@ const RecipeQuote = () => {
         </TableHeader>
         <TableBody>
           {lines.map((line) => (
-            <TableRow key={line.position}>
-              <TableCell className="text-muted-foreground">{line.position}</TableCell>
+             <TableRow key={line.position} className={line.excluded ? "opacity-55 bg-muted/40 text-muted-foreground transition-all" : "transition-all"}>
+              <TableCell className="text-muted-foreground flex items-center gap-2 h-12">
+                <Checkbox
+                  checked={!line.excluded}
+                  onCheckedChange={(checked) => {
+                    updateLine(line.position, { excluded: !checked });
+                  }}
+                />
+                <span className={line.excluded ? "line-through opacity-50" : ""}>{line.position}</span>
+              </TableCell>
 
-              {/* Product / Alternative selector */}
               <TableCell>
                 <ProductSelector
                   line={line}
                   allProducts={products}
                   onSelect={(val) => handleAlternativeChange(line.position, val)}
+                  disabled={line.excluded}
                 />
                 {line.status === "NOT_FOUND" && (
                   <div className="text-xs text-amber-600 flex items-center gap-1 mt-1 font-medium bg-amber-50 dark:bg-amber-950/20 p-1.5 rounded border border-amber-200/50">
@@ -692,6 +710,7 @@ const RecipeQuote = () => {
                   step="any"
                   min={0}
                   value={line.editedConsumption}
+                  disabled={line.excluded}
                   onChange={(e) =>
                     updateLine(line.position, {
                       editedConsumption: parseFloat(e.target.value) || 0,
@@ -722,6 +741,7 @@ const RecipeQuote = () => {
                   min={0}
                   step="any"
                   value={line.unit_price}
+                  disabled={line.excluded}
                   onChange={(e) =>
                     updateLine(line.position, {
                       unit_price: parseFloat(e.target.value) || 0,
@@ -745,6 +765,7 @@ const RecipeQuote = () => {
                     return (
                       <Select
                         value={line.price_variant_id || ""}
+                        disabled={line.excluded}
                         onValueChange={(val) => {
                           const variant = variants.find((v: any) => v.id === val);
                           if (variant)
