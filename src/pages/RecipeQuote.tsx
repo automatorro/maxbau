@@ -136,6 +136,11 @@ const RecipeQuote = () => {
     setWoolCalc(result);
   }, []);
 
+  // Update page title
+  useEffect(() => {
+    document.title = "Configurator Rețete & Sisteme | MaxBau";
+  }, []);
+
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: recipes = [] } = useQuery({
     queryKey: ["recipes"],
@@ -606,9 +611,9 @@ const RecipeQuote = () => {
     <DashboardLayout>
       <div className="space-y-5 max-w-6xl">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Generare Ofertă din Rețetă</h1>
+          <h1 className="text-2xl font-bold text-foreground">Configurator Rețete & Sisteme</h1>
           <p className="text-sm text-muted-foreground">
-            Selectează tipul de lucrare și suprafața — oferta se generează automat cu variante echivalente din catalog
+            Selectați tipul de lucrare și suprafața — oferta se generează automat cu variante echivalente din catalog
           </p>
         </div>
 

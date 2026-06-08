@@ -17,11 +17,11 @@ import { Badge } from "@/components/ui/badge";
  
 const salesFeatures = [
   {
-    title: "Configurator Vată & Ambalaj",
-    subtitle: "Auto-clarificare logodică cu AI",
+    title: "Configurator Rețete & Sisteme",
+    subtitle: "Calcul vată, ambalare și consum",
     description:
-      "Rezolvați cererile ambigue (ex: '120 mp de vată'). AI extrage specificațiile tehnice și de ambalare reală din fișele producătorilor, calculează baxurile întregi și generează sisteme complete.",
-    url: "/wool-configurator",
+      "Generați oferte pe bază de rețete predefinite (sisteme de vată sau finisaje). AI calculează automat ambalarea reală în baxuri/paleți pentru vată, iar consumul de materiale este complet editabil.",
+    url: "/recipe-quote",
     icon: Layers,
     badge: "NOU · AI",
     badgeVariant: "default" as const,
@@ -64,16 +64,6 @@ const salesFeatures = [
     icon: FilePlus,
     gradient: "from-primary/15 via-primary/5 to-transparent",
     iconBg: "bg-primary/15 text-primary ring-primary/25",
-  },
-  {
-    title: "Generare rețetă",
-    subtitle: "Calcul cantități pe suprafață",
-    description:
-      "Calculați automat cantitățile necesare pentru un proiect pe baza suprafeței și a consumului produselor — eliminați erorile de estimare.",
-    url: "/recipe-quote",
-    icon: Calculator,
-    gradient: "from-violet-500/15 via-violet-500/5 to-transparent",
-    iconBg: "bg-violet-500/15 text-violet-600 ring-violet-500/25",
   },
   {
     title: "Catalog produse",
