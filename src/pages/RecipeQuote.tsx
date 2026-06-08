@@ -128,7 +128,7 @@ const RecipeQuote = () => {
   const [lines, setLines] = useState<GeneratedLine[]>([]);
   const [generated, setGenerated] = useState(false);
 
-  // ── Vatâ tab state ────────────────────────────────────────────────────────
+  // ── Vată tab state ────────────────────────────────────────────────────────
   const [woolCalc, setWoolCalc] = useState<WoolCalcResult | null>(null);
 
   // Stable callback to avoid WoolPackagingBlock re-render loops
@@ -186,7 +186,7 @@ const RecipeQuote = () => {
 
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId);
 
-  // Auto-select first vatâ recipe when switching to that tab
+  // Auto-select first vată recipe when switching to that tab
   useEffect(() => {
     if (activeTab === "vata" && !selectedRecipeId && vataRecipes.length > 0) {
       setSelectedRecipeId(vataRecipes[0].id);
@@ -205,9 +205,9 @@ const RecipeQuote = () => {
     const surfaceNum = parseFloat(surface);
     if (!surfaceNum || surfaceNum <= 0) { toast.error("Suprafața trebuie să fie > 0"); return; }
 
-    // Vatâ tab: require wool selection
+    // Vată tab: require wool selection
     if (activeTab === "vata" && !woolCalc) {
-      toast.error("Selectează mai întâi produsul de vatâ din catalog");
+      toast.error("Selectează mai întâi produsul de vată din catalog");
       return;
     }
 
@@ -313,7 +313,7 @@ const RecipeQuote = () => {
   // ── Totals ────────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
     let net = lines.reduce((s, l) => s + l.line_total, 0);
-    // Add vatâ cost if tab active
+    // Add vată cost if tab active
     if (activeTab === "vata" && woolCalc) {
       net += woolCalc.woolTotalCost + woolCalc.palletGuarantee;
     }
@@ -328,7 +328,7 @@ const RecipeQuote = () => {
   const handleCreateQuote = async () => {
     if (!user) return;
     if (activeTab === "vata" && !woolCalc) {
-      toast.error("Selectează produsul de vatâ înainte de a salva.");
+      toast.error("Selectează produsul de vată înainte de a salva.");
       return;
     }
 
@@ -346,7 +346,7 @@ const RecipeQuote = () => {
       .insert({
         user_id: user.id,
         project_description: activeTab === "vata" && woolCalc
-          ? `${selectedRecipe?.recipe_name} — Vatâ: ${woolCalc.productName} × ${surface} mp`
+          ? `${selectedRecipe?.recipe_name} — Vată: ${woolCalc.productName} × ${surface} mp`
           : `${selectedRecipe?.recipe_name} × ${surface} m²`,
         status: "draft" as const,
         total_net: totals.net,
@@ -361,7 +361,7 @@ const RecipeQuote = () => {
 
     const items: any[] = [];
 
-    // Linia 0: vatâ principală
+    // Linia 0: vată principală
     if (activeTab === "vata" && woolCalc) {
       const pkg = woolCalc.packagingInfo;
       const isPerBax = woolCalc.unitDb?.toUpperCase() === "BAX";
@@ -622,7 +622,7 @@ const RecipeQuote = () => {
           <TabsList className="h-10">
             <TabsTrigger value="vata" className="gap-1.5 text-sm">
               <Layers className="h-4 w-4" />
-              Sisteme Vatâ
+              Sisteme Vată
             </TabsTrigger>
             <TabsTrigger value="altele" className="gap-1.5 text-sm">
               <ClipboardList className="h-4 w-4" />
@@ -631,7 +631,7 @@ const RecipeQuote = () => {
           </TabsList>
 
           {/* ════════════════════════════════════════════════
-               TAB 1: Sisteme Vatâ
+               TAB 1: Sisteme Vată
           ════════════════════════════════════════════════ */}
           <TabsContent value="vata" className="space-y-5 mt-4">
             <Card>
@@ -640,7 +640,7 @@ const RecipeQuote = () => {
                 {/* Row: sistem + suprafata + discount */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
                   <div>
-                    <Label>Sistem auxiliar vatâ</Label>
+                    <Label>Sistem auxiliar vată</Label>
                     <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); setLines([]); setGenerated(false); }}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Alege sistemul..." />
@@ -676,7 +676,7 @@ const RecipeQuote = () => {
                 <div className="border rounded-xl p-4 bg-gradient-to-br from-primary/[0.02] to-transparent border-primary/15">
                   <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-3 text-primary">
                     <Layers className="h-4 w-4" />
-                    Produs vatâ principal — Calcul ambalare
+                    Produs vată principal — Calcul ambalare
                   </h3>
                   <WoolPackagingBlock
                     surface={surface}
@@ -706,7 +706,7 @@ const RecipeQuote = () => {
                     <Badge variant="secondary">{surface} mp</Badge>
                     {woolCalc && (
                       <Badge variant="outline" className="text-primary border-primary/30">
-                        Vatâ: {woolCalc.productName.split(" ").slice(0, 3).join(" ")}
+                        Vată: {woolCalc.productName.split(" ").slice(0, 3).join(" ")}
                       </Badge>
                     )}
                   </CardTitle>
@@ -782,7 +782,7 @@ const RecipeQuote = () => {
                   {activeTab === "vata" && woolCalc && (
                     <>
                       <div className="flex justify-between w-full max-w-xs text-muted-foreground">
-                        <span>Vatâ principală:</span>
+                        <span>Vată principală:</span>
                         <span className="font-medium">{woolCalc.woolTotalCost.toFixed(2)} lei</span>
                       </div>
                       <div className="flex justify-between w-full max-w-xs text-amber-700">

@@ -66,7 +66,7 @@ export function WoolPackagingBlock({ surface, onSurfaceChange, onCalculated }: P
   const [packagingInfo, setPackagingInfo] = useState<StructuredPackagingInfo | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
-  // ── Fetch vatâ products ──────────────────────────────────────────────────
+  // ── Fetch vată products ──────────────────────────────────────────────────
   const { data: dbProducts = [], isFetching: dbLoading } = useQuery({
     queryKey: ["wool-products-block", searchQuery],
     queryFn: async () => {
@@ -224,7 +224,7 @@ export function WoolPackagingBlock({ surface, onSurfaceChange, onCalculated }: P
       {/* Search */}
       <div>
         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          Caută produsul de vatâ din catalog
+          Caută produsul de vată din catalog
         </Label>
         <Input
           className="mt-1"
@@ -367,7 +367,7 @@ export function WoolPackagingBlock({ surface, onSurfaceChange, onCalculated }: P
               </span>
             </div>
             <div className="flex justify-between text-foreground font-semibold">
-              <span>Cost vatâ (rotunjit la baxuri întregi):</span>
+              <span>Cost vată (rotunjit la baxuri întregi):</span>
               <span>{calc.woolTotalCost.toFixed(2)} lei</span>
             </div>
             <div className="flex justify-between text-amber-700 font-semibold">
