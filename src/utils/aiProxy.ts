@@ -23,23 +23,18 @@ export async function callAiProxy(
     return { ok: false, status: 401, data: { error: "Not authenticated" } };
   }
 
-  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-proxy`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ provider, payload, model }),
-  });
-
-  let data: any = null;
   try {
-    data = await response.json();
-  } catch {
-    data = null;
-  }
+    const { data, error } = await supabase.functions.invoke("ai-proxy", {
+      body: { provider, payload, model },
+    });
 
-  return { ok: response.ok, status: response.status, data };
+    if (error) {
+      const status = (error as any).status || 500;
+      return { ok: false, status, data: { error: error.message } };
+    }
+
+    return { ok: true, status: 200, data };
+  } catch (err: any) {
+    return { ok: false, status: 500, data: { error: err.message || "Unknown error" } };
+  }
 }
