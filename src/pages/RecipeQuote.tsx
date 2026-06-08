@@ -35,10 +35,12 @@ interface RecipeMaterial {
 interface GeneratedLine {
   position: number;
   description: string;
-  um: string;
+  um: string;                      // unitatea rețetei (kg, mp, buc, ml)
   consumption_per_m2: number;
   editedConsumption: number;       // user-editable
-  quantity: number;
+  qty_raw: number;                 // cantitate brută în unitatea rețetei (kg / mp / buc)
+  quantity: number;                // număr de pachete/unități de vânzare (saci, role, cutii)
+  pack_size: number;               // cantitate per pachet (ex: 25 kg/sac, 50 mp/rolă)
   product_id: string | null;
   cod_intern: string | null;
   product_name: string | null;
@@ -59,6 +61,7 @@ type Product = {
   pret_lista: number;
   unit: string | null;
   category_id: string | null;
+  pack_quantity: string | null;  // e.g. "25" for 25kg/sac, "50" for 50mp/rolă, "200" for 200buc/cutie
 };
 
 // ─── UM compatibility ─────────────────────────────────────────────────────────
@@ -82,6 +85,39 @@ function umCompatible(recipeUM: string, productUM: string | null): boolean {
   if (rn === pn) return true;
   const compat = UM_COMPAT[rn];
   return compat ? compat.includes(pn) : false;
+}
+
+function inferPackSize(product: Product): number {
+  const dbPackQty = product.pack_quantity ? parseFloat(product.pack_quantity) : 0;
+  if (dbPackQty > 0) return dbPackQty;
+
+  const name = product.denumire_completa.toLowerCase();
+  
+  const kgMatch = name.match(/(\d+(?:\.\d+)?)\s*kg\b/);
+  if (kgMatch) return parseFloat(kgMatch[1]);
+
+  const mpMatch = name.match(/(\d+(?:\.\d+)?)\s*mp\b/);
+  if (mpMatch) return parseFloat(mpMatch[1]);
+
+  const bucMatch = name.match(/(\d+)\s*(?:buc|pcs)\b/);
+  if (bucMatch) return parseInt(bucMatch[1], 10);
+
+  const unit = product.unit?.toUpperCase() || "";
+  if (unit === "SAC") return 25;
+  if (unit === "ROLA" || unit === "ROL") return 50;
+  if (unit === "CUTIE" || unit === "CUT" || unit === "SET") return 200;
+  
+  return 1;
+}
+
+function getPackUnitLabel(productUnit: string | null): string {
+  if (!productUnit) return "buc";
+  const u = productUnit.toLowerCase().trim();
+  if (u === "sac") return "saci";
+  if (u === "rola" || u === "rol") return "role";
+  if (u === "cutie" || u === "cut") return "cutii";
+  if (u === "set") return "seturi";
+  return u;
 }
 
 function findCandidateProducts(mat: RecipeMaterial, products: Product[]): Product[] {
@@ -130,6 +166,7 @@ const RecipeQuote = () => {
 
   // ── Vată tab state ────────────────────────────────────────────────────────
   const [woolCalc, setWoolCalc] = useState<WoolCalcResult | null>(null);
+  const [selectedThickness, setSelectedThickness] = useState<number | null>(10);
 
   // Stable callback to avoid WoolPackagingBlock re-render loops
   const handleWoolCalculated = useCallback((result: WoolCalcResult | null) => {
@@ -169,7 +206,7 @@ const RecipeQuote = () => {
       while (true) {
         const { data, error } = await supabase
           .from("products")
-          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, pack_quantity")
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (error) throw error;
         if (data) allProducts = [...allProducts, ...data];
@@ -193,21 +230,25 @@ const RecipeQuote = () => {
     }
   }, [activeTab, vataRecipes, selectedRecipeId]);
 
-  // Reset lines when recipe or tab changes
+  // ── Auto-generate recipe lines ────────────────────────────────────────────
+  // Regenerate lines from scratch ONLY when the recipe, tab, wool selection, or loaded products change
   useEffect(() => {
-    setLines([]);
-    setGenerated(false);
-  }, [selectedRecipeId, activeTab]);
+    if (!selectedRecipe) {
+      setLines([]);
+      setGenerated(false);
+      return;
+    }
 
-  // ── Generate lines from recipe ────────────────────────────────────────────
-  const handleGenerate = () => {
-    if (!selectedRecipe) { toast.error("Selectează o rețetă"); return; }
-    const surfaceNum = parseFloat(surface);
-    if (!surfaceNum || surfaceNum <= 0) { toast.error("Suprafața trebuie să fie > 0"); return; }
-
-    // Vată tab: require wool selection
     if (activeTab === "vata" && !woolCalc) {
-      toast.error("Selectează mai întâi produsul de vată din catalog");
+      setLines([]);
+      setGenerated(false);
+      return;
+    }
+
+    const surfaceNum = parseFloat(surface) || 0;
+    if (surfaceNum <= 0) {
+      setLines([]);
+      setGenerated(false);
       return;
     }
 
@@ -216,12 +257,14 @@ const RecipeQuote = () => {
 
     const result: GeneratedLine[] = materials.map((mat) => {
       const consumption = mat.consumption_per_m2;
-      const quantity = consumption * surfaceNum;
+      const qtyRaw = consumption * surfaceNum;
       const alternatives = findCandidateProducts(mat, products);
       const bestProduct = alternatives.length > 0 ? alternatives[0] : null;
       const listUnitPrice = bestProduct ? Number(bestProduct.pret_lista) : 0;
-      const unitPrice = listUnitPrice;
-      const lineTotal = quantity * unitPrice * (1 - discountNum / 100);
+
+      const packSize = bestProduct ? inferPackSize(bestProduct) : 1;
+      const packsNeeded = Math.ceil(qtyRaw / packSize);
+      const lineTotal = packsNeeded * listUnitPrice * (1 - discountNum / 100);
 
       return {
         position: mat.position,
@@ -229,12 +272,14 @@ const RecipeQuote = () => {
         um: mat.um,
         consumption_per_m2: consumption,
         editedConsumption: consumption,
-        quantity: Math.round(quantity * 100) / 100,
+        qty_raw: Math.round(qtyRaw * 100) / 100,
+        quantity: packsNeeded,
+        pack_size: packSize,
         product_id: bestProduct?.id || null,
         cod_intern: bestProduct?.cod_intern || null,
         product_name: bestProduct?.denumire_completa || null,
         list_unit_price: listUnitPrice,
-        unit_price: unitPrice,
+        unit_price: listUnitPrice,
         discount_percent: discountNum,
         line_total: Math.round(lineTotal * 100) / 100,
         status: bestProduct ? "FOUND" : "NOT_FOUND",
@@ -246,8 +291,35 @@ const RecipeQuote = () => {
 
     setLines(result);
     setGenerated(true);
-    const found = result.filter((r) => r.status === "FOUND").length;
-    toast.success(`Ofertă generată: ${found}/${result.length} materiale găsite`);
+  }, [selectedRecipeId, activeTab, woolCalc?.productId, products]);
+
+  // Adjust quantities and discounts of existing lines when surface or global discount changes
+  useEffect(() => {
+    if (lines.length === 0) return;
+    const surfaceNum = parseFloat(surface) || 0;
+    const discountNum = parseFloat(discount) || 0;
+
+    setLines((prev) =>
+      prev.map((l) => {
+        const qtyRaw = Math.round(l.editedConsumption * surfaceNum * 100) / 100;
+        const packsNeeded = Math.ceil(qtyRaw / l.pack_size);
+        const unitPrice = l.unit_price || l.list_unit_price;
+        const lineTotal = packsNeeded * unitPrice * (1 - discountNum / 100);
+
+        return {
+          ...l,
+          qty_raw: qtyRaw,
+          quantity: packsNeeded,
+          discount_percent: discountNum,
+          line_total: Math.round(lineTotal * 100) / 100,
+        };
+      })
+    );
+  }, [surface, discount]);
+
+  // Fallback handleGenerate
+  const handleGenerate = () => {
+    toast.success("Ofertă actualizată automat!");
   };
 
   // ── Line updates ──────────────────────────────────────────────────────────
@@ -256,12 +328,18 @@ const RecipeQuote = () => {
       prev.map((l) => {
         if (l.position !== position) return l;
         const updated = { ...l, ...patch };
-        // Recalculate quantity if consumption changed
+        // Recalculate quantities respecting pack size
         const surfaceNum = parseFloat(surface) || 0;
-        const qty = Math.round(updated.editedConsumption * surfaceNum * 100) / 100;
+        const qtyRaw = Math.round(updated.editedConsumption * surfaceNum * 100) / 100;
+        const packsNeeded = Math.ceil(qtyRaw / updated.pack_size);
         const lineTotal =
-          qty * updated.unit_price * (1 - updated.discount_percent / 100);
-        return { ...updated, quantity: qty, line_total: Math.round(lineTotal * 100) / 100 };
+          packsNeeded * updated.unit_price * (1 - updated.discount_percent / 100);
+        return {
+          ...updated,
+          qty_raw: qtyRaw,
+          quantity: packsNeeded,
+          line_total: Math.round(lineTotal * 100) / 100,
+        };
       })
     );
   };
@@ -273,8 +351,12 @@ const RecipeQuote = () => {
         const newProduct = l.alternatives.find((p) => p.id === newProductId);
         if (!newProduct) return l;
         const listUnitPrice = Number(newProduct.pret_lista) || 0;
+        // Recalculate pack_size for new product
+        const newPackSizeRaw = Number(newProduct.pack_quantity) || 0;
+        const newPackSize = newPackSizeRaw > 1 ? newPackSizeRaw : l.pack_size;
+        const newPacksNeeded = Math.ceil(l.qty_raw / newPackSize);
         const lineTotal =
-          l.quantity * listUnitPrice * (1 - l.discount_percent / 100);
+          newPacksNeeded * listUnitPrice * (1 - l.discount_percent / 100);
         return {
           ...l,
           product_id: newProduct.id,
@@ -282,6 +364,8 @@ const RecipeQuote = () => {
           product_name: newProduct.denumire_completa,
           list_unit_price: listUnitPrice,
           unit_price: listUnitPrice,
+          pack_size: newPackSize,
+          quantity: newPacksNeeded,
           line_total: Math.round(lineTotal * 100) / 100,
           status: "FOUND" as const,
         };
@@ -407,13 +491,17 @@ const RecipeQuote = () => {
         product_id: l.product_id,
         cod_intern: l.cod_intern!,
         denumire: l.product_name || l.description,
-        quantity: l.quantity,
+        quantity: l.quantity,    // număr de pachete (saci/role/cutii)
         unit: l.um,
         pret_unitar: l.unit_price,
         discount_percent: l.discount_percent,
         pret_final: l.unit_price * (1 - l.discount_percent / 100),
         subtotal: l.line_total,
-        nota_ai: { consum_per_m2: l.editedConsumption },
+        nota_ai: {
+          consum_per_m2: l.editedConsumption,
+          qty_raw: l.qty_raw,
+          pack_size: l.pack_size,
+        },
       }));
     items.push(...auxiliaryItems);
 
@@ -429,15 +517,14 @@ const RecipeQuote = () => {
   // ── Shared: material lines table ─────────────────────────────────────────
   const renderLinesTable = () => (
     <div className="overflow-x-auto">
-      <Table className="min-w-[960px]">
+      <Table className="min-w-[1020px]">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[40px]">#</TableHead>
             <TableHead>Material</TableHead>
             <TableHead className="w-[80px]">Cod</TableHead>
             <TableHead className="w-[95px] text-right">Consum/mp</TableHead>
-            <TableHead className="w-[90px] text-right">Cantitate</TableHead>
-            <TableHead className="w-[50px]">UM</TableHead>
+            <TableHead className="w-[110px] text-right">Cantitate</TableHead>
             <TableHead className="w-[90px] text-right">Preț/UM</TableHead>
             <TableHead className="w-[155px]">Grile preț</TableHead>
             <TableHead className="w-[75px] text-right">Disc.%</TableHead>
@@ -465,6 +552,7 @@ const RecipeQuote = () => {
                         <SelectItem key={alt.id} value={alt.id} className="text-sm">
                           {alt.denumire_completa} (UM: {alt.unit || "—"}) —{" "}
                           {Number(alt.pret_lista).toFixed(2)} lei
+                          {Number(alt.pack_quantity) > 1 ? ` / ${alt.pack_quantity} ${line.um}` : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -506,8 +594,17 @@ const RecipeQuote = () => {
                 />
               </TableCell>
 
-              <TableCell className="text-right font-medium">{line.quantity}</TableCell>
-              <TableCell className="text-xs text-muted-foreground">{line.um}</TableCell>
+              {/* Cantitate: pachete + sub-text cu cantitate brută */}
+              <TableCell className="text-right">
+                <span className="font-medium block">
+                  {line.status === "FOUND" ? `${line.quantity} ${getPackUnitLabel(line.alternatives.find(p => p.id === line.product_id)?.unit || line.um)}` : "—"}
+                </span>
+                {line.status === "FOUND" && line.pack_size > 1 && (
+                  <span className="text-[10px] text-muted-foreground block">
+                    ({line.qty_raw} {line.um} / {line.pack_size})
+                  </span>
+                )}
+              </TableCell>
 
               {/* Unit price */}
               <TableCell>
@@ -637,11 +734,11 @@ const RecipeQuote = () => {
             <Card>
               <CardContent className="pt-5 space-y-5">
 
-                {/* Row: sistem + suprafata + discount */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                {/* Row: sistem + suprafata + grosime + discount */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                   <div>
                     <Label>Sistem auxiliar vată</Label>
-                    <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); setLines([]); setGenerated(false); }}>
+                    <Select value={selectedRecipeId} onValueChange={(v) => { setSelectedRecipeId(v); }}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Alege sistemul..." />
                       </SelectTrigger>
@@ -662,7 +759,31 @@ const RecipeQuote = () => {
                     />
                   </div>
                   <div>
-                    <Label>Discount global materiale auxiliare (%)</Label>
+                    <Label>Grosime izolație (cm)</Label>
+                    <div className="flex gap-1 mt-1 flex-wrap">
+                      {[5, 8, 10, 12, 15, 20].map((t) => (
+                        <Button
+                          key={t}
+                          type="button"
+                          variant={selectedThickness === t ? "default" : "outline"}
+                          className="h-9 px-2.5 text-xs font-semibold"
+                          onClick={() => setSelectedThickness(t)}
+                        >
+                          {t} cm
+                        </Button>
+                      ))}
+                      <Button
+                        type="button"
+                        variant={selectedThickness === null ? "default" : "outline"}
+                        className="h-9 px-2.5 text-xs font-semibold"
+                        onClick={() => setSelectedThickness(null)}
+                      >
+                        Toate
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Discount global auxiliare (%)</Label>
                     <Input
                       type="number" min={0} max={100} step="0.5"
                       value={discount}
@@ -682,18 +803,10 @@ const RecipeQuote = () => {
                     surface={surface}
                     onSurfaceChange={setSurface}
                     onCalculated={handleWoolCalculated}
+                    selectedRecipeName={selectedRecipe?.recipe_name}
+                    selectedThickness={selectedThickness}
                   />
                 </div>
-
-                <Button
-                  onClick={handleGenerate}
-                  disabled={!selectedRecipeId || !woolCalc}
-                  className="gap-2 w-full sm:w-auto"
-                  size="lg"
-                >
-                  <Calculator className="h-4 w-4" />
-                  GENEREAZĂ MATERIALE AUXILIARE
-                </Button>
               </CardContent>
             </Card>
 
@@ -747,12 +860,7 @@ const RecipeQuote = () => {
                     <Input type="number" min={0} max={100} step="0.5" value={discount} onChange={(e) => setDiscount(e.target.value)} className="mt-1" />
                   </div>
                 </div>
-                <div className="mt-4">
-                  <Button onClick={handleGenerate} className="gap-2 w-full sm:w-auto" size="lg" disabled={!selectedRecipeId}>
-                    <Calculator className="h-4 w-4" />
-                    GENEREAZĂ OFERTĂ
-                  </Button>
-                </div>
+                {/* Generated automatically, button not needed */}
               </CardContent>
             </Card>
 
