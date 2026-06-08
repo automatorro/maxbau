@@ -109,7 +109,7 @@ const Index = () => {
 
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-6xl space-y-8">
+      <div className="w-full space-y-8">
         <div className="flex flex-col gap-2">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Panou de control

@@ -858,7 +858,7 @@ export default function AntemasuratorImport() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-6xl mx-auto">
+      <div className="w-full">
         <h1 className="text-xl md:text-2xl font-bold mb-1">Import Antemasurătoare</h1>
         <p className="text-muted-foreground mb-6">
           Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI

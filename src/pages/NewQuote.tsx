@@ -433,7 +433,7 @@ const NewQuote = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-4 max-w-5xl">
+      <div className="space-y-4 w-full">
         <div>
           <h1 className="text-2xl font-bold text-foreground">
             {isEdit ? "Editare ofertă" : "Ofertă nouă"}

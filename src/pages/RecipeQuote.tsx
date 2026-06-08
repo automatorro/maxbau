@@ -840,7 +840,7 @@ const RecipeQuote = () => {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
-      <div className="space-y-5 max-w-6xl">
+      <div className="space-y-5 w-full">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Configurator Rețete & Sisteme</h1>
           <p className="text-sm text-muted-foreground">

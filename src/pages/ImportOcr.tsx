@@ -1066,7 +1066,7 @@ const ImportOcr = () => {
 
   return (
     <DashboardLayout>
-      <div className="space-y-4 max-w-6xl">
+      <div className="space-y-4 w-full">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Import OCR/Excel</h1>
