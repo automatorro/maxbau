@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -119,6 +120,129 @@ function getPackUnitLabel(productUnit: string | null): string {
   if (u === "set") return "seturi";
   return u;
 }
+
+const ProductSelector = ({
+  line,
+  allProducts,
+  onSelect,
+}: {
+  line: GeneratedLine;
+  allProducts: Product[];
+  onSelect: (productId: string) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const recommended = line.alternatives || [];
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return [];
+    const term = search.toLowerCase();
+    return allProducts
+      .filter(
+        (p) =>
+          (p.denumire_completa || "").toLowerCase().includes(term) ||
+          (p.cod_intern || "").toLowerCase().includes(term)
+      )
+      .slice(0, 25);
+  }, [allProducts, search]);
+
+  const selectedProduct = allProducts.find((p) => p.id === line.product_id);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between text-left font-normal text-xs h-auto py-1.5 min-h-[36px] whitespace-normal bg-card hover:bg-accent/5 border-primary/20"
+        >
+          <span className="truncate max-w-[280px] sm:max-w-[350px] block">
+            {selectedProduct
+              ? selectedProduct.denumire_completa
+              : line.product_name || line.description}
+          </span>
+          <span className="shrink-0 opacity-50 ml-2 text-[10px]">▼</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[450px] p-0" align="start">
+        <div className="p-2 border-b bg-muted/20">
+          <input
+            type="text"
+            className="w-full bg-transparent border-none outline-none text-xs p-1.5 placeholder:text-muted-foreground text-foreground"
+            placeholder="Caută în tot catalogul MaxBau..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="max-h-[260px] overflow-y-auto p-1 text-xs divide-y divide-border/20">
+          {/* Recommended list */}
+          {!search && recommended.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase font-bold text-primary px-2 py-1.5 bg-primary/[0.02] sticky top-0">
+                Produse Recomandate
+              </div>
+              {recommended.map((alt) => (
+                <div
+                  key={alt.id}
+                  onClick={() => {
+                    onSelect(alt.id);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className="px-2.5 py-2 hover:bg-primary/[0.04] rounded cursor-pointer flex justify-between items-center transition-colors"
+                >
+                  <span className="truncate pr-2 font-medium text-foreground">{alt.denumire_completa}</span>
+                  <span className="shrink-0 font-bold text-primary text-[11px]">
+                    {Number(alt.pret_lista).toFixed(2)} lei/{alt.unit || "mp"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Search results */}
+          {search && filtered.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase font-bold text-muted-foreground px-2 py-1.5 bg-muted/20 sticky top-0">
+                Toate produsele din catalog
+              </div>
+              {filtered.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => {
+                    onSelect(p.id);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className="px-2.5 py-2 hover:bg-accent rounded cursor-pointer flex justify-between items-center transition-colors"
+                >
+                  <span className="truncate pr-2 text-foreground">{p.denumire_completa}</span>
+                  <span className="shrink-0 font-bold text-[11px] text-muted-foreground">
+                    {Number(p.pret_lista).toFixed(2)} lei/{p.unit || "mp"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {search && filtered.length === 0 && (
+            <div className="p-4 text-center text-muted-foreground italic">
+              Niciun produs găsit pentru "{search}"
+            </div>
+          )}
+
+          {!search && recommended.length === 0 && (
+            <div className="p-4 text-center text-muted-foreground italic">
+              Tastează mai sus pentru a căuta orice produs din catalog...
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 function findCandidateProducts(mat: RecipeMaterial, products: Product[]): Product[] {
   const rawKeywords = mat.keywords.flatMap((k) => k.split(/[\s+]+/)).map((k) => k.toLowerCase());
@@ -483,26 +607,25 @@ const RecipeQuote = () => {
       });
     }
 
-    // Materiale auxiliare din rețetă
-    const auxiliaryItems = lines
-      .filter((l) => l.status === "FOUND")
-      .map((l) => ({
-        quote_id: quote.id,
-        product_id: l.product_id,
-        cod_intern: l.cod_intern!,
-        denumire: l.product_name || l.description,
-        quantity: l.quantity,    // număr de pachete (saci/role/cutii)
-        unit: l.um,
-        pret_unitar: l.unit_price,
-        discount_percent: l.discount_percent,
-        pret_final: l.unit_price * (1 - l.discount_percent / 100),
-        subtotal: l.line_total,
-        nota_ai: {
-          consum_per_m2: l.editedConsumption,
-          qty_raw: l.qty_raw,
-          pack_size: l.pack_size,
-        },
-      }));
+    // Materiale auxiliare din rețetă (salvăm toate materialele din rețetă)
+    const auxiliaryItems = lines.map((l) => ({
+      quote_id: quote.id,
+      product_id: l.product_id,
+      cod_intern: l.cod_intern || "MANUAL",
+      denumire: l.product_name || l.description,
+      quantity: l.quantity,    // număr de pachete (saci/role/cutii)
+      unit: l.um,
+      pret_unitar: l.unit_price,
+      discount_percent: l.discount_percent,
+      pret_final: l.unit_price * (1 - l.discount_percent / 100),
+      subtotal: l.line_total,
+      nota_ai: {
+        consum_per_m2: l.editedConsumption,
+        qty_raw: l.qty_raw,
+        pack_size: l.pack_size,
+        status: l.status,
+      },
+    }));
     items.push(...auxiliaryItems);
 
     if (items.length > 0) {
@@ -539,31 +662,15 @@ const RecipeQuote = () => {
 
               {/* Product / Alternative selector */}
               <TableCell>
-                {line.alternatives && line.alternatives.length > 0 ? (
-                  <Select
-                    value={line.product_id || ""}
-                    onValueChange={(val) => handleAlternativeChange(line.position, val)}
-                  >
-                    <SelectTrigger className="w-full text-sm h-auto py-1 min-h-[32px]">
-                      <SelectValue placeholder="Alege alternativă..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {line.alternatives.map((alt) => (
-                        <SelectItem key={alt.id} value={alt.id} className="text-sm">
-                          {alt.denumire_completa} (UM: {alt.unit || "—"}) —{" "}
-                          {Number(alt.pret_lista).toFixed(2)} lei
-                          {Number(alt.pack_quantity) > 1 ? ` / ${alt.pack_quantity} ${line.um}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="text-sm">{line.product_name || line.description}</div>
-                )}
+                <ProductSelector
+                  line={line}
+                  allProducts={products}
+                  onSelect={(val) => handleAlternativeChange(line.position, val)}
+                />
                 {line.status === "NOT_FOUND" && (
-                  <div className="text-xs text-destructive flex items-center gap-1 mt-0.5">
-                    <AlertTriangle className="h-3 w-3" />
-                    Produs negăsit în catalog
+                  <div className="text-xs text-amber-600 flex items-center gap-1 mt-1 font-medium bg-amber-50 dark:bg-amber-950/20 p-1.5 rounded border border-amber-200/50">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Produs negăsit. Alege din catalog sau introdu preț manual.
                   </div>
                 )}
               </TableCell>
@@ -597,9 +704,11 @@ const RecipeQuote = () => {
               {/* Cantitate: pachete + sub-text cu cantitate brută */}
               <TableCell className="text-right">
                 <span className="font-medium block">
-                  {line.status === "FOUND" ? `${line.quantity} ${getPackUnitLabel(line.alternatives.find(p => p.id === line.product_id)?.unit || line.um)}` : "—"}
+                  {line.status === "FOUND"
+                    ? `${line.quantity} ${getPackUnitLabel(line.alternatives.find(p => p.id === line.product_id)?.unit || line.um)}`
+                    : `${line.quantity} ${line.um}`}
                 </span>
-                {line.status === "FOUND" && line.pack_size > 1 && (
+                {line.pack_size > 1 && (
                   <span className="text-[10px] text-muted-foreground block">
                     ({line.qty_raw} {line.um} / {line.pack_size})
                   </span>
@@ -608,23 +717,20 @@ const RecipeQuote = () => {
 
               {/* Unit price */}
               <TableCell>
-                {line.status === "FOUND" ? (
-                  <Input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={line.unit_price}
-                    onChange={(e) =>
-                      updateLine(line.position, {
-                        unit_price: parseFloat(e.target.value) || 0,
-                        price_sheet_item_id: null,
-                      })
-                    }
-                    className="h-8 text-right"
-                  />
-                ) : (
-                  <span className="text-xs text-muted-foreground">—</span>
-                )}
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={line.unit_price}
+                  onChange={(e) =>
+                    updateLine(line.position, {
+                      unit_price: parseFloat(e.target.value) || 0,
+                      price_sheet_item_id: null,
+                    })
+                  }
+                  className="h-8 text-right font-medium"
+                  placeholder="0.00"
+                />
               </TableCell>
 
               {/* Price variants */}
