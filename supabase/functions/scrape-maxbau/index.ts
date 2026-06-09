@@ -505,7 +505,7 @@ Deno.serve(async (req) => {
     // Returnează toți slug-urile de branduri de pe /marci
     if (action === "list-brands") {
       const res = await fetch(`${BASE_URL}/marci`, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxBauScraper/2.0)" },
+        headers: BROWSER_HEADERS,
       });
       if (!res.ok) throw new Error(`Failed to fetch /marci: ${res.status}`);
       const html = await res.text();
@@ -530,7 +530,7 @@ Deno.serve(async (req) => {
         : `${BASE_URL}/marci/${brandSlug}/pag-${pageNum}`;
 
       const res = await fetch(pageUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxBauScraper/2.0)" },
+        headers: BROWSER_HEADERS,
       });
       if (!res.ok) throw new Error(`Failed to fetch ${pageUrl}: ${res.status}`);
       const html = await res.text();
