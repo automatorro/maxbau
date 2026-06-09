@@ -8,6 +8,15 @@ const corsHeaders = {
 
 const BASE_URL = "https://maxbau.ro";
 
+// Browser-like headers to avoid 403 anti-bot blocks
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept":
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "ro-RO,ro;q=0.9,en;q=0.8",
+};
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function parseNumber(raw: string): number | null {
@@ -496,7 +505,7 @@ Deno.serve(async (req) => {
     // Returnează toți slug-urile de branduri de pe /marci
     if (action === "list-brands") {
       const res = await fetch(`${BASE_URL}/marci`, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxBauScraper/2.0)" },
+        headers: BROWSER_HEADERS,
       });
       if (!res.ok) throw new Error(`Failed to fetch /marci: ${res.status}`);
       const html = await res.text();
@@ -521,7 +530,7 @@ Deno.serve(async (req) => {
         : `${BASE_URL}/marci/${brandSlug}/pag-${pageNum}`;
 
       const res = await fetch(pageUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; MaxBauScraper/2.0)" },
+        headers: BROWSER_HEADERS,
       });
       if (!res.ok) throw new Error(`Failed to fetch ${pageUrl}: ${res.status}`);
       const html = await res.text();
