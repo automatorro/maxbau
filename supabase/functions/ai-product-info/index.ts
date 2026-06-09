@@ -223,6 +223,18 @@ Reguli stricte:
             items: { type: "array", items: { type: "string" } },
             description: "All data rows (excluding header). Each inner array has same length as headers.",
           },
+          column_map: {
+            type: "object",
+            properties: {
+              denumire: { type: "number", description: "Index (0-based) of the product name column" },
+              pret: { type: "number", description: "Index of the price column" },
+              um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
+              cod_furnizor: { type: "number", description: "Index of the supplier/internal product code column, or -1 if not present" },
+              cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
+              consum: { type: "number", description: "Index of consumption column, or -1 if not present" }
+            },
+            description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found."
+          },
           note: { type: "string", description: "Optional: observation about image quality or ambiguous content" },
         },
         required: ["headers", "rows"],
@@ -321,7 +333,13 @@ Reguli stricte:
       });
 
       return new Response(
-        JSON.stringify({ success: true, headers: extracted.headers, rows: normalizedRows, note: extracted.note || null }),
+        JSON.stringify({
+          success: true,
+          headers: extracted.headers,
+          rows: normalizedRows,
+          note: extracted.note || null,
+          column_map: extracted.column_map || null
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

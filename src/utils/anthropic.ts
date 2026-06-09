@@ -152,7 +152,7 @@ export async function extractTableFromImageWithAnthropic(
   imageBase64: string,
   mimeType: string,
   contextType: "price_list" | "antemasuratoare" = "price_list"
-): Promise<{ headers: string[]; rows: string[][] }> {
+): Promise<{ headers: string[]; rows: string[][]; column_map?: any }> {
   
   const systemPrompt = contextType === "price_list" 
     ? `Ești expert în extragerea tabelelor din liste de prețuri pentru materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Mapei, Leier, Bramac etc.), trimise pe WhatsApp de furnizori.
@@ -184,6 +184,18 @@ Reguli stricte:
           type: "array",
           items: { type: "array", items: { type: "string" } },
           description: "All data rows (excluding header). Each inner array has same length as headers.",
+        },
+        column_map: {
+          type: "object",
+          properties: {
+            denumire: { type: "number", description: "Index (0-based) of the product name column" },
+            pret: { type: "number", description: "Index of the price column" },
+            um: { type: "number", description: "Index of the unit of measure column, or -1 if not present" },
+            cod_furnizor: { type: "number", description: "Index of the supplier/internal product code column, or -1 if not present" },
+            cantitate_palet: { type: "number", description: "Index of pallet quantity column, or -1 if not present" },
+            consum: { type: "number", description: "Index of consumption column, or -1 if not present" }
+          },
+          description: "Mapping of semantic columns to their 0-based index in headers. Use -1 if column not found."
         },
         note: { type: "string", description: "Optional: observation about image quality" },
       },
@@ -228,7 +240,7 @@ Reguli stricte:
       return padded.slice(0, colCount);
     });
 
-    return { headers: extracted.headers, rows: normalizedRows };
+    return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
   } catch (error) {
     console.warn("Vision Anthropic call failed, trying Gemini fallback...", error);
     try {
@@ -244,7 +256,7 @@ Reguli stricte:
         while (padded.length < colCount) padded.push("");
         return padded.slice(0, colCount);
       });
-      return { headers: extracted.headers, rows: normalizedRows };
+      return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
     } catch (geminiError: any) {
       console.error("Gemini Vision fallback also failed:", geminiError);
       throw new Error(`Eroare extragere imagine (Vision). Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);

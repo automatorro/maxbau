@@ -99,6 +99,12 @@ function expandSynonyms(tokens: string[]): string[] {
 }
 
 function suggestProductsForName(name: string, products: ProductForMatch[], limit: number): { product: ProductForMatch; score: number }[] {
+  const cleanName = name.trim();
+  // If the search query is purely a price or number (e.g. "8.75", "77", etc.), ignore it to prevent false positive matching.
+  if (/^\d+([.,]\d+)?$/.test(cleanName)) {
+    return [];
+  }
+
   const keywords = expandSynonyms(matchKeywordsFromText(name));
   if (keywords.length === 0) return [];
   const scored: { product: ProductForMatch; score: number; matchedLength: number }[] = [];
@@ -149,17 +155,53 @@ function parsePriceCell(text: string): number | null {
 
 function guessNameColumnIndex(headerCells: string[]): number {
   const nameKeywords = ["denumire", "produs", "material", "articol", "descriere", "name", "description", "item"];
+  const priceKeywords = ["pret", "price", "tarif", "lei", "eur", "ron", "pv", "pvp", "cost", "valoare", "pal", "palet", "peste", "+", ">"];
+  
+  // First pass: look for explicit name keywords in non-price columns
   for (let i = 0; i < headerCells.length; i++) {
     const h = normalizeMatchText(headerCells[i]);
+    if (priceKeywords.some((kw) => h.includes(kw))) continue;
     if (nameKeywords.some((kw) => h.includes(kw))) return i;
   }
-  let bestIdx = 0;
+  
+  // Second pass: find the longest non-price header cell
+  let bestIdx = -1;
   let bestLen = 0;
   for (let i = 0; i < headerCells.length; i++) {
+    const h = normalizeMatchText(headerCells[i]);
+    if (priceKeywords.some((kw) => h.includes(kw))) continue;
     const len = headerCells[i].length;
     if (len > bestLen) { bestLen = len; bestIdx = i; }
   }
-  return bestIdx;
+  if (bestIdx >= 0) return bestIdx;
+  
+  // Fallback to original logic if everything looks like a price or is empty
+  let fallbackIdx = 0;
+  let fallbackLen = 0;
+  for (let i = 0; i < headerCells.length; i++) {
+    const len = headerCells[i].length;
+    if (len > fallbackLen) { fallbackLen = len; fallbackIdx = i; }
+  }
+  return fallbackIdx;
+}
+
+function guessCodFurnizorColumnIndex(headerCells: string[]): number {
+  const codeKeywords = ["cod", "sku", "articol", "ref", "pnc", "id", "intern"];
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = normalizeMatchText(headerCells[i]);
+    if (h.includes("denumire") || h.includes("nume") || h.includes("descriere") || h.includes("pret")) continue;
+    if (codeKeywords.some((kw) => h.includes(kw))) return i;
+  }
+  return -1;
+}
+
+function guessUmColumnIndex(headerCells: string[]): number {
+  const umKeywords = ["um", "u.m.", "unitate", "unit", "masura", "pack"];
+  for (let i = 0; i < headerCells.length; i++) {
+    const h = normalizeMatchText(headerCells[i]);
+    if (umKeywords.some((kw) => h.includes(kw))) return i;
+  }
+  return -1;
 }
 
 function guessPriceColumnIndex(headerCells: string[]): number {
@@ -643,6 +685,15 @@ const ImportOcr = () => {
     const priceIdx = columnMap?.pret != null && columnMap.pret >= 0 ? columnMap.pret : guessPriceColumnIndex(headers);
     setMatchNameColIdx(nameIdx);
 
+    const activeColumnMap = columnMap || {
+      denumire: nameIdx,
+      pret: priceIdx,
+      cod_furnizor: guessCodFurnizorColumnIndex(headers),
+      um: guessUmColumnIndex(headers),
+      cantitate_palet: -1,
+      consum: -1
+    };
+
     // Auto-detect ALL price columns (multi-tier price lists: 1-2PAL / 3-4PAL / 5+PAL).
     // Exclude the name column from candidates.
     const detected = detectPriceColumns(headers, rows).filter((i) => i !== nameIdx);
@@ -659,7 +710,7 @@ const ImportOcr = () => {
       toast.info(`${priceCols.length} coloane de preț detectate — toate vor fi salvate ca tipuri de preț distincte.`);
     }
 
-    if (columnMap) setAiColumnMap(columnMap);
+    setAiColumnMap(activeColumnMap);
     if (catRows && catRows.length > 0) {
       setCategoryRows(catRows);
       toast.info(`${catRows.length} categorii detectate în tabel`);
@@ -668,7 +719,7 @@ const ImportOcr = () => {
     if (note) toast.info(note);
     setTimeout(() => {
       if (productsForMatch.length > 0 && bodyGridRows.length > 0)
-        runAutoMatch(bodyGridRows, nameIdx, productsForMatch, columnMap || null);
+        runAutoMatch(bodyGridRows, nameIdx, productsForMatch, activeColumnMap);
     }, 100);
   };
 
@@ -695,14 +746,14 @@ const ImportOcr = () => {
         });
         if (error) throw new Error(error.message);
         if (!data?.success) throw new Error(data?.error || "Extragere eșuată");
-        loadAiResult(data.headers, data.rows, data.note);
+        loadAiResult(data.headers, data.rows, data.note, data.column_map);
         toast.success(`${data.rows.length} rânduri extrase din imagine`);
       } catch (edgeErr) {
         console.warn("Funcția edge OCR a eșuat, încercăm fallback direct din browser...", edgeErr);
         
         // 2. Fallback direct din browser (care are fallback-ul Gemini integrat)
         const data = await extractTableFromImageWithAnthropic(base64, file.type || "image/jpeg", "price_list");
-        loadAiResult(data.headers, data.rows, null);
+        loadAiResult(data.headers, data.rows, null, data.column_map);
         toast.success(`${data.rows.length} rânduri extrase direct din browser (Gemini)`);
       }
     } catch (e) {
@@ -799,9 +850,14 @@ const ImportOcr = () => {
       let results: { product: ProductForMatch; score: number }[] = [];
       
       if (codeToMatch) {
-         const exactMatch = validProducts.find(p => p.cod_intern === codeToMatch);
+         const cleanCode = codeToMatch.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+         const exactMatch = validProducts.find(p => {
+           if (!p.cod_intern) return false;
+           const pClean = p.cod_intern.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+           return pClean === cleanCode && cleanCode.length > 0;
+         });
          if (exactMatch) {
-            results = [{ product: exactMatch, score: 1 }];
+            results = [{ product: exactMatch, score: 1.0 }];
          }
       }
 
@@ -1028,6 +1084,34 @@ const ImportOcr = () => {
 
   const updateCell = (rowId: string, colIndex: number, value: string) => {
     setGridRows((prev) => prev.map((r) => r.id !== rowId ? r : { ...r, cells: r.cells.map((c, i) => i === colIndex ? value : c) }));
+    
+    // Check if we are updating a header cell to dynamically adjust column mappings
+    const isHeader = gridRows[headerRowIndex]?.id === rowId;
+    if (isHeader) {
+      const norm = normalizeMatchText(value);
+      const nameKeywords = ["denumire", "produs", "material", "articol", "descriere", "name", "description", "item"];
+      const codeKeywords = ["cod", "sku", "intern", "ref", "pnc", "id"];
+      const umKeywords = ["um", "unitate", "unit", "masura", "pack"];
+      
+      if (nameKeywords.some((kw) => norm.includes(kw))) {
+        setMatchNameColIdx(colIndex);
+        toast.info(`Coloana "${value}" a fost selectată automat ca coloană de denumire.`);
+      } else if (codeKeywords.some((kw) => norm.includes(kw)) && !norm.includes("denumire") && !norm.includes("pret")) {
+        setAiColumnMap((prev) => {
+          const next = prev ? { ...prev } : { denumire: matchNameColIdx, pret: 0, um: -1, cod_furnizor: colIndex, cantitate_palet: -1, consum: -1 };
+          next.cod_furnizor = colIndex;
+          return next;
+        });
+        toast.info(`Coloana "${value}" a fost recunoscută automat ca cod intern.`);
+      } else if (umKeywords.some((kw) => norm.includes(kw))) {
+        setAiColumnMap((prev) => {
+          const next = prev ? { ...prev } : { denumire: matchNameColIdx, pret: 0, um: colIndex, cod_furnizor: -1, cantitate_palet: -1, consum: -1 };
+          next.um = colIndex;
+          return next;
+        });
+        toast.info(`Coloana "${value}" a fost recunoscută ca unitate de măsură.`);
+      }
+    }
   };
 
   const deleteColumn = (colIndex: number) => {
