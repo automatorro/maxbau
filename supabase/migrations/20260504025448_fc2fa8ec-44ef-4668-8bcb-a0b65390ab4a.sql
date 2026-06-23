@@ -1,6 +1,8 @@
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+DROP TABLE IF EXISTS public.echivalente_produse CASCADE;
+
 CREATE TABLE public.echivalente_produse (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   cerere_text text NOT NULL,

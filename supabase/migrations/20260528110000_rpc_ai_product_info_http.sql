@@ -1,5 +1,5 @@
 -- Rescrie get_ai_product_info folosind extensia `http` (sincrona) in loc de pg_net
--- Ruleaza dupa: CREATE EXTENSION IF NOT EXISTS http;
+CREATE EXTENSION IF NOT EXISTS http;
 
 CREATE OR REPLACE FUNCTION public.get_ai_product_info(p_product_id UUID)
 RETURNS JSONB
