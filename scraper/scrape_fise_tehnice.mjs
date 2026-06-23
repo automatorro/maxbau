@@ -372,7 +372,13 @@ async function main() {
 
   // Limită test
   if (TEST_LIMIT) {
-    productUrls = productUrls.slice(0, TEST_LIMIT);
+    // Încercăm să selectăm produse care probabil au fișe tehnice (materiale de construcții: adeziv, vată, ciment etc.)
+    const candidates = productUrls.filter(u => /adeziv|vata|polistiren|gips|tencuiala|mortar|vopsea|baumit|adeplast|ciment/i.test(u));
+    if (candidates.length > 0) {
+      productUrls = candidates.slice(0, TEST_LIMIT);
+    } else {
+      productUrls = productUrls.slice(0, TEST_LIMIT);
+    }
   }
 
   stats.total = productUrls.length;

@@ -84,23 +84,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  * Dacă nu e disponibil, oferim instrucțiuni de instalare.
  */
 async function extractTextFromPdfBuffer(buffer) {
-  let pdfParse;
   try {
-    const module = await import('pdf-parse/lib/pdf-parse.js');
-    pdfParse = module.default;
-  } catch {
-    try {
-      const module = await import('pdf-parse');
-      pdfParse = module.default;
-    } catch {
-      throw new Error(
-        'pdf-parse nu este instalat. Rulează: npm install pdf-parse'
-      );
+    const m = await import('pdf-parse');
+    if (m.PDFParse) {
+      // Modern pdf-parse class-based API
+      const parser = new m.PDFParse({ data: new Uint8Array(buffer) });
+      const textResult = await parser.getText();
+      await parser.destroy();
+      return textResult.text || '';
+    } else {
+      // Traditional function-based API
+      const pdfParse = m.default || m;
+      if (typeof pdfParse !== 'function') {
+        throw new Error('pdf-parse nu exportă o funcție validă');
+      }
+      const data = await pdfParse(Buffer.from(buffer));
+      return data.text || '';
     }
+  } catch (err) {
+    throw new Error(`Eroare la parsarea PDF: ${err.message}`);
   }
-
-  const data = await pdfParse(Buffer.from(buffer));
-  return data.text || '';
 }
 
 // ─── Gemini: extragere specs structurate ─────────────────────────────────────
