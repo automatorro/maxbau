@@ -527,12 +527,22 @@ const AdminProducts = () => {
         if (error) throw error;
         result = data as any;
       } else if (hasPdf) {
-        // Dacă avem PDF-ul dar datele nu sunt extrase, rulăm extragerea prin funcția Edge (ceea ce apelează Gemini pe PDF)
-        const { data, error } = await supabase.functions.invoke("extract-pdf-specs", {
-          body: { productId },
-        });
-        if (error) throw error;
-        result = { success: true, data: { [productId]: data?.data } };
+        try {
+          // Încercăm extragerea direct din PDF prin Edge Function
+          const { data, error } = await supabase.functions.invoke("extract-pdf-specs", {
+            body: { productId },
+          });
+          if (error) throw error;
+          result = { success: true, data: { [productId]: data?.data } };
+        } catch (edgeError) {
+          console.warn("Edge function extract-pdf-specs failed, falling back to name-based RPC:", edgeError);
+          // Fallback la RPC (bazat pe denumire) dacă extragerea din PDF a eșuat
+          const { data, error } = await supabase.rpc("get_ai_product_info", {
+            p_product_id: productId,
+          });
+          if (error) throw error;
+          result = data as any;
+        }
       } else {
         // Fallback: Dacă nu avem fișă tehnică deloc, lăsăm RPC-ul să apeleze Gemini bazat pe denumirea produsului
         const { data, error } = await supabase.rpc("get_ai_product_info", {
