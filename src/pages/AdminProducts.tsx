@@ -515,16 +515,26 @@ const AdminProducts = () => {
     setAiLoadingId(productId);
     try {
       const product = products?.find((p: any) => p.id === productId);
+      const hasExtractedSpecs = product?.specifications?.fisa_tehnica_specs;
       const hasPdf = product?.fisa_tehnica_url || product?.fisa_tehnica_storage_path;
 
       let result: any;
-      if (hasPdf) {
+      if (hasExtractedSpecs) {
+        // Dacă specificațiile din PDF există deja, apelăm doar funcția SQL (RPC) de mapare rapidă din DB, fără a apela API-ul Gemini
+        const { data, error } = await supabase.rpc("get_ai_product_info", {
+          p_product_id: productId,
+        });
+        if (error) throw error;
+        result = data as any;
+      } else if (hasPdf) {
+        // Dacă avem PDF-ul dar datele nu sunt extrase, rulăm extragerea prin funcția Edge (ceea ce apelează Gemini pe PDF)
         const { data, error } = await supabase.functions.invoke("extract-pdf-specs", {
           body: { productId },
         });
         if (error) throw error;
         result = { success: true, data: { [productId]: data?.data } };
       } else {
+        // Fallback: Dacă nu avem fișă tehnică deloc, lăsăm RPC-ul să apeleze Gemini bazat pe denumirea produsului
         const { data, error } = await supabase.rpc("get_ai_product_info", {
           p_product_id: productId,
         });
@@ -535,7 +545,11 @@ const AdminProducts = () => {
       if (!result?.success) throw new Error(result?.error || "Eroare AI");
 
       queryClient.invalidateQueries({ queryKey: ["admin-products"] });
-      toast({ title: hasPdf ? "Date tehnice extrase cu succes din PDF" : "Date tehnice generate cu succes de AI" });
+      toast({ 
+        title: hasExtractedSpecs 
+          ? "Date tehnice încărcate instantaneu din fișa tehnică existentă" 
+          : (hasPdf ? "Date tehnice extrase cu succes din PDF" : "Date tehnice generate cu succes de AI") 
+      });
     } catch (e: any) {
       console.error("AI fetch error:", e);
       toast({ title: "Eroare la obținerea datelor AI", description: e.message, variant: "destructive" });
@@ -1026,7 +1040,7 @@ const AdminProducts = () => {
                             ) : (
                               <Sparkles className="h-3 w-3" />
                             )}
-                            AI
+                            {aiInfo ? "Re-extrage" : "Date"}
                           </Button>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs">
