@@ -42,6 +42,9 @@ interface Product {
   pack_quantity: string | null;
   specifications: Record<string, unknown> | null;
   categories?: { name: string } | null;
+  fisa_tehnica_url?: string | null;
+  fisa_tehnica_storage_path?: string | null;
+  fisa_tehnica_processed?: boolean;
 }
 
 const getAiInfo = (p: Product): AiInfo | null => {
@@ -129,6 +132,9 @@ const AdminProducts = () => {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
   const [aiLoadingId, setAiLoadingId] = useState<string | null>(null);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [uploadedStoragePath, setUploadedStoragePath] = useState<string | null>(null);
+  const [extractingSpecs, setExtractingSpecs] = useState(false);
 
   const [form, setForm] = useState({
     cod_intern: "",
@@ -144,6 +150,7 @@ const AdminProducts = () => {
     alternative: "",
     compatibilitati: "",
     utilizare: "",
+    fisa_tehnica_url: "",
   });
 
   const { toast } = useToast();
@@ -419,6 +426,7 @@ const AdminProducts = () => {
 
   const openEdit = (product: Product) => {
     setEditProduct(product);
+    setUploadedStoragePath(product.fisa_tehnica_storage_path || null);
     const ai = getAiInfo(product);
     setForm({
       cod_intern: product.cod_intern || "",
@@ -434,6 +442,7 @@ const AdminProducts = () => {
       alternative: ai?.alternative?.join(", ") || "",
       compatibilitati: ai?.compatibilitati || "",
       utilizare: ai?.utilizare || "",
+      fisa_tehnica_url: product.fisa_tehnica_url || "",
     });
   };
 
@@ -467,9 +476,11 @@ const AdminProducts = () => {
         manufacturer: form.manufacturer || null,
         supplier_id: form.supplier_id === "none" ? null : form.supplier_id,
         specifications: newSpecs,
+        fisa_tehnica_url: form.fisa_tehnica_url ? form.fisa_tehnica_url.trim() : null,
+        fisa_tehnica_storage_path: uploadedStoragePath,
       };
 
-      const { error, data: updateResult, count } = await supabase
+      const { error, data: updateResult } = await supabase
         .from("products")
         .update(updateData)
         .eq("id", editProduct.id)
@@ -503,26 +514,31 @@ const AdminProducts = () => {
   const fetchAiData = async (productId: string) => {
     setAiLoadingId(productId);
     try {
-      // Apelăm RPC-ul PostgreSQL în loc de edge function (edge function are un bug cu matching-ul după cod_intern)
-      const { data, error } = await supabase.rpc("get_ai_product_info", {
-        p_product_id: productId,
-      });
+      const product = products?.find((p: any) => p.id === productId);
+      const hasPdf = product?.fisa_tehnica_url || product?.fisa_tehnica_storage_path;
 
-      if (error) throw error;
-      const result = data as any;
+      let result: any;
+      if (hasPdf) {
+        const { data, error } = await supabase.functions.invoke("extract-pdf-specs", {
+          body: { productId },
+        });
+        if (error) throw error;
+        result = { success: true, data: { [productId]: data?.data } };
+      } else {
+        const { data, error } = await supabase.rpc("get_ai_product_info", {
+          p_product_id: productId,
+        });
+        if (error) throw error;
+        result = data as any;
+      }
+
       if (!result?.success) throw new Error(result?.error || "Eroare AI");
 
-      const aiResult = result.data?.[productId] as AiInfo | undefined;
-      if (aiResult) {
-        // RPC-ul salvează deja în DB — doar invalidăm query cache-ul
-        queryClient.invalidateQueries({ queryKey: ["admin-products"] });
-        toast({ title: "Date tehnice AI obținute și salvate" });
-      } else {
-        toast({ title: "AI nu a returnat date pentru acest produs" });
-      }
-    } catch (e) {
+      queryClient.invalidateQueries({ queryKey: ["admin-products"] });
+      toast({ title: hasPdf ? "Date tehnice extrase cu succes din PDF" : "Date tehnice generate cu succes de AI" });
+    } catch (e: any) {
       console.error("AI fetch error:", e);
-      toast({ title: "Eroare la obținerea datelor AI", variant: "destructive" });
+      toast({ title: "Eroare la obținerea datelor AI", description: e.message, variant: "destructive" });
     } finally {
       setAiLoadingId(null);
     }
@@ -531,6 +547,108 @@ const AdminProducts = () => {
   const toggleExpand = (id: string) => {
     if (expandedRowId === id) setExpandedRowId(null);
     else setExpandedRowId(id);
+  };
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editProduct) return;
+    
+    setUploadingPdf(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${editProduct.cod_intern || Date.now()}_fisa_tehnica.${fileExt}`;
+      const filePath = `${editProduct.cod_intern || "temp"}/${fileName}`;
+      
+      const { data, error } = await supabase.storage
+        .from("fise-tehnice")
+        .upload(filePath, file, {
+          upsert: true,
+        });
+        
+      if (error) throw error;
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from("fise-tehnice")
+        .getPublicUrl(filePath);
+        
+      setForm(prev => ({
+        ...prev,
+        fisa_tehnica_url: publicUrl,
+      }));
+      setUploadedStoragePath(filePath);
+      
+      toast({ title: "Succes", description: "Fișierul PDF a fost încărcat în storage." });
+    } catch (error: any) {
+      console.error("PDF upload error:", error);
+      toast({ title: "Eroare la încărcare", description: error.message, variant: "destructive" });
+    } finally {
+      setUploadingPdf(false);
+    }
+  };
+
+  const handleExtractSpecsFromPdf = async () => {
+    if (!editProduct) return;
+    
+    const currentUrl = form.fisa_tehnica_url.trim();
+    if (!currentUrl && !uploadedStoragePath) {
+      toast({ title: "Eroare", description: "Vă rugăm să uploadați un PDF sau să introduceți un URL de fișă tehnică mai întâi.", variant: "destructive" });
+      return;
+    }
+    
+    setExtractingSpecs(true);
+    try {
+      const { error: savePdfError } = await supabase
+        .from("products")
+        .update({
+          fisa_tehnica_url: currentUrl || null,
+          fisa_tehnica_storage_path: uploadedStoragePath || null
+        })
+        .eq("id", editProduct.id);
+        
+      if (savePdfError) throw savePdfError;
+
+      const { data, error } = await supabase.functions.invoke("extract-pdf-specs", {
+        body: { productId: editProduct.id },
+      });
+      
+      if (error) throw error;
+      
+      if (data?.success && data?.data) {
+        const specs = data.data;
+        
+        let compat = "";
+        if (Array.isArray(specs.compatibil_cu)) {
+          compat = specs.compatibil_cu.join(", ");
+        } else {
+          compat = specs.compatibil_cu || "";
+        }
+        
+        let util = "";
+        if (Array.isArray(specs.utilizare)) {
+          util = specs.utilizare.join(", ");
+        } else {
+          util = specs.utilizare || "";
+        }
+
+        setForm(prev => ({
+          ...prev,
+          consum: specs.consum || prev.consum,
+          ambalaj: specs.ambalaj || prev.ambalaj,
+          compatibilitati: compat || prev.compatibilitati,
+          utilizare: util || prev.utilizare,
+          alternative: specs.alternative?.join(", ") || prev.alternative,
+        }));
+        
+        toast({ title: "Succes", description: "Datele tehnice au fost extrase cu succes din PDF și completate în formular." });
+      } else {
+        throw new Error(data?.error || "Eroare la extragere date.");
+      }
+    } catch (error: any) {
+      console.error("Specs extraction error:", error);
+      toast({ title: "Eroare la extragere", description: error.message, variant: "destructive" });
+    } finally {
+      setExtractingSpecs(false);
+    }
   };
 
   return (
@@ -708,9 +826,9 @@ const AdminProducts = () => {
                                   disabled={aiLoadingId === product.id}
                                 >
                                   {aiLoadingId === product.id ? (
-                                    <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Se caută...</>
+                                    <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Se extrag date...</>
                                   ) : (
-                                    <><Sparkles className="h-3.5 w-3.5 mr-1" /> {aiInfo ? "Re-generează cu AI" : "Completează cu AI"}</>
+                                    <><Sparkles className="h-3.5 w-3.5 mr-1" /> {aiInfo ? "Re-extrage date" : "Extrage date tehnice"}</>
                                   )}
                                 </Button>
                               </div>
@@ -740,6 +858,88 @@ const AdminProducts = () => {
                                   <p>{aiInfo?.compatibilitati || "-"}</p>
                                 </div>
                               </div>
+                              {product.specifications?.fisa_tehnica_specs && (
+                                <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
+                                  <h5 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
+                                    <span>Fișă Tehnică Detaliată (PDF)</span>
+                                    {product.fisa_tehnica_url && (
+                                      <a 
+                                        href={product.fisa_tehnica_url} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        className="text-xs text-blue-500 hover:text-blue-600 underline lowercase font-normal"
+                                      >
+                                        (vezi PDF original)
+                                      </a>
+                                    )}
+                                  </h5>
+                                  
+                                  {(product.specifications.fisa_tehnica_specs as any).rezumat_tehnic && (
+                                    <div className="text-xs bg-muted/40 p-2.5 rounded border italic text-muted-foreground">
+                                      {(product.specifications.fisa_tehnica_specs as any).rezumat_tehnic}
+                                    </div>
+                                  )}
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+                                    {(product.specifications.fisa_tehnica_specs as any).conductivitate_termica && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Conductivitate termică λ</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).conductivitate_termica}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).densitate && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Densitate</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).densitate}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).rezistenta_compresiune && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Rezistență la compresiune</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).rezistenta_compresiune}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).rezistenta_tractiune && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Rezistență la tracțiune</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).rezistenta_tractiune}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).clasa_reactie_foc && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Clasă reacție foc</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).clasa_reactie_foc}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).grosime_strat && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Grosime strat</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).grosime_strat}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).timp_uscare && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Timp uscare</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).timp_uscare}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).garantie && (
+                                      <div>
+                                        <p className="text-muted-foreground font-medium">Garanție</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).garantie}</p>
+                                      </div>
+                                    )}
+                                    {(product.specifications.fisa_tehnica_specs as any).norma_standard && 
+                                     Array.isArray((product.specifications.fisa_tehnica_specs as any).norma_standard) && 
+                                     (product.specifications.fisa_tehnica_specs as any).norma_standard.length > 0 && (
+                                      <div className="col-span-2">
+                                        <p className="text-muted-foreground font-medium">Norme / Standarde</p>
+                                        <p className="font-semibold">{(product.specifications.fisa_tehnica_specs as any).norma_standard.join(', ')}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1072,6 +1272,54 @@ const AdminProducts = () => {
                     <div className="space-y-2 md:col-span-2">
                       <Label>Alternative echivalente (separate prin virgulă)</Label>
                       <Input value={form.alternative} onChange={e => setForm({...form, alternative: e.target.value})} placeholder="ex: Mapei Keraflex Maxi S1, Baumit FlexMörtel" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Documentație PDF */}
+                <div className="space-y-4 border-t pt-4">
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Documentație Fișă Tehnică PDF
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>URL Fișă Tehnică</Label>
+                      <Input 
+                        value={form.fisa_tehnica_url} 
+                        onChange={e => setForm({...form, fisa_tehnica_url: e.target.value})} 
+                        placeholder="ex: https://cdn.contentspeed.ro/..." 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Încarcă Fișă Tehnică PDF locală</Label>
+                      <div className="flex items-center gap-2">
+                        <Input 
+                          type="file" 
+                          accept=".pdf" 
+                          onChange={handlePdfUpload} 
+                          disabled={uploadingPdf}
+                          className="cursor-pointer"
+                        />
+                        {uploadingPdf && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                      </div>
+                    </div>
+                    
+                    <div className="md:col-span-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleExtractSpecsFromPdf}
+                        disabled={extractingSpecs || uploadingPdf}
+                        className="gap-1.5"
+                      >
+                        {extractingSpecs ? (
+                          <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Se extrag datele...</>
+                        ) : (
+                          <><Sparkles className="h-3.5 w-3.5" /> Extrage date din PDF</>
+                        )}
+                      </Button>
                     </div>
                   </div>
                 </div>

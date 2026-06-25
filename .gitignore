@@ -27,3 +27,8 @@ dist-ssr
 .env
 .env.development
 .env.production
+
+# Supabase CLI executables
+supabase.exe
+supabase-go.exe
+*.exe
