@@ -1,0 +1,709 @@
+﻿[
+    {
+        "id":  "9ef7c834-b675-4b67-9198-28a9afcea921",
+        "cod_intern":  "IMP-C5DDC767",
+        "denumire_completa":  "52.92",
+        "pret_lista":  63.91,
+        "created_at":  "2026-06-06T13:11:02.934018+00:00"
+    },
+    {
+        "id":  "ebe94e81-0961-4160-a0bf-51fc8780b434",
+        "cod_intern":  "IMP-A12720CD",
+        "denumire_completa":  "64.28",
+        "pret_lista":  78.27,
+        "created_at":  "2026-06-06T13:11:03.294443+00:00"
+    },
+    {
+        "id":  "7e4d7680-02da-4237-975e-8fdba71df882",
+        "cod_intern":  "IMP-56EA62DA",
+        "denumire_completa":  "66.96",
+        "pret_lista":  81.53,
+        "created_at":  "2026-06-06T13:11:03.635335+00:00"
+    },
+    {
+        "id":  "176b5bcb-cc50-4651-8627-aff19b78f18c",
+        "cod_intern":  "IMP-E8DFECF6",
+        "denumire_completa":  "65.84",
+        "pret_lista":  80.40,
+        "created_at":  "2026-06-06T13:11:03.988172+00:00"
+    },
+    {
+        "id":  "dbd5da37-bc25-470f-b119-d8aef08f8216",
+        "cod_intern":  "IMP-CEB3F54E",
+        "denumire_completa":  "68.58",
+        "pret_lista":  83.75,
+        "created_at":  "2026-06-06T13:11:04.332488+00:00"
+    },
+    {
+        "id":  "653b80cc-3287-42bd-82e9-f0f120f4ea24",
+        "cod_intern":  "IMP-C1755CAB",
+        "denumire_completa":  "81.91",
+        "pret_lista":  100.52,
+        "created_at":  "2026-06-06T13:11:04.670479+00:00"
+    },
+    {
+        "id":  "56920506-e29f-4821-a2eb-f33c959bf262",
+        "cod_intern":  "IMP-23B864C4",
+        "denumire_completa":  "85.32",
+        "pret_lista":  104.71,
+        "created_at":  "2026-06-06T13:11:05.002732+00:00"
+    },
+    {
+        "id":  "6534409e-99c2-4e5b-9701-de20c9aa0a84",
+        "cod_intern":  "IMP-1F6BC199",
+        "denumire_completa":  "93.31",
+        "pret_lista":  114.76,
+        "created_at":  "2026-06-06T13:11:05.343239+00:00"
+    },
+    {
+        "id":  "cb33be55-3097-45a8-bad1-74252d2d4f50",
+        "cod_intern":  "IMP-0C178331",
+        "denumire_completa":  "97.2",
+        "pret_lista":  119.55,
+        "created_at":  "2026-06-06T13:11:05.680703+00:00"
+    },
+    {
+        "id":  "8c148b0e-a2c2-45c3-920d-7115b042c86d",
+        "cod_intern":  "IMP-296C5D69",
+        "denumire_completa":  "108.09",
+        "pret_lista":  133.74,
+        "created_at":  "2026-06-06T13:11:06.020994+00:00"
+    },
+    {
+        "id":  "9e446d0e-0aa3-4b99-9b6d-9e3a910826e0",
+        "cod_intern":  "IMP-CB7872DD",
+        "denumire_completa":  "112.59",
+        "pret_lista":  139.31,
+        "created_at":  "2026-06-06T13:11:06.36019+00:00"
+    },
+    {
+        "id":  "24d09252-8f13-474a-906e-ac92e508b423",
+        "cod_intern":  "IMP-9F0243FF",
+        "denumire_completa":  "127.79",
+        "pret_lista":  157.94,
+        "created_at":  "2026-06-06T13:11:06.82542+00:00"
+    },
+    {
+        "id":  "aa1c9854-6074-4573-88f9-1d1a8b4103dc",
+        "cod_intern":  "IMP-0E48D731",
+        "denumire_completa":  "133.11",
+        "pret_lista":  164.52,
+        "created_at":  "2026-06-06T13:11:07.169552+00:00"
+    },
+    {
+        "id":  "fac8be5e-56be-445b-9096-8273edaa6234",
+        "cod_intern":  "IMP-4DD843B0",
+        "denumire_completa":  "86.05",
+        "pret_lista":  106.62,
+        "created_at":  "2026-06-06T13:11:07.501477+00:00"
+    },
+    {
+        "id":  "9f9122c9-af16-4496-8dee-e755e7ecee5f",
+        "cod_intern":  "IMP-EB015960",
+        "denumire_completa":  "89.64",
+        "pret_lista":  111.06,
+        "created_at":  "2026-06-06T13:11:07.832791+00:00"
+    },
+    {
+        "id":  "91fa07a7-d6b9-4449-a711-20753e8ca98f",
+        "cod_intern":  "IMP-F1D0AA35",
+        "denumire_completa":  "96.68",
+        "pret_lista":  120.10,
+        "created_at":  "2026-06-06T13:11:08.180898+00:00"
+    },
+    {
+        "id":  "5dfbca6a-a106-4479-8e86-9ee05094fef9",
+        "cod_intern":  "IMP-3ECB73C3",
+        "denumire_completa":  "100.71",
+        "pret_lista":  125.11,
+        "created_at":  "2026-06-06T13:11:08.51195+00:00"
+    },
+    {
+        "id":  "58c62b89-c21c-4621-b7cf-17bf209dcd58",
+        "cod_intern":  "IMP-17B1072D",
+        "denumire_completa":  "64.28",
+        "pret_lista":  78.27,
+        "created_at":  "2026-06-06T13:11:03.377954+00:00"
+    },
+    {
+        "id":  "1e27f254-3d37-4bb7-b1ea-3b8c1cfca769",
+        "cod_intern":  "IMP-61E874E1",
+        "denumire_completa":  "60.26",
+        "pret_lista":  73.37,
+        "created_at":  "2026-06-06T13:11:03.71947+00:00"
+    },
+    {
+        "id":  "296a2112-589f-4048-9308-5fd5b2fe603a",
+        "cod_intern":  "IMP-64CD1404",
+        "denumire_completa":  "61.72",
+        "pret_lista":  75.38,
+        "created_at":  "2026-06-06T13:11:04.415675+00:00"
+    },
+    {
+        "id":  "2c5c86ac-e774-4d8f-940a-a80104529c83",
+        "cod_intern":  "IMP-3540C478",
+        "denumire_completa":  "81.91",
+        "pret_lista":  100.52,
+        "created_at":  "2026-06-06T13:11:04.756187+00:00"
+    },
+    {
+        "id":  "0e1c332a-1a85-461a-be04-07ecf3b77a58",
+        "cod_intern":  "IMP-9EFC3E28",
+        "denumire_completa":  "76.79",
+        "pret_lista":  94.24,
+        "created_at":  "2026-06-06T13:11:05.085967+00:00"
+    },
+    {
+        "id":  "83fdc06e-a094-49df-bfd6-2e8f84cd4b5d",
+        "cod_intern":  "IMP-FFDF8D1F",
+        "denumire_completa":  "93.31",
+        "pret_lista":  114.76,
+        "created_at":  "2026-06-06T13:11:05.424639+00:00"
+    },
+    {
+        "id":  "46aa46be-8ddc-49d4-9c47-35b27fb233d9",
+        "cod_intern":  "IMP-120819C9",
+        "denumire_completa":  "87.48",
+        "pret_lista":  107.59,
+        "created_at":  "2026-06-06T13:11:05.767453+00:00"
+    },
+    {
+        "id":  "86e1ac29-dcce-4dc1-9e99-3291072aaf7c",
+        "cod_intern":  "IMP-0447533E",
+        "denumire_completa":  "108.09",
+        "pret_lista":  133.74,
+        "created_at":  "2026-06-06T13:11:06.104621+00:00"
+    },
+    {
+        "id":  "a64a5e32-e09a-4f13-abf1-33ccf7514d1b",
+        "cod_intern":  "IMP-E2ECBA8D",
+        "denumire_completa":  "101.33",
+        "pret_lista":  125.38,
+        "created_at":  "2026-06-06T13:11:06.500329+00:00"
+    },
+    {
+        "id":  "0c601b5c-a934-4080-bcc2-97c4587923a4",
+        "cod_intern":  "IMP-BB6679E9",
+        "denumire_completa":  "127.79",
+        "pret_lista":  157.94,
+        "created_at":  "2026-06-06T13:11:06.915268+00:00"
+    },
+    {
+        "id":  "8fcbe48b-c0de-4965-8cba-207c67ebe790",
+        "cod_intern":  "IMP-BF2B21A4",
+        "denumire_completa":  "119.8",
+        "pret_lista":  148.07,
+        "created_at":  "2026-06-06T13:11:07.254176+00:00"
+    },
+    {
+        "id":  "55caf071-6834-4b11-b881-8618714ae14e",
+        "cod_intern":  "IMP-A9897C72",
+        "denumire_completa":  "10300451",
+        "pret_lista":  6.82,
+        "created_at":  "2026-05-18T02:31:46.482528+00:00"
+    },
+    {
+        "id":  "8751252f-4840-4fce-b8d0-86006a987319",
+        "cod_intern":  "IMP-A64C13D2",
+        "denumire_completa":  "10300452",
+        "pret_lista":  8.47,
+        "created_at":  "2026-05-18T02:31:46.662928+00:00"
+    },
+    {
+        "id":  "5ca45c74-45e2-4205-8006-5d7ef7f0078c",
+        "cod_intern":  "IMP-75DD6B2F",
+        "denumire_completa":  "10300453",
+        "pret_lista":  4.96,
+        "created_at":  "2026-05-18T02:31:46.843391+00:00"
+    },
+    {
+        "id":  "3a29ece5-d04d-4c8f-84cf-cdf445bb5326",
+        "cod_intern":  "IMP-7A3694DA",
+        "denumire_completa":  "478.18",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.437481+00:00"
+    },
+    {
+        "id":  "fbc8ff5f-db0b-405b-9bda-c5c42bd16282",
+        "cod_intern":  "IMP-3278251C",
+        "denumire_completa":  "557.26",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.662277+00:00"
+    },
+    {
+        "id":  "c5f84408-6f6a-4359-8757-45c87109ae9a",
+        "cod_intern":  "IMP-C6B0FC74",
+        "denumire_completa":  "658.07",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.840175+00:00"
+    },
+    {
+        "id":  "2113eed4-983d-4447-a6f0-4eef44abf17c",
+        "cod_intern":  "IMP-3A6F448F",
+        "denumire_completa":  "444.23",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.967943+00:00"
+    },
+    {
+        "id":  "e86b3f80-581b-43fa-9f4a-fcb95b618228",
+        "cod_intern":  "IMP-3F2F4EDD",
+        "denumire_completa":  "500.42",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:06.160959+00:00"
+    },
+    {
+        "id":  "b186c461-ccb2-4d4b-9ce8-cebb2ddf3c2d",
+        "cod_intern":  "IMP-C0683F70",
+        "denumire_completa":  "0.00",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:06.315583+00:00"
+    },
+    {
+        "id":  "6facc1fc-59f3-4458-a967-835f1a673e00",
+        "cod_intern":  "IMP-CADE0E91",
+        "denumire_completa":  "0.00",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:06.448093+00:00"
+    },
+    {
+        "id":  "34a03a6c-ee1b-4704-a218-7d4e3aa5ae14",
+        "cod_intern":  "IMP-72758777",
+        "denumire_completa":  "0.00",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:06.660491+00:00"
+    },
+    {
+        "id":  "761bc447-1ff1-4b0d-862b-d195ad459e97",
+        "cod_intern":  "IMP-AA1EE1C0",
+        "denumire_completa":  "mp/bax",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:06.873514+00:00"
+    },
+    {
+        "id":  "a62cb71c-1b46-4d0b-a1ad-e0a88be2271a",
+        "cod_intern":  "IMP-90430690",
+        "denumire_completa":  "12.5",
+        "pret_lista":  25.00,
+        "created_at":  "2026-06-05T10:56:07.072599+00:00"
+    },
+    {
+        "id":  "3a5dba5d-25c4-4d7b-914f-333f9b8093bb",
+        "cod_intern":  "IMP-4AC4AA2B",
+        "denumire_completa":  "8",
+        "pret_lista":  16.00,
+        "created_at":  "2026-06-05T10:56:07.2826+00:00"
+    },
+    {
+        "id":  "1a3b9280-1f45-47e4-9198-ac75e9978d6b",
+        "cod_intern":  "IMP-4F514C58",
+        "denumire_completa":  "6",
+        "pret_lista":  12.00,
+        "created_at":  "2026-06-05T10:56:07.48769+00:00"
+    },
+    {
+        "id":  "84cc99b1-1841-4d98-8dbe-b100fb8f7b0d",
+        "cod_intern":  "IMP-A60045CA",
+        "denumire_completa":  "5",
+        "pret_lista":  10.00,
+        "created_at":  "2026-06-05T10:56:07.589947+00:00"
+    },
+    {
+        "id":  "7c6121e4-4611-4299-9407-4b25ff412ede",
+        "cod_intern":  "IMP-B724D4D6",
+        "denumire_completa":  "3",
+        "pret_lista":  6.00,
+        "created_at":  "2026-06-05T10:56:07.782023+00:00"
+    },
+    {
+        "id":  "1253e810-d5bc-4095-a502-133e4da0f682",
+        "cod_intern":  "IMP-87BA59F0",
+        "denumire_completa":  "2.5",
+        "pret_lista":  5.00,
+        "created_at":  "2026-06-05T10:56:07.995363+00:00"
+    },
+    {
+        "id":  "b83eebab-cfbd-4feb-8405-397337c8557e",
+        "cod_intern":  "IMP-BEB84E14",
+        "denumire_completa":  "1.5",
+        "pret_lista":  3.00,
+        "created_at":  "2026-06-05T10:56:08.194322+00:00"
+    },
+    {
+        "id":  "c55a5f11-1f55-41b7-8eb9-a6c5fe09a3ef",
+        "cod_intern":  "IMP-30D50493",
+        "denumire_completa":  "1",
+        "pret_lista":  2.00,
+        "created_at":  "2026-06-05T10:56:08.401844+00:00"
+    },
+    {
+        "id":  "3b482d84-d986-4a28-81dc-37161f4afa98",
+        "cod_intern":  "IMP-DF6967C2",
+        "denumire_completa":  "66.96",
+        "pret_lista":  81.53,
+        "created_at":  "2026-06-06T13:11:03.467008+00:00"
+    },
+    {
+        "id":  "599b2bdb-5c84-42cc-a5ce-b6cc679aedd8",
+        "cod_intern":  "IMP-92B3356D",
+        "denumire_completa":  "53.57",
+        "pret_lista":  65.22,
+        "created_at":  "2026-06-06T13:11:03.805838+00:00"
+    },
+    {
+        "id":  "2bbde8aa-4fa7-471e-88c0-aa58c547dd85",
+        "cod_intern":  "IMP-68F2940D",
+        "denumire_completa":  "68.58",
+        "pret_lista":  83.75,
+        "created_at":  "2026-06-06T13:11:04.154441+00:00"
+    },
+    {
+        "id":  "af7a01b9-1442-4f32-a2f4-d7544ca4b1f4",
+        "cod_intern":  "IMP-78474216",
+        "denumire_completa":  "54.86",
+        "pret_lista":  67.00,
+        "created_at":  "2026-06-06T13:11:04.497327+00:00"
+    },
+    {
+        "id":  "a1f6512a-73a0-4f47-b762-852c7827bbf6",
+        "cod_intern":  "IMP-7FE55449",
+        "denumire_completa":  "85.32",
+        "pret_lista":  104.71,
+        "created_at":  "2026-06-06T13:11:04.838487+00:00"
+    },
+    {
+        "id":  "c5d7f303-21cf-435b-882c-2eaa3b78511f",
+        "cod_intern":  "IMP-B6929138",
+        "denumire_completa":  "68.26",
+        "pret_lista":  83.77,
+        "created_at":  "2026-06-06T13:11:05.171993+00:00"
+    },
+    {
+        "id":  "50cbdbe8-ae82-4166-a998-12df187c14e0",
+        "cod_intern":  "IMP-41A86D47",
+        "denumire_completa":  "97.2",
+        "pret_lista":  119.55,
+        "created_at":  "2026-06-06T13:11:05.509185+00:00"
+    },
+    {
+        "id":  "e323fc07-fff0-4e40-8979-eafd18bfb4e9",
+        "cod_intern":  "IMP-32EC348B",
+        "denumire_completa":  "77.76",
+        "pret_lista":  95.64,
+        "created_at":  "2026-06-06T13:11:05.848668+00:00"
+    },
+    {
+        "id":  "faf67632-6ed4-4d78-897c-9f1faa44ef46",
+        "cod_intern":  "IMP-8161B28E",
+        "denumire_completa":  "112.59",
+        "pret_lista":  139.31,
+        "created_at":  "2026-06-06T13:11:06.195491+00:00"
+    },
+    {
+        "id":  "73a84266-33a5-486d-a810-3139db651fe2",
+        "cod_intern":  "IMP-7EE66F8D",
+        "denumire_completa":  "90.07",
+        "pret_lista":  111.45,
+        "created_at":  "2026-06-06T13:11:06.651104+00:00"
+    },
+    {
+        "id":  "d31be18f-b4b3-4afe-b737-4e3b44af08a0",
+        "cod_intern":  "IMP-2B1F112C",
+        "denumire_completa":  "133.11",
+        "pret_lista":  164.52,
+        "created_at":  "2026-06-06T13:11:06.995398+00:00"
+    },
+    {
+        "id":  "4e57652b-2364-4d88-a20d-2d7bfda3bba4",
+        "cod_intern":  "IMP-F60E65BC",
+        "denumire_completa":  "106.49",
+        "pret_lista":  131.61,
+        "created_at":  "2026-06-06T13:11:07.3409+00:00"
+    },
+    {
+        "id":  "af55377a-8eca-4b4f-af47-a9f90b3e3043",
+        "cod_intern":  "IMP-90598D26",
+        "denumire_completa":  "89.64",
+        "pret_lista":  111.06,
+        "created_at":  "2026-06-06T13:11:07.665008+00:00"
+    },
+    {
+        "id":  "86afffb0-0bf4-4fb8-ae3c-004c3588776e",
+        "cod_intern":  "IMP-2F3E840F",
+        "denumire_completa":  "100.71",
+        "pret_lista":  125.11,
+        "created_at":  "2026-06-06T13:11:08.347721+00:00"
+    },
+    {
+        "id":  "bb3b2539-2ad5-4702-8504-588894c3ad6b",
+        "cod_intern":  "IMP-B9BE0A22",
+        "denumire_completa":  "80.57",
+        "pret_lista":  100.08,
+        "created_at":  "2026-06-06T13:11:08.689404+00:00"
+    },
+    {
+        "id":  "9d702101-2590-4171-8bee-0a645214fd31",
+        "cod_intern":  "IMP-6B171186",
+        "denumire_completa":  "52.92",
+        "pret_lista":  63.91,
+        "created_at":  "2026-06-06T13:11:02.826802+00:00"
+    },
+    {
+        "id":  "288876ec-18bb-42c6-8f13-6ae17fa29fd5",
+        "cod_intern":  "IMP-A19AF875",
+        "denumire_completa":  "66.96",
+        "pret_lista":  81.53,
+        "created_at":  "2026-06-06T13:11:03.208213+00:00"
+    },
+    {
+        "id":  "6a6cf3d0-027c-4ddd-9371-5eac390e5479",
+        "cod_intern":  "IMP-CBEB64A8",
+        "denumire_completa":  "64.28",
+        "pret_lista":  78.27,
+        "created_at":  "2026-06-06T13:11:03.548582+00:00"
+    },
+    {
+        "id":  "14413c2b-344f-4209-a1b3-3aa2ab7dc308",
+        "cod_intern":  "IMP-264EA473",
+        "denumire_completa":  "68.58",
+        "pret_lista":  83.75,
+        "created_at":  "2026-06-06T13:11:03.891376+00:00"
+    },
+    {
+        "id":  "35f19b17-b7a3-4c33-85b7-f636793c6bef",
+        "cod_intern":  "IMP-B673FA53",
+        "denumire_completa":  "65.84",
+        "pret_lista":  80.40,
+        "created_at":  "2026-06-06T13:11:04.248614+00:00"
+    },
+    {
+        "id":  "09fc4d73-f3a2-4e7e-9038-fe0aff3710de",
+        "cod_intern":  "IMP-C8551299",
+        "denumire_completa":  "85.32",
+        "pret_lista":  104.71,
+        "created_at":  "2026-06-06T13:11:04.582416+00:00"
+    },
+    {
+        "id":  "9a255759-b606-4c88-a940-fa615cb723cd",
+        "cod_intern":  "IMP-6D3AB820",
+        "denumire_completa":  "81.91",
+        "pret_lista":  100.52,
+        "created_at":  "2026-06-06T13:11:04.92025+00:00"
+    },
+    {
+        "id":  "7057a432-98e8-46da-ba72-565d618bb9a1",
+        "cod_intern":  "IMP-6DFA5125",
+        "denumire_completa":  "97.2",
+        "pret_lista":  119.55,
+        "created_at":  "2026-06-06T13:11:05.255831+00:00"
+    },
+    {
+        "id":  "ed138b29-3ba9-4093-aba5-8b14b29e5059",
+        "cod_intern":  "IMP-B7D7FA77",
+        "denumire_completa":  "93.31",
+        "pret_lista":  114.76,
+        "created_at":  "2026-06-06T13:11:05.594163+00:00"
+    },
+    {
+        "id":  "8c5f07d8-320b-46ca-975a-a7a1ac58d3d1",
+        "cod_intern":  "IMP-A957DB3B",
+        "denumire_completa":  "112.59",
+        "pret_lista":  139.31,
+        "created_at":  "2026-06-06T13:11:05.931164+00:00"
+    },
+    {
+        "id":  "9acbe1bd-e955-4981-a0c1-06267dbdc7c3",
+        "cod_intern":  "IMP-D6BCA068",
+        "denumire_completa":  "108.09",
+        "pret_lista":  133.74,
+        "created_at":  "2026-06-06T13:11:06.276158+00:00"
+    },
+    {
+        "id":  "868347b0-b773-49f9-8e4f-467ab67ee308",
+        "cod_intern":  "IMP-A5B07339",
+        "denumire_completa":  "89.64",
+        "pret_lista":  111.06,
+        "created_at":  "2026-06-06T13:11:07.420328+00:00"
+    },
+    {
+        "id":  "b5957731-fff9-479d-b82b-15e0c1f43597",
+        "cod_intern":  "IMP-924D729D",
+        "denumire_completa":  "86.05",
+        "pret_lista":  106.62,
+        "created_at":  "2026-06-06T13:11:07.749699+00:00"
+    },
+    {
+        "id":  "a79ebbcb-eb24-48b5-9464-cb802b845882",
+        "cod_intern":  "IMP-5A2BC451",
+        "denumire_completa":  "100.71",
+        "pret_lista":  125.11,
+        "created_at":  "2026-06-06T13:11:08.090924+00:00"
+    },
+    {
+        "id":  "b060b4c6-6e4f-49e8-9429-0cbf138b4cfe",
+        "cod_intern":  "IMP-899E0CC0",
+        "denumire_completa":  "96.68",
+        "pret_lista":  120.10,
+        "created_at":  "2026-06-06T13:11:08.428835+00:00"
+    },
+    {
+        "id":  "d9114036-6b89-4b03-a613-89b5298f0d3a",
+        "cod_intern":  "IMP-0F5A6F32",
+        "denumire_completa":  "47.63",
+        "pret_lista":  57.52,
+        "created_at":  "2026-06-06T13:11:03.036429+00:00"
+    },
+    {
+        "id":  "eef4917a-5c28-45d0-91b1-4229daf15536",
+        "cod_intern":  "IMP-1FB67551",
+        "denumire_completa":  "65.84",
+        "pret_lista":  80.40,
+        "created_at":  "2026-06-06T13:11:04.071514+00:00"
+    },
+    {
+        "id":  "d110262d-8875-415d-8fd3-8b7d0b642d9f",
+        "cod_intern":  "IMP-D7059C5C",
+        "denumire_completa":  "86.05",
+        "pret_lista":  106.62,
+        "created_at":  "2026-06-06T13:11:07.581759+00:00"
+    },
+    {
+        "id":  "7d6a27a6-307c-406f-b7ea-9e2796b6286b",
+        "cod_intern":  "IMP-8CBF8FD5",
+        "denumire_completa":  "80.68",
+        "pret_lista":  99.95,
+        "created_at":  "2026-06-06T13:11:07.918436+00:00"
+    },
+    {
+        "id":  "eb35e4e8-f0bb-438e-84e4-4329172ff502",
+        "cod_intern":  "IMP-CAE61AB2",
+        "denumire_completa":  "96.68",
+        "pret_lista":  120.10,
+        "created_at":  "2026-06-06T13:11:08.26197+00:00"
+    },
+    {
+        "id":  "60781b97-b56c-433d-ad73-ac5cea3ef3d6",
+        "cod_intern":  "IMP-303CA846",
+        "denumire_completa":  "90.64",
+        "pret_lista":  112.59,
+        "created_at":  "2026-06-06T13:11:08.600582+00:00"
+    },
+    {
+        "id":  "4a8258ca-fbd2-47b1-a43a-c5b9aeda6278",
+        "cod_intern":  "IMP-F2BF11FB",
+        "denumire_completa":  "255.65",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:04.567197+00:00"
+    },
+    {
+        "id":  "c6265c81-341f-43a9-bc36-f7663a55702c",
+        "cod_intern":  "IMP-25D8BA50",
+        "denumire_completa":  "284.47",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:04.833991+00:00"
+    },
+    {
+        "id":  "bf6b9be7-f2a9-487a-93f1-637b69b75d8e",
+        "cod_intern":  "IMP-A6C678EC",
+        "denumire_completa":  "326.11",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:04.935213+00:00"
+    },
+    {
+        "id":  "e6611fc8-2a00-414e-9393-7144bfc529c3",
+        "cod_intern":  "IMP-1C4E7BA0",
+        "denumire_completa":  "335.00",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.112903+00:00"
+    },
+    {
+        "id":  "01649423-6555-4972-a40f-133e81b0200f",
+        "cod_intern":  "IMP-AFAA7805",
+        "denumire_completa":  "418.85",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-05T10:56:05.229566+00:00"
+    },
+    {
+        "id":  "d1e6f53a-6a31-446e-9511-adcf47759a83",
+        "cod_intern":  "IMP-DE8D740D",
+        "denumire_completa":  "133.11",
+        "pret_lista":  164.52,
+        "created_at":  "2026-06-06T13:11:06.742718+00:00"
+    },
+    {
+        "id":  "b170a163-3d84-45c6-b56e-f00d4bdc2686",
+        "cod_intern":  "IMP-67CED1EF",
+        "denumire_completa":  "127.79",
+        "pret_lista":  157.94,
+        "created_at":  "2026-06-06T13:11:07.081168+00:00"
+    },
+    {
+        "id":  "d1f392e0-8969-4407-b27e-39316cb15b01",
+        "cod_intern":  "IMP-3B438F3F",
+        "denumire_completa":  "** politica comerciala ramane aceeasi disc 1.1 pt revanzatori si 1.05 pt constructori care se aplica num",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-17T03:35:50.286027+00:00"
+    },
+    {
+        "id":  "23cca46d-388b-40b3-9410-61a937a8bc3d",
+        "cod_intern":  "IMP-3F959B78",
+        "denumire_completa":  "10300455",
+        "pret_lista":  9.09,
+        "created_at":  "2026-05-18T02:31:46.569331+00:00"
+    },
+    {
+        "id":  "c4adb851-42f1-4dbc-84ae-8e6fae65db6c",
+        "cod_intern":  "IMP-F5564B9A",
+        "denumire_completa":  "10300454",
+        "pret_lista":  6.61,
+        "created_at":  "2026-05-18T02:31:46.935171+00:00"
+    },
+    {
+        "id":  "308df2a1-3511-4c34-b8c9-2507a089c51b",
+        "cod_intern":  "IMP-96348928",
+        "denumire_completa":  "preturile sunt exprimate in lei si nu contin TVA",
+        "pret_lista":  0.00,
+        "created_at":  "2026-05-28T03:58:43.852567+00:00"
+    },
+    {
+        "id":  "b80d4da8-ae73-4145-830a-ec4a771de9e4",
+        "cod_intern":  "IMP-5AECC9F9",
+        "denumire_completa":  "71.71",
+        "pret_lista":  88.85,
+        "created_at":  "2026-06-06T13:11:08.005335+00:00"
+    },
+    {
+        "id":  "e98ba493-fa0d-4115-b23c-7aa38681750c",
+        "cod_intern":  "IMP-F0EF435C",
+        "denumire_completa":  "52.92",
+        "pret_lista":  63.91,
+        "created_at":  "2026-06-06T13:11:02.657568+00:00"
+    },
+    {
+        "id":  "49a2f023-3b77-4a76-b65e-f6912b586153",
+        "cod_intern":  "IMP-278AE538",
+        "denumire_completa":  "42.34",
+        "pret_lista":  51.13,
+        "created_at":  "2026-06-06T13:11:03.125701+00:00"
+    },
+    {
+        "id":  "59f79653-4a06-49cd-8718-86f34898c5f0",
+        "cod_intern":  "IMP-25DE443D",
+        "denumire_completa":  "Denumire articol",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-17T03:35:49.461946+00:00"
+    },
+    {
+        "id":  "decdbdb8-d3bd-44ed-8dee-41c425554f5d",
+        "cod_intern":  "IMP-EBB0A958",
+        "denumire_completa":  "FONO",
+        "pret_lista":  0.00,
+        "created_at":  "2026-06-17T03:35:49.185224+00:00"
+    },
+    {
+        "id":  "9f396c09-723d-462c-9892-d7eff6788bcd",
+        "cod_intern":  "OCR-624A0676",
+        "denumire_completa":  "ISOMAT INJECT PU 880 ELASTIC 25.2 kg",
+        "pret_lista":  0.00,
+        "created_at":  "2026-05-12T02:57:27.494235+00:00"
+    }
+]
