@@ -561,18 +561,18 @@ const AdminProducts = () => {
           if (error) throw error;
           result = { success: true, data: { [productId]: data?.data } };
         } catch (edgeError) {
-          console.warn("Edge function extract-pdf-specs failed, falling back to name-based RPC:", edgeError);
-          // Fallback la RPC (bazat pe denumire) dacă extragerea din PDF a eșuat
-          const { data, error } = await supabase.rpc("get_ai_product_info", {
-            p_product_id: productId,
+          console.warn("Edge function extract-pdf-specs failed, falling back to name-based Edge Function:", edgeError);
+          // Fallback la Edge Function în loc de RPC (bazat pe denumire) dacă extragerea din PDF a eșuat
+          const { data, error } = await supabase.functions.invoke("ai-product-info", {
+            body: { product_ids: [productId], action: "tech-info" },
           });
           if (error) throw error;
           result = data as any;
         }
       } else {
-        // Fallback: Dacă nu avem fișă tehnică deloc, lăsăm RPC-ul să apeleze Gemini bazat pe denumirea produsului
-        const { data, error } = await supabase.rpc("get_ai_product_info", {
-          p_product_id: productId,
+        // Dacă nu avem fișă tehnică deloc, apelăm Edge Function-ul ai-product-info pentru generare prin Deno
+        const { data, error } = await supabase.functions.invoke("ai-product-info", {
+          body: { product_ids: [productId], action: "tech-info" },
         });
         if (error) throw error;
         result = data as any;
