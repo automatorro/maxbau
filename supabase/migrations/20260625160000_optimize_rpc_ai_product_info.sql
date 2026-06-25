@@ -105,6 +105,9 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'GEMINI_API_KEY lipseste din Vault');
   END IF;
 
+  -- Curatare cheie de whitespace-uri si newlines accidentale din Vault
+  v_gemini_key := regexp_replace(v_gemini_key, '\s+', '', 'g');
+
   -- 5. Prompt
   v_prompt := format(
     E'Esti expert in materiale de constructii din Romania (Baumit, Weber, Ceresit, Knauf, Leier, Bramac, etc.).\n'
@@ -129,7 +132,7 @@ BEGIN
         'type', 'OBJECT',
         'properties', jsonb_build_object(
           'consum',          jsonb_build_object('type', 'STRING', 'description', 'Consum per mp/unitate, ex: 4-6 kg/mp sau N/A'),
-          'ambalaj',         jsonb_build_object('type', 'STRING', 'description', 'Tip si greutate ambalaj, ex: sac 25 kg'),
+          'ambalaj',         jsonb_build_object('type', 'STRING', 'description', 'Tip si greumate ambalaj, ex: sac 25 kg'),
           'alternative',     jsonb_build_object(
                                'type',  'ARRAY',
                                'items', jsonb_build_object('type', 'STRING'),
