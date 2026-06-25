@@ -266,12 +266,32 @@ const Catalog = () => {
                     >
                       <CardHeader className="pb-2 space-y-2">
                         <div className="flex items-start justify-between gap-2">
-                          <Badge
-                            variant="outline"
-                            className="text-xs font-mono shrink-0 border-primary/30 text-primary"
-                          >
-                            {product.cod_intern}
-                          </Badge>
+                          <div className="flex flex-wrap gap-1.5 items-center min-w-0">
+                            <Badge
+                              variant="outline"
+                              className="text-xs font-mono shrink-0 border-primary/30 text-primary"
+                            >
+                              {product.cod_intern}
+                            </Badge>
+                            {(() => {
+                              const isImported = product.cod_intern?.startsWith("IMP-") || 
+                                                 product.cod_intern?.startsWith("OCR-") || 
+                                                 (product.grile_pret && typeof product.grile_pret === "object" && (product.grile_pret as any).import_code);
+                              const isOcr = product.cod_intern?.startsWith("OCR-") || 
+                                            (product.grile_pret && typeof product.grile_pret === "object" && String((product.grile_pret as any).import_code || "").startsWith("OCR-"));
+                              if (isImported) {
+                                return (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1 shrink-0 border-orange-500/30 text-orange-600 bg-orange-50/50 font-medium"
+                                  >
+                                    {isOcr ? "OCR" : "Import"}
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                           {product.categories && (
                             <Badge variant="secondary" className="text-xs truncate max-w-[120px]">
                               {(product.categories as any).name}

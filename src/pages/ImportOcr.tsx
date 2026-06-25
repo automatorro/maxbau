@@ -899,7 +899,19 @@ const ImportOcr = () => {
     if (createProductRunning) return;
     setCreateProductRunning(true);
     try {
-      const { data, error } = await supabase.from("products").insert({ cod_intern: cod, denumire_completa: name, unit: unit || null, pret_lista: 0, supplier_id: selectedSupplierId || null }).select("id").single();
+      const importCode = cod.startsWith("OCR-") || cod.startsWith("IMP-") 
+        ? cod 
+        : `OCR-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+      const grile_pret = { import_code: importCode };
+
+      const { data, error } = await supabase.from("products").insert({ 
+        cod_intern: cod, 
+        denumire_completa: name, 
+        unit: unit || null, 
+        pret_lista: 0, 
+        supplier_id: selectedSupplierId || null,
+        grile_pret 
+      }).select("id").single();
       if (error) throw error;
       if (!data?.id) throw new Error("Eroare la creare produs");
       setMatchedProductForRow(createProductRowId, data.id);
@@ -1006,13 +1018,25 @@ const ImportOcr = () => {
         if (!denumire) continue;
         const pretRaw = (r.cells[defaultMapping.colIdx] || "").toString();
         const pretLista = parsePriceCell(pretRaw) ?? 0;
-        const cod = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        
+        // Extract supplier code if present
+        let codFurnizor = "";
+        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) {
+          codFurnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim();
+        }
+        
+        const importCode = `IMP-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        const cod = codFurnizor || importCode;
         
         const extraItem: Record<string, string | undefined> = {};
-        if (aiColumnMap?.cod_furnizor != null && aiColumnMap.cod_furnizor >= 0) extraItem.cod_furnizor = (r.cells[aiColumnMap.cod_furnizor] || "").trim() || undefined;
+        if (codFurnizor) extraItem.cod_furnizor = codFurnizor;
         if (aiColumnMap?.cantitate_palet != null && aiColumnMap.cantitate_palet >= 0) extraItem.cantitate_palet = (r.cells[aiColumnMap.cantitate_palet] || "").trim() || undefined;
         if (aiColumnMap?.consum != null && aiColumnMap.consum >= 0) extraItem.consum = (r.cells[aiColumnMap.consum] || "").trim() || undefined;
-        const grile_pret = Object.keys(extraItem).length > 0 ? extraItem : null;
+        
+        // Always store import tracking code in grile_pret
+        extraItem.import_code = importCode;
+        
+        const grile_pret = extraItem;
 
         const { data: newProd, error: prodErr } = await supabase
           .from("products")
