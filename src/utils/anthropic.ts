@@ -439,13 +439,13 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
   // Fetch products by category
   const { data: categoryProducts } = await supabase
     .from("products")
-    .select("id, cod_intern, denumire_completa, pret_lista, unit, brand")
+    .select("id, cod_intern, denumire_completa, pret_lista, unit, brand, specifications")
     .in("category_id", descendantIds)
     .limit(1000);
 
   // Fetch products by text search fallback
   const keywords = cerereLower.split(/[^a-z0-9ăâîșț]+/).filter(w => w.length > 2).slice(0, 5);
-  let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand");
+  let textQuery = supabase.from("products").select("id, cod_intern, denumire_completa, pret_lista, unit, brand, specifications");
   if (keywords.length > 0) {
     const ilikeConditions = keywords.map(kw => `denumire_completa.ilike.%${makeIlikePattern(kw)}%,brand.ilike.%${makeIlikePattern(kw)}%`).join(",");
     textQuery = textQuery.or(ilikeConditions);
@@ -478,7 +478,34 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
   }
 
   const productListText = products
-    .map((p) => `${p.cod_intern} | ${p.denumire_completa} | ${p.brand || "-"} | ${p.pret_lista} ${p.unit}`)
+    .map((p) => {
+      const specs = (p.specifications as any) || {};
+      const ft = specs.fisa_tehnica_specs || {};
+      const ai = specs.ai_info || {};
+
+      const parts = [
+        `Cod: ${p.cod_intern}`,
+        `Denumire: ${p.denumire_completa}`,
+        `Brand: ${p.brand || "-"}`,
+        `Pret: ${p.pret_lista} ${p.unit || "buc"}`
+      ];
+
+      const tech: string[] = [];
+      if (ft.conductivitate_termica) tech.push(`Conductivitate: ${ft.conductivitate_termica}`);
+      if (ft.densitate) tech.push(`Densitate: ${ft.densitate}`);
+      if (ft.rezistenta_compresiune) tech.push(`Compresiune: ${ft.rezistenta_compresiune}`);
+      if (ft.rezistenta_tractiune) tech.push(`Tractiune: ${ft.rezistenta_tractiune}`);
+      if (ft.clasa_reactie_foc) tech.push(`Reactie foc: ${ft.clasa_reactie_foc}`);
+      if (ai.consum && ai.consum !== "N/A") tech.push(`Consum: ${ai.consum}`);
+      if (ai.compatibilitati && ai.compatibilitati !== "N/A") tech.push(`Compatibil: ${ai.compatibilitati}`);
+      if (ai.utilizare && ai.utilizare !== "N/A") tech.push(`Utilizare: ${ai.utilizare}`);
+
+      if (tech.length > 0) {
+        parts.push(`Date tehnice: ${tech.join(", ")}`);
+      }
+
+      return parts.join(" | ");
+    })
     .join("\n");
 
   // Step 2: Rank
@@ -575,7 +602,8 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
 // ── Technical Info Extractor (replacing ai-product-info) ────────────────────
 export async function fetchTechInfoWithAnthropic(
   productIds: string[],
-  clientRequest: string = ""
+  clientRequest: string = "",
+  onlyFromCache: boolean = false
 ): Promise<{ success: boolean; data: any; cached_ids: string[]; fresh_ids: string[] }> {
   if (!productIds.length) return { success: true, data: {}, cached_ids: [], fresh_ids: [] };
 
@@ -593,6 +621,48 @@ export async function fetchTechInfoWithAnthropic(
 
   for (const p of products) {
     const specs = (p.specifications as any) || {};
+    
+    // 1. Daca avem fisa_tehnica_specs (extrase din PDF), mapam instantaneu datele
+    const ftSpecs = specs.fisa_tehnica_specs;
+    if (ftSpecs) {
+      let compat = "";
+      if (Array.isArray(ftSpecs.compatibil_cu)) {
+        compat = ftSpecs.compatibil_cu.join(", ");
+      } else {
+        compat = ftSpecs.compatibil_cu || "N/A";
+      }
+
+      let util = "";
+      if (Array.isArray(ftSpecs.utilizare)) {
+        util = ftSpecs.utilizare.join(", ");
+      } else {
+        util = ftSpecs.utilizare || "N/A";
+      }
+
+      const mappedAiInfo = {
+        consum: ftSpecs.consum || "N/A",
+        ambalaj: ftSpecs.ambalaj || "N/A",
+        alternative: ftSpecs.alternative || [],
+        compatibilitati: compat,
+        utilizare: util,
+        updated_at: ftSpecs._extracted_at || new Date().toISOString(),
+        source: "fisa_tehnica_specs"
+      };
+
+      cached[p.id] = mappedAiInfo;
+
+      // Actualizam baza de date in fundal daca ai_info nu exista sau e diferit
+      const aiInfo = specs.ai_info;
+      if (!aiInfo || aiInfo.source !== "fisa_tehnica_specs") {
+        void supabase
+          .from("products")
+          .update({ specifications: { ...specs, ai_info: mappedAiInfo } })
+          .eq("id", p.id);
+      }
+      continue;
+    }
+
+    // 2. Daca avem deja ai_info generat in cache-ul de 30 de zile
     const aiInfo = specs.ai_info;
     if (aiInfo?.updated_at) {
       const age = now - new Date(aiInfo.updated_at).getTime();
@@ -606,7 +676,7 @@ export async function fetchTechInfoWithAnthropic(
 
   const aiResults: any = {};
 
-  if (needsAi.length > 0) {
+  if (needsAi.length > 0 && !onlyFromCache) {
     const productList = needsAi.map((p, i) =>
       `${i + 1}. [${p.cod_intern}] ${p.denumire_completa} (brand: ${p.brand || "necunoscut"}, UM: ${p.unit || "buc"}, preț: ${p.pret_lista} lei)`
     ).join("\n");

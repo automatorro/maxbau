@@ -49,7 +49,33 @@ interface Product {
 
 const getAiInfo = (p: Product): AiInfo | null => {
   const specs = p.specifications || {};
-  return (specs.ai_info as AiInfo) || null;
+  if (specs.ai_info) {
+    return specs.ai_info as AiInfo;
+  }
+  const ft = specs.fisa_tehnica_specs as any;
+  if (ft) {
+    let compat = "";
+    if (Array.isArray(ft.compatibil_cu)) {
+      compat = ft.compatibil_cu.join(", ");
+    } else {
+      compat = ft.compatibil_cu || "";
+    }
+    let util = "";
+    if (Array.isArray(ft.utilizare)) {
+      util = ft.utilizare.join(", ");
+    } else {
+      util = ft.utilizare || "";
+    }
+    return {
+      consum: ft.consum || "N/A",
+      ambalaj: ft.ambalaj || "N/A",
+      alternative: ft.alternative || [],
+      compatibilitati: compat,
+      utilizare: util,
+      updated_at: ft._extracted_at || new Date().toISOString()
+    };
+  }
+  return null;
 };
 
 function ProductPricesTab({ productId }: { productId: string }) {

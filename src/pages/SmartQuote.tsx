@@ -146,6 +146,30 @@ const SmartQuote = () => {
     [items]
   );
 
+  const quoteProductsJoined = productIdsInQuote.join("|");
+
+  // Incarca automat specificatiile tehnice salvate in DB pentru produsele din oferta, gratuit si instantaneu
+  useEffect(() => {
+    const ids = quoteProductsJoined.split("|").filter(Boolean);
+    const missingIds = ids.filter((id) => !aiInfo[id]);
+    if (missingIds.length > 0) {
+      const getCached = async () => {
+        try {
+          const res = await fetchTechInfoWithAnthropic(missingIds, "", true);
+          if (res.success && res.data && Object.keys(res.data).length > 0) {
+            setAiInfo((prev) => ({ ...prev, ...res.data }));
+            const allAlts: string[] = Object.values(res.data as Record<string, AiProductInfo>)
+              .flatMap((info) => info.alternative ?? []);
+            void lookupAlternatives(allAlts);
+          }
+        } catch (e) {
+          console.error("Eroare la preluarea automata a datelor tehnice din cache:", e);
+        }
+      };
+      void getCached();
+    }
+  }, [quoteProductsJoined, aiInfo, lookupAlternatives]);
+
   const { data: priceVariants = [] } = useQuery({
     queryKey: ["smart-quote-price-variants", productIdsInQuote.join("|")],
     enabled: productIdsInQuote.length > 0,

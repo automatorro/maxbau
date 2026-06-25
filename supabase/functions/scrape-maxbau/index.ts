@@ -440,12 +440,19 @@ async function upsertProduct(
 
   const { data: existing } = await supabase
     .from("products")
-    .select("id")
+    .select("id, specifications")
     .eq("cod_intern", productData.cod_intern)
     .maybeSingle();
 
   let dbError;
   if (existing) {
+    const existingSpecs = (existing.specifications as Record<string, unknown>) || {};
+    const newSpecs = {
+      ...existingSpecs,
+      ...(parsed.specifications || {}),
+    };
+    productData.specifications = newSpecs;
+
     const { error } = await supabase.from("products").update(productData).eq("id", existing.id);
     dbError = error;
   } else {

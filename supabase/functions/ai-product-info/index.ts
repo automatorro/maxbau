@@ -701,6 +701,51 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`,
 
     for (const p of products) {
       const specs = (p.specifications as Record<string, unknown>) || {};
+      
+      // 1. Daca avem fisa_tehnica_specs (extrase din PDF), mapam instantaneu datele
+      const ftSpecs = specs.fisa_tehnica_specs as Record<string, any> | undefined;
+      if (ftSpecs) {
+        let compat = "";
+        if (Array.isArray(ftSpecs.compatibil_cu)) {
+          compat = ftSpecs.compatibil_cu.join(", ");
+        } else {
+          compat = ftSpecs.compatibil_cu || "N/A";
+        }
+
+        let util = "";
+        if (Array.isArray(ftSpecs.utilizare)) {
+          util = ftSpecs.utilizare.join(", ");
+        } else {
+          util = ftSpecs.utilizare || "N/A";
+        }
+
+        const mappedAiInfo = {
+          consum: ftSpecs.consum || "N/A",
+          ambalaj: ftSpecs.ambalaj || "N/A",
+          alternative: ftSpecs.alternative || [],
+          compatibilitati: compat,
+          utilizare: util,
+          updated_at: ftSpecs._extracted_at || new Date().toISOString(),
+          source: "fisa_tehnica_specs"
+        };
+
+        cached[p.id] = mappedAiInfo;
+
+        // Actualizam baza de date in fundal daca ai_info nu exista sau e diferit
+        const aiInfo = specs.ai_info as Record<string, any> | undefined;
+        if (!aiInfo || aiInfo.source !== "fisa_tehnica_specs") {
+          supabaseAdmin
+            .from("products")
+            .update({ specifications: { ...specs, ai_info: mappedAiInfo } })
+            .eq("id", p.id)
+            .then(({ error }) => {
+              if (error) console.error(`Error updating cached ai_info for product ${p.id}:`, error);
+            });
+        }
+        continue;
+      }
+
+      // 2. Daca avem deja ai_info generat in cache-ul de 30 de zile
       const aiInfo = specs.ai_info as Record<string, unknown> | undefined;
       if (aiInfo?.updated_at) {
         const age = now - new Date(aiInfo.updated_at as string).getTime();
