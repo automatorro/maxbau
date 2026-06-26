@@ -61,7 +61,8 @@ async function callGeminiDirect(
     responseMimeType: "application/json",
   };
   if (toolSchema) {
-    generationConfig.responseSchema = convertToGeminiSchema(toolSchema);
+    const actualSchema = toolSchema.parameters || toolSchema;
+    generationConfig.responseSchema = convertToGeminiSchema(actualSchema);
   }
 
   const body = {
