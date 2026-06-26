@@ -6,6 +6,7 @@ import { fetchTechInfoWithAnthropic, findEquivalentWithAnthropic } from "@/utils
 import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { MultiProductPicker, type PickedProduct } from "@/components/MultiProductPicker";
+import { EquivalentsDialog } from "@/components/EquivalentsDialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,7 +27,7 @@ import {
 } from "@/components/ui/table";
 import {
   Trash2, Download, Save, Send, Sparkles, Loader2,
-  ExternalLink, PackageSearch, ChevronRight, Bot, Plus,
+  ExternalLink, PackageSearch, ChevronRight, Bot, Plus, ArrowLeftRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
@@ -113,6 +114,30 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
+function getProductSpecSummary(specifications: any) {
+  const specs = specifications || {};
+  const ftSpecs = specs.fisa_tehnica_specs || null;
+  const aiInfo = specs.ai_info || null;
+  
+  const source = ftSpecs ? "verified" : (aiInfo ? "ai" : "none");
+  
+  let conductivitate = null;
+  let clasa_foc = null;
+  let consum = null;
+  
+  if (ftSpecs) {
+    conductivitate = ftSpecs.conductivitate_termica || null;
+    clasa_foc = ftSpecs.clasa_reactie_foc || null;
+    consum = ftSpecs.consum || null;
+  } else if (aiInfo) {
+    conductivitate = aiInfo.conductivitate_termica || null;
+    clasa_foc = aiInfo.clasa_reactie_foc || null;
+    consum = aiInfo.consum || null;
+  }
+  
+  return { source, conductivitate, clasa_foc, consum };
+}
+
 const SmartQuote = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -136,6 +161,9 @@ const SmartQuote = () => {
 
   const [equivalentLoading, setEquivalentLoading] = useState(false);
   const [equivalentResults, setEquivalentResults] = useState<EquivalentSearchResponse | null>(null);
+
+  const [equivalentsOpen, setEquivalentsOpen] = useState(false);
+  const [itemForEquivalents, setItemForEquivalents] = useState<OfertaItem | null>(null);
 
   // Reset equivalent results when user changes the search text
   useEffect(() => {
@@ -190,6 +218,66 @@ const SmartQuote = () => {
       void getCached();
     }
   }, [quoteProductsJoined, lookupAlternatives]);
+
+  const { data: listPrices = [] } = useQuery({
+    queryKey: ["smart-quote-list-prices", productIdsInQuote.join("|")],
+    enabled: productIdsInQuote.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, pret_lista, category_id, specifications")
+        .in("id", productIdsInQuote);
+      if (error) throw error;
+      return data as { id: string; pret_lista: number; category_id: string | null; specifications: any }[];
+    },
+  });
+
+  const productDetailsByProductId = useMemo(() => {
+    const map = new Map<string, { category_id: string | null; specifications: any }>();
+    listPrices.forEach((p) => map.set(p.id, { category_id: p.category_id, specifications: p.specifications }));
+    return map;
+  }, [listPrices]);
+
+  const productForEquivalents = useMemo(() => {
+    if (!itemForEquivalents || !itemForEquivalents.product_id) return null;
+    const details = productDetailsByProductId.get(itemForEquivalents.product_id);
+    return {
+      id: itemForEquivalents.product_id,
+      cod_intern: itemForEquivalents.cod_intern,
+      denumire_completa: itemForEquivalents.denumire,
+      category_id: details?.category_id || null,
+    };
+  }, [itemForEquivalents, productDetailsByProductId]);
+
+  const handleReplaceItem = (newProduct: {
+    id: string;
+    cod_intern: string;
+    denumire_completa: string;
+    pret_lista: number;
+    unit: string | null;
+  }) => {
+    if (!itemForEquivalents) return;
+    
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.tempId !== itemForEquivalents.tempId) return item;
+        
+        const updated = {
+          ...item,
+          product_id: newProduct.id,
+          cod_intern: newProduct.cod_intern,
+          denumire: newProduct.denumire_completa,
+          unit: newProduct.unit || "buc",
+          pret_unitar: newProduct.pret_lista,
+          discount_percent: 0,
+          price_variant_id: null,
+        };
+        const calced = calcLine(updated);
+        return { ...updated, ...calced };
+      })
+    );
+    setItemForEquivalents(null);
+  };
 
   const { data: priceVariants = [] } = useQuery({
     queryKey: ["smart-quote-price-variants", productIdsInQuote.join("|")],
@@ -847,8 +935,56 @@ const SmartQuote = () => {
                               </Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-sm max-w-[180px]">
-                            <span className="line-clamp-2">{item.denumire}</span>
+                          <TableCell className="text-sm max-w-[280px]">
+                            <div className="flex flex-col gap-1">
+                              <span className="font-medium leading-snug line-clamp-2">{item.denumire}</span>
+                              {!item.is_cerere_speciala && item.product_id && (() => {
+                                const details = productDetailsByProductId.get(item.product_id);
+                                if (!details) return null;
+                                const { source, conductivitate, clasa_foc, consum } = getProductSpecSummary(details.specifications);
+                                return (
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                    {source === "verified" && (
+                                      <Badge variant="outline" className="text-[9px] py-0 px-1 border-emerald-500/20 text-emerald-700 bg-emerald-50/50">
+                                        🟢 Fișă Verificată
+                                      </Badge>
+                                    )}
+                                    {source === "ai" && (
+                                      <Badge variant="outline" className="text-[9px] py-0 px-1 border-amber-500/20 text-amber-700 bg-amber-50/50">
+                                        🟡 Date AI
+                                      </Badge>
+                                    )}
+                                    {source === "none" && (
+                                      <Badge variant="outline" className="text-[9px] py-0 px-1 border-red-500/20 text-red-700 bg-red-50/50">
+                                        🔴 Fără Date
+                                      </Badge>
+                                    )}
+                                    {conductivitate && (
+                                      <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border" title="Conductivitate termică">
+                                        λ: {conductivitate}
+                                      </span>
+                                    )}
+                                    {clasa_foc && (
+                                      <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border" title="Clasă reacție la foc">
+                                        Foc: {clasa_foc}
+                                      </span>
+                                    )}
+                                    {consum && (
+                                      <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border" title="Consum specific">
+                                        Consum: {consum}
+                                      </span>
+                                    )}
+                                    <Link 
+                                      to={`/catalog/product/${item.product_id}`} 
+                                      className="text-[10px] text-primary hover:underline font-semibold ml-auto"
+                                      target="_blank"
+                                    >
+                                      Detalii →
+                                    </Link>
+                                  </div>
+                                );
+                              })()}
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Input type="number" min={0.01} step="any"
@@ -919,11 +1055,32 @@ const SmartQuote = () => {
                             {item.is_cerere_speciala ? "—" : `${item.subtotal.toFixed(2)} lei`}
                           </TableCell>
                           <TableCell>
-                            <Button variant="ghost" size="icon"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => removeItem(item.tempId)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              {!item.is_cerere_speciala && item.product_id && (() => {
+                                const details = productDetailsByProductId.get(item.product_id);
+                                const categoryId = details?.category_id || null;
+                                if (!categoryId) return null;
+                                return (
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-7 w-7 text-primary hover:text-primary-active hover:bg-primary/5"
+                                    onClick={() => {
+                                      setItemForEquivalents(item);
+                                      setEquivalentsOpen(true);
+                                    }}
+                                    title="Schimbă cu un echivalent tehnic"
+                                  >
+                                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                                  </Button>
+                                );
+                              })()}
+                              <Button variant="ghost" size="icon"
+                                className="h-7 w-7 text-destructive hover:text-destructive"
+                                onClick={() => removeItem(item.tempId)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -943,40 +1100,70 @@ const SmartQuote = () => {
                         </p>
                       )}
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary mb-1">
-                            {item.cod_intern}
-                          </Badge>
-                          <p className="text-sm line-clamp-2">{item.denumire}</p>
-                          {!item.is_cerere_speciala && (() => {
-                            const variants = priceVariants.filter((v: any) => v.product_id === item.product_id);
-                            if (variants.length > 0) {
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                              {item.is_cerere_speciala ? (
+                                <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">
+                                  De procurat
+                                </Badge>
+                              ) : (
+                                <>
+                                  <Badge variant="outline" className="text-xs font-mono border-primary/30 text-primary">
+                                    {item.cod_intern}
+                                  </Badge>
+                                  {item.product_id && (() => {
+                                    const details = productDetailsByProductId.get(item.product_id);
+                                    if (!details) return null;
+                                    const { source } = getProductSpecSummary(details.specifications);
+                                    return (
+                                      <>
+                                        {source === "verified" && (
+                                          <Badge variant="outline" className="text-[9px] py-0 px-1 border-emerald-500/20 text-emerald-700 bg-emerald-50/50">
+                                            🟢 Fișă
+                                          </Badge>
+                                        )}
+                                        {source === "ai" && (
+                                          <Badge variant="outline" className="text-[9px] py-0 px-1 border-amber-500/20 text-amber-700 bg-amber-50/50">
+                                            🟡 AI
+                                          </Badge>
+                                        )}
+                                        {source === "none" && (
+                                          <Badge variant="outline" className="text-[9px] py-0 px-1 border-red-500/20 text-red-700 bg-red-50/50">
+                                            🔴 Fără date
+                                          </Badge>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium leading-snug mb-1">{item.denumire}</p>
+                            
+                            {!item.is_cerere_speciala && item.product_id && (() => {
+                              const details = productDetailsByProductId.get(item.product_id);
+                              if (!details) return null;
+                              const { conductivitate, clasa_foc, consum } = getProductSpecSummary(details.specifications);
+                              if (!conductivitate && !clasa_foc && !consum) return null;
                               return (
-                                <div className="mt-2">
-                                  <Select 
-                                    value={item.price_variant_id || ""} 
-                                    onValueChange={(val) => {
-                                      const variant = variants.find((v: any) => v.id === val);
-                                      if (variant) {
-                                        updateItem(item.tempId, "price_variant_id", val);
-                                        updateItem(item.tempId, "pret_unitar", Number(variant.price));
-                                      }
-                                    }}
-                                  >
-                                    <SelectTrigger className="h-7 text-xs w-full bg-muted/50">
-                                      <SelectValue placeholder="Selectează o grilă de preț..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {variants.map((v: any) => (
-                                        <SelectItem key={v.id} value={v.id} className="text-xs">
-                                          {v.price_type}: {v.price} {v.currency} {v.min_quantity > 1 ? `(min. ${v.min_quantity})` : ""} {v.suppliers?.name ? `(${v.suppliers.name})` : ""}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                <div className="flex flex-wrap gap-1 mb-2">
+                                  {conductivitate && (
+                                    <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border">
+                                      λ: {conductivitate}
+                                    </span>
+                                  )}
+                                  {clasa_foc && (
+                                    <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border">
+                                      Foc: {clasa_foc}
+                                    </span>
+                                  )}
+                                  {consum && (
+                                    <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border">
+                                      Consum: {consum}
+                                    </span>
+                                  )}
                                 </div>
                               );
-                            }
                             return null;
                           })()}
                         </div>
@@ -1178,6 +1365,14 @@ const SmartQuote = () => {
         onConfirm={handlePickerConfirm}
         title={cerereText ? `Produse pentru: "${cerereText}"` : "Selectează produse"}
         initialSearch={cerereText}
+      />
+      
+      {/* Equivalents Dialog */}
+      <EquivalentsDialog
+        open={equivalentsOpen}
+        onOpenChange={setEquivalentsOpen}
+        product={productForEquivalents}
+        onReplace={handleReplaceItem}
       />
     </DashboardLayout>
   );
