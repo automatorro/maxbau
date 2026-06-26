@@ -149,6 +149,23 @@ const SmartQuote = () => {
 
   const quoteProductsJoined = productIdsInQuote.join("|");
 
+  const lookupAlternatives = useCallback(async (alternatives: string[]) => {
+    const unique = [...new Set(alternatives)].filter((a) => a.trim().length > 1);
+    if (unique.length === 0) return;
+    const results: Record<string, { cod_intern: string; denumire_completa: string } | null> = {};
+    await Promise.all(
+      unique.map(async (alt) => {
+        const toks = tokenize(alt).slice(0, 4);
+        if (toks.length === 0) { results[alt] = null; return; }
+        let q = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
+        for (const t of toks) q = q.or(`denumire_completa.ilike.%${t}%,brand.ilike.%${t}%`);
+        const { data } = await q;
+        results[alt] = data?.[0] ?? null;
+      })
+    );
+    setAltMatches((prev) => ({ ...prev, ...results }));
+  }, []);
+
   // Incarca automat specificatiile tehnice salvate in DB pentru produsele din oferta, gratuit si instantaneu
   useEffect(() => {
     const ids = quoteProductsJoined.split("|").filter(Boolean);
@@ -255,23 +272,6 @@ const SmartQuote = () => {
   };
 
   // ── AI helpers ───────────────────────────────────────────────────────────
-  const lookupAlternatives = useCallback(async (alternatives: string[]) => {
-    const unique = [...new Set(alternatives)].filter((a) => a.trim().length > 1);
-    if (unique.length === 0) return;
-    const results: Record<string, { cod_intern: string; denumire_completa: string } | null> = {};
-    await Promise.all(
-      unique.map(async (alt) => {
-        const toks = tokenize(alt).slice(0, 4);
-        if (toks.length === 0) { results[alt] = null; return; }
-        let q = supabase.from("products").select("cod_intern, denumire_completa").limit(1);
-        for (const t of toks) q = q.or(`denumire_completa.ilike.%${t}%,brand.ilike.%${t}%`);
-        const { data } = await q;
-        results[alt] = data?.[0] ?? null;
-      })
-    );
-    setAltMatches((prev) => ({ ...prev, ...results }));
-  }, []);
-
   const fetchAiInfo = useCallback(async (productIds: string[], clientRequest: string) => {
     if (productIds.length === 0) return;
     setAiLoading(true);
