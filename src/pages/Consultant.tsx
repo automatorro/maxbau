@@ -111,61 +111,36 @@ REGULI ETICE NENEGOCIABILE:
 ❌ NU prețuri exacte fără context (volum, livrare, condiții plată).
 ❌ NU promisiuni de termen fără validare cu depozitul.
 ❌ NU urgență/scarcitate fictivă, FOMO, presiune emoțională.
-❌ NU sfaturi juridice, fiscale, contabile.`;
+❌ NU sfaturi juridice, fiscale, contabile.
+
+REGULI SPECIFICAȚII TEHNICE ȘI SURSE DE DATE (M1):
+- Când oferi specificații tehnice sau recomanzi produse, specifică clar sursa datelor pentru fiecare produs recomandat folosind etichete textuale explicite:
+  - 🟢 **Fișă tehnică verificată**: pentru produsele care au \`source: "verified"\` (date extrase direct din documentul oficial).
+  - 🟡 **Date generate de AI (orientative)**: pentru produsele care au \`source: "ai_generated"\` sau \`source: "ai"\` (date generate de modelul AI, neverificate, care pot conține erori).
+  - 🔴 **Fără fișă tehnică**: dacă un produs nu are fișă tehnică procesată (\`source: "none"\`), atenționează clientul și recomandă-i să o încarce.
+
+REGULI ECHIVALENTE REALE (M2):
+- NICIODATĂ nu inventa branduri sau produse de echivalare care nu există în baza noastră de date!
+- Dacă un client cere un brand concurent sau solicită alternative/echivalente pentru un produs, folosește OBLIGATORIU tool-ul \`get_equivalents\` cu codul intern al produsului curent.
+- Oferă doar echivalente reale din baza de date returnate de acest tool, menționând dacă au specificații verificate (🟢) sau generate de AI (🟡).`;
 
 const GREETING =
   "Bună ziua! Sunt consultant tehnic la MAXBAU MATERIALE SRL. " +
   "Sunt aici să vă ajut să găsiți materialele potrivite pentru proiectul dumneavoastră. " +
   "Ca să vă pot recomanda cel mai bine, spuneți-mi pe scurt: ce construiți sau renovați și în ce fază sunteți?";
 
-async function callAnthropic(messages: Message[], systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
-  // 1. Încercăm apelul cu Anthropic (Claude) prin proxy-ul securizat server-side
+async function callAiConsultant(messages: Message[], systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   try {
-    const { ok, data } = await callAiProxy("anthropic", {
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    const { data, error } = await supabase.functions.invoke("ai-consultant", {
+      body: { messages, systemPrompt },
     });
-
-    if (ok) {
-      const text = data.content?.[0]?.text;
-      if (text) return text;
-    } else {
-      console.warn("Anthropic API returned error, falling back to Gemini:", data);
+    if (error || !data?.response) {
+      throw new Error(error?.message || data?.error || "Eroare la procesarea răspunsului AI");
     }
-  } catch (err) {
-    console.warn("Anthropic call failed, falling back to Gemini:", err);
-  }
-
-  // 2. Fallback la Google Gemini prin proxy
-  try {
-    const contents = messages.map((m) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
-    }));
-
-    const { ok, status, data } = await callAiProxy("gemini", {
-      contents,
-      systemInstruction: {
-        parts: [{ text: systemPrompt }],
-      },
-      generationConfig: {
-        maxOutputTokens: 2048,
-        temperature: 0.7,
-      },
-    });
-
-    if (!ok) {
-      throw new Error(`Eroare API Gemini (${status}): ${data?.error || ""}`);
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("Răspuns gol de la Gemini");
-    return text;
-  } catch (geminiErr: any) {
-    console.error("Gemini fallback chat failed:", geminiErr);
-    throw new Error(`Asistentul AI este momentan indisponibil. Detalii: ${geminiErr.message}`);
+    return data.response;
+  } catch (err: any) {
+    console.error("ai-consultant invocation failed:", err);
+    throw new Error(`Asistentul AI este momentan indisponibil. Detalii: ${err.message}`);
   }
 }
 
@@ -218,7 +193,7 @@ export default function Consultant() {
         console.warn("Memory search failed, continuing without rules:", memErr);
       }
 
-      const responseText = await callAnthropic(newMessages, systemPrompt);
+      const responseText = await callAiConsultant(newMessages, systemPrompt);
       setMessages((prev) => [...prev, { role: "assistant", content: responseText }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

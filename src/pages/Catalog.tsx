@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CategoryTree } from "@/components/CategoryTree";
@@ -17,9 +17,11 @@ const PAGE_SIZE = 24;
 
 const Catalog = () => {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSuppliers, setSelectedSuppliers] = useState<Set<string>>(new Set());
+  const [onlyWithSpecs, setOnlyWithSpecs] = useState(false);
   const [page, setPage] = useState(0);
 
   useEffect(() => {
@@ -86,7 +88,7 @@ const Catalog = () => {
   }, [selectedCategory, categories]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["catalog-products", search, categoryIds, Array.from(selectedSuppliers), page],
+    queryKey: ["catalog-products", search, categoryIds, Array.from(selectedSuppliers), onlyWithSpecs, page],
     queryFn: async () => {
       let query = supabase
         .from("products")
@@ -118,6 +120,10 @@ const Catalog = () => {
         }
       }
 
+      if (onlyWithSpecs) {
+        query = query.eq("fisa_tehnica_processed", true);
+      }
+
       const { data, error, count } = await query
         .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
@@ -137,6 +143,30 @@ const Catalog = () => {
 
   const FilterSidebar = (
     <div className="space-y-6">
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
+          Date Tehnice
+        </h3>
+        <div className="px-2 space-y-2">
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="only-specs"
+              checked={onlyWithSpecs}
+              onCheckedChange={(checked) => {
+                setOnlyWithSpecs(!!checked);
+                setPage(0);
+              }}
+            />
+            <label
+              htmlFor="only-specs"
+              className="text-sm font-medium leading-none cursor-pointer"
+            >
+              Doar cu fișă tehnică (🟢)
+            </label>
+          </div>
+        </div>
+      </div>
+
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-2">
           Categorii
@@ -262,7 +292,8 @@ const Catalog = () => {
                   {products.map((product) => (
                     <Card
                       key={product.id}
-                      className="hover:shadow-md transition-shadow group"
+                      className="hover:shadow-md transition-shadow cursor-pointer group hover:border-primary/50"
+                      onClick={() => navigate(`/catalog/product/${product.id}`)}
                     >
                       <CardHeader className="pb-2 space-y-2">
                         <div className="flex items-start justify-between gap-2">
@@ -291,6 +322,40 @@ const Catalog = () => {
                               }
                               return null;
                             })()}
+                            {(() => {
+                              const specs = product.specifications || {};
+                              if (specs.fisa_tehnica_specs) {
+                                return (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1 shrink-0 border-emerald-500/30 text-emerald-600 bg-emerald-50/50 font-medium font-sans"
+                                    title="Verificat din fișă tehnică"
+                                  >
+                                    🟢 Fișă
+                                  </Badge>
+                                );
+                              }
+                              if (specs.ai_info) {
+                                return (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1 shrink-0 border-amber-500/30 text-amber-600 bg-amber-50/50 font-medium font-sans"
+                                    title="Generat de AI — date orientative"
+                                  >
+                                    🟡 AI
+                                  </Badge>
+                                );
+                              }
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] py-0 px-1 shrink-0 border-red-500/30 text-red-600 bg-red-50/50 font-medium font-sans"
+                                  title="Fără date tehnice"
+                                >
+                                  🔴 Fără date
+                                </Badge>
+                              );
+                            })()}
                           </div>
                           {product.categories && (
                             <Badge variant="secondary" className="text-xs truncate max-w-[120px]">
@@ -298,7 +363,7 @@ const Catalog = () => {
                             </Badge>
                           )}
                         </div>
-                        <CardTitle className="text-sm leading-tight line-clamp-2">
+                        <CardTitle className="text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">
                           {product.denumire_completa}
                         </CardTitle>
                       </CardHeader>

@@ -10,6 +10,8 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Catalog from "./pages/Catalog";
+import ProductDetail from "./pages/ProductDetail";
+import TechnicalSearch from "./pages/TechnicalSearch";
 import NewQuote from "./pages/NewQuote";
 import MyQuotes from "./pages/MyQuotes";
 import AdminProducts from "./pages/AdminProducts";
@@ -37,6 +39,8 @@ const App = () => (
             <Route path="/register" element={<Register />} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/catalog" element={<ProtectedRoute><Catalog /></ProtectedRoute>} />
+            <Route path="/catalog/product/:id" element={<ProtectedRoute><ProductDetail /></ProtectedRoute>} />
+            <Route path="/technical-search" element={<ProtectedRoute><TechnicalSearch /></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><ImportOcr /></ProtectedRoute>} />
             <Route path="/quote/new" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/quote/:id/edit" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />

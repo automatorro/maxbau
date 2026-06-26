@@ -25,7 +25,18 @@ REGULI CRITICE DE OFERTARE (MANDATORII):
   6. Afișează o ofertă detaliată, structurată, linie cu linie: Nume produs, Cod intern, Cantitate calculată (saci/role/buc), Preț unitar și Preț total (inclusiv calculul total al ofertei).
 - Menționează că paleții europeni au o taxă de garanție de 85 lei returnabilă.
 - Adresare respectuoasă: "Dumneavoastră" la primul contact. Limba română cu diacritice obligatorii.
-- Fii extrem de precis la calculele matematice!`;
+- Fii extrem de precis la calculele matematice!
+
+REGULI SPECIFICAȚII TEHNICE ȘI SURSE DE DATE (M1):
+- Când oferi specificații tehnice sau recomanzi produse, specifică clar sursa datelor pentru fiecare produs recomandat folosind etichete textuale explicite:
+  - 🟢 **Fișă tehnică verificată**: pentru produsele care au \`source: "verified"\` (date extrase direct din documentul oficial).
+  - 🟡 **Date generate de AI (orientative)**: pentru produsele care au \`source: "ai_generated"\` sau \`source: "ai"\` (date generate de modelul AI, neverificate, care pot conține erori).
+  - 🔴 **Fără fișă tehnică**: dacă un produs nu are fișă tehnică procesată (\`source: "none"\`), atenționează clientul și recomandă-i să o încarce.
+
+REGULI ECHIVALENTE REALE (M2):
+- NICIODATĂ nu inventa branduri sau produse de echivalare care nu există în baza noastră de date!
+- Dacă un client cere un brand concurent sau solicită alternative/echivalente pentru un produs, folosește OBLIGATORIU tool-ul \`get_equivalents\` cu codul intern al produsului curent.
+- Oferă doar echivalente reale din baza de date returnate de acest tool, menționând dacă au specificații verificate (🟢) sau generate de AI (🟡).`;
 
 // 2. Schema de tool-uri (Gemini Function Declarations)
 const TOOL_DEFINITIONS = [
@@ -81,6 +92,20 @@ const TOOL_DEFINITIONS = [
           },
           required: ["recipe_name_query"]
         }
+      },
+      {
+        name: "get_equivalents",
+        description: "Caută produse similare/echivalente reale din baza de date pentru un produs specific, pe baza codului său intern (folosește categoria pentru potrivire).",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            cod_intern: {
+              type: "STRING",
+              description: "Codul intern al produsului de referință (ex: 'BAU-1002')"
+            }
+          },
+          required: ["cod_intern"]
+        }
       }
     ]
   }
@@ -112,13 +137,15 @@ serve(async (req) => {
       auth: { persistSession: false },
     });
 
-    const { messages } = await req.json();
+    const { messages, systemPrompt: clientSystemPrompt } = await req.json();
     if (!Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: "messages array is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const activeSystemPrompt = clientSystemPrompt || SYSTEM_PROMPT;
 
     // 3. Formatăm istoricul conversației în structura Gemini
     // Rolul "assistant" devine "model". Gemini nu acceptă "system" în istoric direct, ci prin systemInstruction
@@ -132,7 +159,7 @@ serve(async (req) => {
 
     let payload = {
       contents: geminiContents,
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      systemInstruction: { parts: [{ text: activeSystemPrompt }] },
       tools: TOOL_DEFINITIONS,
       generationConfig: { temperature: 0.2 }
     };
@@ -196,7 +223,25 @@ serve(async (req) => {
             );
 
             if (rpcError) throw rpcError;
-            functionResult = searchResults;
+
+            // Map search results to include metadata flags for the LLM
+            const mappedResults = (searchResults || []).map((r: any) => {
+              const specifications = r.specifications || {};
+              const ftSpecs = specifications.fisa_tehnica_specs || null;
+              const aiInfo = specifications.ai_info || null;
+              const source = ftSpecs ? "verified" : (aiInfo ? "ai" : "none");
+              return {
+                id: r.product_id,
+                cod_intern: r.cod_intern,
+                denumire_completa: r.denumire_completa,
+                brand: r.brand,
+                fisa_tehnica_url: r.fisa_tehnica_url,
+                has_verified_specs: !!ftSpecs,
+                source,
+                specifications: ftSpecs || aiInfo || null
+              };
+            });
+            functionResult = mappedResults;
 
           } else if (name === "get_product_details") {
             const { coduri_interne } = args as any;
@@ -207,7 +252,27 @@ serve(async (req) => {
               .in("cod_intern", coduri_interne);
 
             if (dbError) throw dbError;
-            functionResult = products;
+
+            // Map specifications and source details
+            const mappedProducts = (products || []).map((p: any) => {
+              const specs = p.specifications || {};
+              const ftSpecs = specs.fisa_tehnica_specs || null;
+              const aiInfo = specs.ai_info || null;
+              const source = ftSpecs ? "verified" : (aiInfo ? "ai_generated" : "none");
+              return {
+                id: p.id,
+                cod_intern: p.cod_intern,
+                denumire_completa: p.denumire_completa,
+                pret_lista: p.pret_lista,
+                unit: p.unit,
+                brand: p.brand,
+                manufacturer: p.manufacturer,
+                source,
+                fisa_tehnica_specs: ftSpecs,
+                ai_info: aiInfo
+              };
+            });
+            functionResult = mappedProducts;
 
           } else if (name === "get_recipe") {
             const { recipe_name_query } = args as any;
@@ -220,6 +285,56 @@ serve(async (req) => {
 
             if (dbError) throw dbError;
             functionResult = recipes;
+
+          } else if (name === "get_equivalents") {
+            const { cod_intern } = args as any;
+
+            // Find reference product's category
+            const { data: refProduct, error: refError } = await supabase
+              .from("products")
+              .select("id, category_id, brand")
+              .eq("cod_intern", cod_intern)
+              .single();
+
+            if (refError || !refProduct) {
+              functionResult = { error: `Produsul cu codul ${cod_intern} nu a fost găsit.` };
+            } else if (!refProduct.category_id) {
+              functionResult = { error: `Produsul ${cod_intern} nu are o categorie asociată.` };
+            } else {
+              // Find active products in same category
+              const { data: equivalents, error: eqError } = await supabase
+                .from("products")
+                .select("id, cod_intern, denumire_completa, pret_lista, unit, brand, specifications")
+                .eq("category_id", refProduct.category_id)
+                .eq("is_active", true)
+                .neq("id", refProduct.id)
+                .limit(6);
+
+              if (eqError) throw eqError;
+
+              const mapped = (equivalents || []).map((e: any) => {
+                const specs = e.specifications || {};
+                const ftSpecs = specs.fisa_tehnica_specs || null;
+                const aiInfo = specs.ai_info || null;
+                const source = ftSpecs ? "verified" : (aiInfo ? "ai_generated" : "none");
+                return {
+                  id: e.id,
+                  cod_intern: e.cod_intern,
+                  denumire_completa: e.denumire_completa,
+                  pret_lista: e.pret_lista,
+                  unit: e.unit,
+                  brand: e.brand,
+                  source,
+                  fisa_tehnica_specs: ftSpecs,
+                  ai_info: aiInfo
+                };
+              });
+
+              functionResult = {
+                product: { cod_intern, brand: refProduct.brand },
+                equivalents: mapped
+              };
+            }
           }
 
         } catch (err: any) {

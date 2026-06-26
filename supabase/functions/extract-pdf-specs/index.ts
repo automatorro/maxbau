@@ -90,21 +90,7 @@ serve(async (req) => {
       });
     }
 
-    // Check if user is admin
     const userId = user.id;
-    const { data: userRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!userRole) {
-      return new Response(JSON.stringify({ error: "Access denied: Admin role required" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     // 2. Parse request parameters
     const { productId } = await req.json();
@@ -113,6 +99,36 @@ serve(async (req) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Check if user is admin (exempt from rate limit)
+    const { data: userRole } = await supabaseAdmin
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (!userRole) {
+      // Apply Rate Limiting: max 10 extractions per 24 hours
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count, error: countError } = await supabaseAdmin
+        .from("pdf_extraction_log")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gte("created_at", oneDayAgo);
+
+      if (countError) {
+        console.error("Error counting user extractions:", countError);
+      } else if (count !== null && count >= 10) {
+        return new Response(
+          JSON.stringify({ error: "Limită zilnică depășită! Poți extrage maxim 10 fișe tehnice pe zi." }),
+          {
+            status: 429,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
     }
 
     // 3. Fetch product details
@@ -279,6 +295,23 @@ INSTRUCȚIUNI:
     // 8. Trigger local database function to update ai_info instantly
     // (So it gets mapped right away to standard format)
     await supabaseAdmin.rpc("get_ai_product_info", { p_product_id: productId });
+
+    // 9. Log the successful extraction
+    await supabaseAdmin
+      .from("pdf_extraction_log")
+      .insert({
+        user_id: userId,
+        product_id: productId
+      });
+
+    // 10. Auto-trigger product embedding generation
+    try {
+      await supabaseAdmin.functions.invoke("generate-product-embedding", {
+        body: { productId },
+      });
+    } catch (embedErr) {
+      console.error("Failed to auto-trigger embedding generation:", embedErr);
+    }
 
     return new Response(JSON.stringify({ success: true, data: specs }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
