@@ -77,9 +77,13 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claims, error: authError } = await supabaseAdmin.auth.getClaims(token);
-    if (authError || !claims?.claims) {
+    const supabaseUser = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+    if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -87,7 +91,7 @@ serve(async (req) => {
     }
 
     // Check if user is admin
-    const userId = claims.claims.sub;
+    const userId = user.id;
     const { data: userRole } = await supabaseAdmin
       .from("user_roles")
       .select("role")

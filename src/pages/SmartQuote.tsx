@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -132,6 +132,7 @@ const SmartQuote = () => {
   const [aiInfo, setAiInfo] = useState<Record<string, AiProductInfo>>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [altMatches, setAltMatches] = useState<Record<string, { cod_intern: string; denumire_completa: string } | null>>({});
+  const fetchedIdsRef = useRef<Set<string>>(new Set());
 
   const [equivalentLoading, setEquivalentLoading] = useState(false);
   const [equivalentResults, setEquivalentResults] = useState<EquivalentSearchResponse | null>(null);
@@ -151,15 +152,18 @@ const SmartQuote = () => {
   // Incarca automat specificatiile tehnice salvate in DB pentru produsele din oferta, gratuit si instantaneu
   useEffect(() => {
     const ids = quoteProductsJoined.split("|").filter(Boolean);
-    const missingIds = ids.filter((id) => !aiInfo[id]);
+    const missingIds = ids.filter((id) => !fetchedIdsRef.current.has(id));
     if (missingIds.length > 0) {
+      // Mark as fetched immediately to prevent double-fetching while request is in progress
+      missingIds.forEach((id) => fetchedIdsRef.current.add(id));
+      
       const getCached = async () => {
         try {
           const res = await fetchTechInfoWithAnthropic(missingIds, "", true);
           if (res.success && res.data && Object.keys(res.data).length > 0) {
             setAiInfo((prev) => ({ ...prev, ...res.data }));
             const allAlts: string[] = Object.values(res.data as Record<string, AiProductInfo>)
-              .flatMap((info) => info.alternative ?? []);
+              .flatMap((info) => (info && info.alternative) ?? []);
             void lookupAlternatives(allAlts);
           }
         } catch (e) {
@@ -168,7 +172,7 @@ const SmartQuote = () => {
       };
       void getCached();
     }
-  }, [quoteProductsJoined, aiInfo, lookupAlternatives]);
+  }, [quoteProductsJoined, lookupAlternatives]);
 
   const { data: priceVariants = [] } = useQuery({
     queryKey: ["smart-quote-price-variants", productIdsInQuote.join("|")],
@@ -1081,7 +1085,7 @@ const SmartQuote = () => {
                             <span className="font-medium">{info.compatibilitati}</span>
                           </div>
                         </div>
-                        {info.alternative && info.alternative.length > 0 && (
+                        {Array.isArray(info.alternative) && info.alternative.length > 0 && (
                           <div className="text-xs">
                             <span className="text-muted-foreground block mb-1.5">
                               Produse similare pe piață:
