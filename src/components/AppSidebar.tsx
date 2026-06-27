@@ -34,7 +34,6 @@ import { Button } from "@/components/ui/button";
  
 const mainItems = [
   { title: "Catalog", url: "/catalog", icon: Package },
-  { title: "Căutare Tehnică Specs", url: "/technical-search", icon: Search },
   { title: "Import OCR/Excel", url: "/import", icon: ScanText },
   { title: "Ofertă nouă", url: "/quote/new", icon: FilePlus },
   { title: "Ofertă din cerere client", url: "/quote/smart", icon: Lightbulb },

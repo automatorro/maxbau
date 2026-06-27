@@ -44,6 +44,13 @@ serve(async (req) => {
     const specifications = product.specifications || {};
     const specs = (specifications.fisa_tehnica_specs || specifications.ai_info || {}) as Record<string, any>;
 
+    // Support root specifications fallback/supplementary fields
+    const thickness = specifications.thickness_mm !== undefined ? `${specifications.thickness_mm} mm` : specs.grosime_strat;
+    const conductivitate = specifications.lambda_w_mk !== undefined ? `${specifications.lambda_w_mk} W/mK` : specs.conductivitate_termica;
+    const rezistentaCompresiune = specifications.compressive_strength_kpa !== undefined ? `${specifications.compressive_strength_kpa} kPa` : specs.rezistenta_compresiune;
+    const width = specifications.width_mm !== undefined ? `${specifications.width_mm} mm` : null;
+    const length = specifications.length_mm !== undefined ? `${specifications.length_mm} mm` : null;
+
     // 2. Build descriptive text for embedding
     const textParts = [
       `Denumire produs: ${product.denumire_completa}`,
@@ -51,13 +58,15 @@ serve(async (req) => {
       product.brand ? `Brand: ${product.brand}` : "",
       specs.rezumat_tehnic ? `Rezumat: ${specs.rezumat_tehnic}` : "",
       specs.densitate ? `Densitate: ${specs.densitate}` : "",
-      specs.conductivitate_termica ? `Conductivitate termică (lambda): ${specs.conductivitate_termica}` : "",
-      specs.rezistenta_compresiune ? `Rezistență la compresiune: ${specs.rezistenta_compresiune}` : "",
+      conductivitate ? `Conductivitate termică (lambda): ${conductivitate}` : "",
+      rezistentaCompresiune ? `Rezistență la compresiune: ${rezistentaCompresiune}` : "",
       specs.rezistenta_tractiune ? `Rezistență la tracțiune: ${specs.rezistenta_tractiune}` : "",
       specs.clasa_reactie_foc ? `Reacție la foc: ${specs.clasa_reactie_foc}` : "",
       specs.consum ? `Consum: ${specs.consum}` : "",
       specs.ambalaj ? `Ambalaj: ${specs.ambalaj}` : "",
-      specs.grosime_strat ? `Grosime strat: ${specs.grosime_strat}` : "",
+      thickness ? `Grosime / Grosime strat: ${thickness}` : "",
+      width ? `Lățime: ${width}` : "",
+      length ? `Lungime: ${length}` : "",
       specs.utilizare ? `Utilizare: ${Array.isArray(specs.utilizare) ? specs.utilizare.join(", ") : specs.utilizare}` : "",
       specs.compatibil_cu ? `Compatibil cu: ${Array.isArray(specs.compatibil_cu) ? specs.compatibil_cu.join(", ") : specs.compatibil_cu}` : "",
       specs.incompatibil_cu ? `Incompatibil cu / Restricții: ${Array.isArray(specs.incompatibil_cu) ? specs.incompatibil_cu.join(", ") : specs.incompatibil_cu}` : "",

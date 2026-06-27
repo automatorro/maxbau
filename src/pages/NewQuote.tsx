@@ -23,7 +23,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Trash2, Save, Send, Plus, Download, Calculator, ArrowLeftRight } from "lucide-react";
+import { Trash2, Save, Send, Plus, Download, Calculator, ArrowLeftRight, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_PERCENT, TVA_RATE } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
@@ -632,6 +632,17 @@ const NewQuote = () => {
                                     <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border" title="Consum specific">
                                       Consum: {consum}
                                     </span>
+                                  )}
+                                  {details.fisa_tehnica_url && (
+                                    <a
+                                      href={details.fisa_tehnica_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-[10px] text-emerald-600 hover:text-emerald-700 hover:underline font-semibold flex items-center gap-0.5 ml-2"
+                                    >
+                                      <BookOpen className="h-3 w-3" />
+                                      FT
+                                    </a>
                                   )}
                                   <Link 
                                     to={`/catalog/product/${item.product_id}`} 

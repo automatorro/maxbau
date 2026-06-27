@@ -119,7 +119,14 @@ function extractPdfLinks(html) {
   const hrefRe = /href=["']([^"']*\.pdf(?:\?[^"']*)?)/gi;
   let m;
   while ((m = hrefRe.exec(html)) !== null) {
-    const url = m[1].trim();
+    let url = m[1].trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      if (url.startsWith('/')) {
+        url = 'https://www.maxbau.ro' + url;
+      } else {
+        url = 'https://www.maxbau.ro/' + url;
+      }
+    }
     if (url.includes('cdn.contentspeed.ro') || url.includes('maxbau')) {
       found.add(url);
     }
@@ -128,14 +135,21 @@ function extractPdfLinks(html) {
   // Pattern 2: link-uri în src (uneori PDF-urile sunt în <object> sau <embed>)
   const srcRe = /src=["']([^"']*\.pdf(?:\?[^"']*)?)/gi;
   while ((m = srcRe.exec(html)) !== null) {
-    const url = m[1].trim();
+    let url = m[1].trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      if (url.startsWith('/')) {
+        url = 'https://www.maxbau.ro' + url;
+      } else {
+        url = 'https://www.maxbau.ro/' + url;
+      }
+    }
     if (url.includes('cdn.contentspeed.ro') || url.includes('maxbau')) {
       found.add(url);
     }
   }
 
   // Pattern 3: URL-uri absolute cu .pdf în text plat (pentru JSON embedded în HTML)
-  const rawRe = /https?:\/\/cdn\.contentspeed\.ro\/[^\s"'<>]+\.pdf(?:\?[^\s"'<>]*)?/gi;
+  const rawRe = /https?:\/\/(?:cdn\.contentspeed\.ro|www\.maxbau\.ro)\/[^\s"'<>]+\.pdf(?:\?[^\s"'<>]*)?/gi;
   while ((m = rawRe.exec(html)) !== null) {
     found.add(m[0]);
   }

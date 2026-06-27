@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Plus } from "lucide-react";
+import { Search, Plus, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export interface PickedProduct {
   id: string;
@@ -41,10 +42,14 @@ export function MultiProductPicker({
   preloadedProducts,
 }: MultiProductPickerProps) {
   const [search, setSearch] = useState(initialSearch);
+  const [searchType, setSearchType] = useState<"standard" | "semantic">("standard");
   const [selected, setSelected] = useState<Map<string, PickedProduct>>(new Map());
 
   useEffect(() => {
-    if (open) setSearch(initialSearch);
+    if (open) {
+      setSearch(initialSearch);
+      setSearchType("standard");
+    }
   }, [open, initialSearch]);
 
   // ── When preloadedProducts are provided, filter them locally by the search input.
@@ -68,81 +73,101 @@ export function MultiProductPicker({
     : null;
 
   const { data: dbProducts = [], isLoading } = useQuery({
-    queryKey: ["multi-picker-products", search],
+    queryKey: ["multi-picker-products", search, searchType],
     queryFn: async () => {
       const norm = search.trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      const allTokens = norm
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+      if (norm.length < 2) return [];
 
-      const wordTokens = allTokens.filter((t) => !/^\d+$/.test(t));
-      const numTokens = allTokens.filter((t) => /^\d+$/.test(t));
-
-      // Phrase variants for code-suffix searches: "AF E" → "af-e", "afe"
-      const phraseVariants = [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
-        .filter((p) => p.length >= 2);
-
-      // Use OR logic (same as SmartQuote inline search) to ensure consistent counts.
-      // This avoids AND-logic returning far fewer results than the "X produse găsite" indicator shows.
-      const tokenParts = wordTokens.map(
-        (t) =>
-          `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`
-      );
-      const phraseParts = phraseVariants.map(
-        (p) =>
-          `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`
-      );
-      const orFilter = [...tokenParts, ...phraseParts].join(",");
-
-      let query = supabase
-        .from("products")
-        .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, categories(name)")
-        .limit(100);
-
-      if (orFilter) {
-        query = query.or(orFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      let results = (data ?? []) as (PickedProduct & { categories: { name: string } | null })[];
-
-      // Word-boundary filter for numbers
-      if (numTokens.length > 0) {
-        results = results.filter((p) => {
-          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase();
-          return numTokens.every((n) =>
-            new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
-          );
+      if (searchType === "semantic") {
+        const { data, error } = await supabase.functions.invoke("semantic-search", {
+          body: { query: search, limit: 30, threshold: 0.35 }
         });
+        if (error) throw error;
+        
+        return (data.results || []).map((r: any) => ({
+          id: r.product_id,
+          cod_intern: r.cod_intern,
+          denumire_completa: r.denumire_completa,
+          pret_lista: r.pret_lista || 0,
+          unit: r.unit || "buc",
+          category_id: r.category_id || null,
+          categories: r.categories ? { name: r.categories.name } : null,
+          specifications: r.specifications || null,
+          similarity: r.similarity
+        }));
+      } else {
+        const allTokens = norm
+          .split(/[^a-z0-9]+/)
+          .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+
+        const wordTokens = allTokens.filter((t) => !/^\d+$/.test(t));
+        const numTokens = allTokens.filter((t) => /^\d+$/.test(t));
+
+        // Phrase variants for code-suffix searches: "AF E" → "af-e", "afe"
+        const phraseVariants = [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
+          .filter((p) => p.length >= 2);
+
+        // Use OR logic (same as SmartQuote inline search) to ensure consistent counts.
+        const tokenParts = wordTokens.map(
+          (t) =>
+            `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`
+        );
+        const phraseParts = phraseVariants.map(
+          (p) =>
+            `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`
+        );
+        const orFilter = [...tokenParts, ...phraseParts].join(",");
+
+        let query = supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, categories(name), specifications")
+          .limit(100);
+
+        if (orFilter) {
+          query = query.or(orFilter);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        let results = (data ?? []) as any[];
+
+        // Word-boundary filter for numbers
+        if (numTokens.length > 0) {
+          results = results.filter((p) => {
+            const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase();
+            return numTokens.every((n) =>
+              new RegExp(`(?<![0-9])${n}(?![0-9])`).test(target)
+            );
+          });
+        }
+
+        // Client-side scoring: same token scoring as SmartQuote for consistent ranking
+        const scored = results
+          .map((p) => {
+            const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase();
+            const tokenScore = wordTokens.reduce(
+              (s, t) => s + (target.includes(t) ? t.length : 0),
+              0
+            );
+            const phraseBonus = phraseVariants.reduce(
+              (best, phrase) =>
+                target.includes(phrase) ? Math.max(best, phrase.length * 3) : best,
+              0
+            );
+            return { ...p, _score: tokenScore + phraseBonus };
+          })
+          .filter((p) => p._score > 0)
+          .sort((a, b) => b._score - a._score);
+
+        return scored;
       }
-
-      // Client-side scoring: same token scoring as SmartQuote for consistent ranking
-      const scored = results
-        .map((p) => {
-          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase();
-          const tokenScore = wordTokens.reduce(
-            (s, t) => s + (target.includes(t) ? t.length : 0),
-            0
-          );
-          const phraseBonus = phraseVariants.reduce(
-            (best, phrase) =>
-              target.includes(phrase) ? Math.max(best, phrase.length * 3) : best,
-            0
-          );
-          return { ...p, _score: tokenScore + phraseBonus };
-        })
-        .filter((p) => p._score > 0)
-        .sort((a, b) => b._score - a._score);
-
-      return scored as unknown as (PickedProduct & { categories: { name: string } | null })[];
     },
     // Skip DB query when preloadedProducts are provided
     enabled: open && !preloadedProducts,
@@ -167,12 +192,14 @@ export function MultiProductPicker({
     onConfirm(Array.from(selected.values()));
     setSelected(new Map());
     setSearch("");
+    setSearchType("standard");
     onOpenChange(false);
   };
 
   const handleClose = () => {
     setSelected(new Map());
     setSearch("");
+    setSearchType("standard");
     onOpenChange(false);
   };
 
@@ -186,10 +213,43 @@ export function MultiProductPicker({
           </p>
         </DialogHeader>
 
+        {/* Tab-uri căutare */}
+        {!preloadedProducts && (
+          <div className="flex border-b border-border mb-2 shrink-0">
+            <button
+              onClick={() => setSearchType("standard")}
+              className={cn(
+                "flex-1 py-1.5 text-xs font-medium border-b-2 transition-colors",
+                searchType === "standard"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Căutare Standard
+            </button>
+            <button
+              onClick={() => setSearchType("semantic")}
+              className={cn(
+                "flex-1 py-1.5 text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5",
+                searchType === "semantic"
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Sparkles className="h-3 w-3 text-primary" />
+              Căutare Tehnică / AI (RAG)
+            </button>
+          </div>
+        )}
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Caută după denumire sau cod intern..."
+            placeholder={
+              !preloadedProducts && searchType === "semantic"
+                ? "Descrie proprietățile tehnice căutate..."
+                : "Caută după denumire sau cod intern..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -214,8 +274,11 @@ export function MultiProductPicker({
 
         <div className="-mx-2 overflow-y-auto" style={{ maxHeight: "55vh" }}>
           {isLoading ? (
-            <div className="flex justify-center py-8">
+            <div className="flex flex-col items-center justify-center py-16 space-y-2">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              {!preloadedProducts && searchType === "semantic" && (
+                <span className="text-[11px] text-muted-foreground">Gemini generează vectorii de căutare...</span>
+              )}
             </div>
           ) : products.length > 0 ? (
             <div className="space-y-1 px-2">
@@ -243,7 +306,7 @@ export function MultiProductPicker({
                         onClick={(e) => e.stopPropagation()}
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <Badge
                             variant="outline"
                             className="text-xs font-mono shrink-0 border-primary/30 text-primary"
@@ -251,8 +314,40 @@ export function MultiProductPicker({
                             {product.cod_intern}
                           </Badge>
                           {(product as unknown as { categories?: { name: string } | null }).categories && (
-                            <span className="text-xs text-muted-foreground truncate">
+                            <span className="text-xs text-muted-foreground truncate max-w-[120px]">
                               {(product as unknown as { categories: { name: string } }).categories.name}
+                            </span>
+                          )}
+                          {/* Indicators */}
+                          {(() => {
+                            const specs = (product as any).specifications || {};
+                            const ftSpecs = specs.fisa_tehnica_specs || null;
+                            const aiInfo = specs.ai_info || null;
+                            const source = ftSpecs ? "verified" : (aiInfo ? "ai" : "none");
+                            return (
+                              <>
+                                {source === "verified" && (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1 border-emerald-500/20 text-emerald-700 bg-emerald-50/50">
+                                    🟢 Fișă Verificată
+                                  </Badge>
+                                )}
+                                {source === "ai" && (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1 border-amber-500/20 text-amber-700 bg-amber-50/50">
+                                    🟡 Date AI
+                                  </Badge>
+                                )}
+                                {source === "none" && (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1 border-red-500/20 text-red-700 bg-red-50/50">
+                                    🔴 Fără Date
+                                  </Badge>
+                                )}
+                              </>
+                            );
+                          })()}
+                          {/* Similarity match pct */}
+                          {(product as any).similarity !== undefined && (
+                            <span className="text-[9px] font-mono font-semibold bg-primary/10 text-primary px-1 py-0.2 rounded">
+                              {Math.round((product as any).similarity * 100)}% match
                             </span>
                           )}
                         </div>
@@ -274,11 +369,20 @@ export function MultiProductPicker({
               })}
             </div>
           ) : (
-            <p className="text-center text-sm text-muted-foreground py-8">
-              {search.trim().length < 2
-                ? "Introduceți cel puțin 2 caractere"
-                : "Niciun produs găsit"}
-            </p>
+            <div className="text-center text-sm text-muted-foreground py-8">
+              {search.trim().length < 2 ? (
+                "Introduceți cel puțin 2 caractere"
+              ) : (
+                <div className="space-y-1">
+                  <p>Niciun produs găsit.</p>
+                  {!preloadedProducts && searchType === "semantic" && (
+                    <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                      Căutarea semantică utilizează RAG. Încearcă să reformulezi descrierea proprietăților (ex: clasa foc, conductivitate).
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
 

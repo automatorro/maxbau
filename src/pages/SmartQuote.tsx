@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/table";
 import {
   Trash2, Download, Save, Send, Sparkles, Loader2,
-  ExternalLink, PackageSearch, ChevronRight, Bot, Plus, ArrowLeftRight,
+  ExternalLink, PackageSearch, ChevronRight, Bot, Plus, ArrowLeftRight, BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
@@ -973,6 +973,17 @@ const SmartQuote = () => {
                                       <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded border" title="Consum specific">
                                         Consum: {consum}
                                       </span>
+                                    )}
+                                    {details.fisa_tehnica_url && (
+                                      <a
+                                        href={details.fisa_tehnica_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] text-emerald-600 hover:text-emerald-700 hover:underline font-semibold flex items-center gap-0.5 ml-2"
+                                      >
+                                        <BookOpen className="h-3 w-3" />
+                                        FT
+                                      </a>
                                     )}
                                     <Link 
                                       to={`/catalog/product/${item.product_id}`} 
