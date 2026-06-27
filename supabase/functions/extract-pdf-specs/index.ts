@@ -62,7 +62,7 @@ serve(async (req) => {
   }
 
   try {
-    // 1. Authenticate caller (verify session token)
+    // 1. Authenticate caller (verify session token or service role key)
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -71,26 +71,43 @@ serve(async (req) => {
       });
     }
 
+    const token = authHeader.substring(7);
+    const isServiceRole = token === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, // service role bypasses RLS to update product
       { auth: { persistSession: false } }
     );
 
-    const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    let userId = "service-role";
+    let isExempt = true;
 
-    const userId = user.id;
+    if (!isServiceRole) {
+      const supabaseUser = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+      if (authError || !user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userId = user.id;
+
+      // Check if user is admin (exempt from rate limit)
+      const { data: userRole } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .eq("role", "admin")
+        .maybeSingle();
+
+      isExempt = !!userRole;
+    }
 
     // 2. Parse request parameters
     const { productId } = await req.json();
@@ -101,15 +118,7 @@ serve(async (req) => {
       });
     }
 
-    // Check if user is admin (exempt from rate limit)
-    const { data: userRole } = await supabaseAdmin
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (!userRole) {
+    if (!isExempt) {
       // Apply Rate Limiting: max 10 extractions per 24 hours
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { count, error: countError } = await supabaseAdmin
