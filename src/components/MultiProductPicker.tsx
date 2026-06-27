@@ -96,9 +96,13 @@ export function MultiProductPicker({
           similarity: r.similarity
         }));
       } else {
+        const ROMANIAN_STOPWORDS = new Set([
+          "cu", "la", "de", "din", "pe", "si", "pentru", "in", "o", "un", "sau",
+          "al", "a", "ale", "cel", "cea", "cei", "cele"
+        ]);
         const allTokens = norm
           .split(/[^a-z0-9]+/)
-          .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+          .filter((t) => (t.length >= 2 && !ROMANIAN_STOPWORDS.has(t)) || /^\d+$/.test(t));
 
         const wordTokens = allTokens.filter((t) => !/^\d+$/.test(t));
         const numTokens = allTokens.filter((t) => /^\d+$/.test(t));

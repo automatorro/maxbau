@@ -30,7 +30,7 @@ import {
   ExternalLink, PackageSearch, ChevronRight, Bot, Plus, ArrowLeftRight, BookOpen,
 } from "lucide-react";
 import { toast } from "sonner";
-import { TVA_RATE, TVA_PERCENT } from "@/lib/utils";
+import { cn, TVA_RATE, TVA_PERCENT } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
 
 type AiProductInfo = {
@@ -87,12 +87,17 @@ function calcLine(item: Partial<OfertaItem>) {
   return { pret_final, subtotal: pret_final * qty };
 }
 
+const ROMANIAN_STOPWORDS = new Set([
+  "cu", "la", "de", "din", "pe", "si", "pentru", "in", "o", "un", "sau",
+  "al", "a", "ale", "cel", "cea", "cei", "cele"
+]);
+
 function tokenize(text: string): string[] {
   return text
     .normalize("NFD").replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length >= 2 || /^\d+$/.test(t));
+    .filter((t) => (t.length >= 2 && !ROMANIAN_STOPWORDS.has(t)) || /^\d+$/.test(t));
 }
 
 function scoreToken(target: string, token: string): number {
@@ -151,6 +156,7 @@ const SmartQuote = () => {
   const [cerereText, setCerereText] = useState("");
   const debouncedCerere = useDebounce(cerereText, 380);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+  const [searchType, setSearchType] = useState<"standard" | "semantic">("standard");
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [items, setItems] = useState<OfertaItem[]>([]);
@@ -305,36 +311,55 @@ const SmartQuote = () => {
   }, [debouncedCerere]);
 
   const { data: rawSuggestions = [], isFetching: suggestLoading } = useQuery({
-    queryKey: ["smart-catalog-suggest", tokens.join("|"), phraseVariants.join("|")],
+    queryKey: ["smart-catalog-suggest", tokens.join("|"), phraseVariants.join("|"), searchType, debouncedCerere],
     queryFn: async (): Promise<SuggestedProduct[]> => {
-      if (tokens.length === 0 && phraseVariants.length === 0) return [];
-      // OR logic — broad match (tokens) + phrase variants for code-suffix searches like "AF E"→"af-e"
-      const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`);
-      const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`);
-      const orFilter = [...tokenParts, ...phraseParts].join(",");
-      const { data, error } = await supabase
-        .from("products")
-        .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
-        .or(orFilter)
-        .limit(80);
-      if (error) return [];
+      if (!debouncedCerere.trim()) return [];
 
-      return (data ?? [])
-        .map((p) => {
-          const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
-            .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-          const tokenScore = tokens.reduce((s, t) => s + scoreToken(target, t), 0);
-          // Phrase match bonus: "af-e" match scores much higher than just "af"
-          const phraseBonus = phraseVariants.reduce(
-            (best, phrase) => (target.includes(phrase) ? Math.max(best, phrase.length * 3) : best),
-            0
-          );
-          return { ...p, score: tokenScore + phraseBonus } as SuggestedProduct;
-        })
-        .filter((p) => p.score > 0)
-        .sort((a, b) => b.score - a.score);
+      if (searchType === "semantic") {
+        const { data, error } = await supabase.functions.invoke("semantic-search", {
+          body: { query: debouncedCerere, limit: 15, threshold: 0.35 }
+        });
+        if (error) throw error;
+        
+        return (data.results || []).map((r: any) => ({
+          id: r.product_id,
+          cod_intern: r.cod_intern,
+          denumire_completa: r.denumire_completa,
+          pret_lista: r.pret_lista || 0,
+          unit: r.unit || "buc",
+          specifications: r.specifications || null,
+          score: Math.round((r.similarity || 0) * 100)
+        }));
+      } else {
+        if (tokens.length === 0 && phraseVariants.length === 0) return [];
+        // OR logic — broad match (tokens) + phrase variants for code-suffix searches like "AF E"→"af-e"
+        const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`);
+        const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`);
+        const orFilter = [...tokenParts, ...phraseParts].join(",");
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, specifications")
+          .or(orFilter)
+          .limit(80);
+        if (error) return [];
+
+        return (data ?? [])
+          .map((p) => {
+            const target = `${p.denumire_completa} ${p.cod_intern ?? ""}`
+              .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+            const tokenScore = tokens.reduce((s, t) => s + scoreToken(target, t), 0);
+            // Phrase match bonus: "af-e" match scores much higher than just "af"
+            const phraseBonus = phraseVariants.reduce(
+              (best, phrase) => (target.includes(phrase) ? Math.max(best, phrase.length * 3) : best),
+              0
+            );
+            return { ...p, score: tokenScore + phraseBonus } as SuggestedProduct;
+          })
+          .filter((p) => p.score > 0)
+          .sort((a, b) => b.score - a.score);
+      }
     },
-    enabled: tokens.length > 0 || phraseVariants.length > 0,
+    enabled: debouncedCerere.trim().length > 0,
   });
 
   // Top 8 shown inline; total count for "caută mai mult" hint
@@ -664,11 +689,38 @@ const SmartQuote = () => {
 
         {/* Căutare live în catalog */}
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base flex items-center gap-2">
               <PackageSearch className="h-4 w-4" />
               Ce a cerut clientul
             </CardTitle>
+            <div className="flex border border-border rounded-md overflow-hidden bg-muted/40 shrink-0 h-7">
+              <button
+                type="button"
+                onClick={() => { setSearchType("standard"); setSelectedSuggestions(new Set()); }}
+                className={cn(
+                  "px-3 text-xs font-medium transition-colors",
+                  searchType === "standard"
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                Căutare Catalog
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSearchType("semantic"); setSelectedSuggestions(new Set()); }}
+                className={cn(
+                  "px-3 text-xs font-medium transition-colors flex items-center gap-1.5",
+                  searchType === "semantic"
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                )}
+              >
+                <Sparkles className="h-3 w-3" />
+                Căutare Tehnică / RAG
+              </button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
@@ -734,13 +786,46 @@ const SmartQuote = () => {
                             onClick={(e) => e.stopPropagation()}
                           />
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <Badge variant="outline" className="text-[10px] font-mono shrink-0 border-primary/30 text-primary">
                                 {p.cod_intern}
                               </Badge>
-                              <span className="text-sm truncate">{p.denumire_completa}</span>
+                              <span className="text-sm truncate font-medium">{p.denumire_completa}</span>
+                              
+                              {searchType === "semantic" && p.score !== undefined && (
+                                <Badge variant="secondary" className="text-[9px] text-primary shrink-0 bg-primary/5 border-primary/20 h-4">
+                                  {p.score}% potrivire
+                                </Badge>
+                              )}
+
+                              {(() => {
+                                const specs = p.specifications || {};
+                                if (specs.fisa_tehnica_specs) {
+                                  return (
+                                    <Badge variant="outline" className="text-[9px] text-emerald-600 bg-emerald-50 border-emerald-200 shrink-0 h-4 px-1.5 flex items-center gap-0.5">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                      Fișă Verificată
+                                    </Badge>
+                                  );
+                                }
+                                if (specs.ai_info) {
+                                  return (
+                                    <Badge variant="outline" className="text-[9px] text-amber-600 bg-amber-50 border-amber-200 shrink-0 h-4 px-1.5 flex items-center gap-0.5">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                                      Date AI
+                                    </Badge>
+                                  );
+                                }
+                                return (
+                                  <Badge variant="outline" className="text-[9px] text-gray-500 bg-gray-50 border-gray-200 shrink-0 h-4 px-1.5 flex items-center gap-0.5">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                                    Fără date
+                                  </Badge>
+                                );
+                              })()}
+
                               {alreadyIn && (
-                                <Badge variant="secondary" className="text-[10px] shrink-0">în ofertă</Badge>
+                                <Badge variant="secondary" className="text-[10px] shrink-0 h-4">în ofertă</Badge>
                               )}
                             </div>
                           </div>
