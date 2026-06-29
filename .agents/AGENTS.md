@@ -153,15 +153,29 @@ npm run test
 - Pipeline scraping fișe tehnice complet scris (`/scraper`)
 - 9 Edge Functions Deno implementate
 - Configurare credențiale `.env` actualizată
+- Creat sistem context persistent: `.agents/AGENTS.md` (citit automat la fiecare sesiune nouă)
+- **Fix căutare diacritice** în Catalog și AdminProducts: creat `src/utils/searchUtils.ts`
+  cu funcția `buildSearchOrConditions()` — generează variante cu/fără diacritice românești
+  (ex: "vata bazaltica" găsește acum "Vată bazaltică" în DB)
+- **Fix filtrul "Doar cu fișă tehnică"** în Catalog: verifică `fisa_tehnica_url IS NOT NULL`
+  în loc de `fisa_tehnica_processed = true` (care era mereu false)
 
 ### În curs / Următor ⏳
-- Rularea efectivă a scraper-ului pe toate cele ~4.400 de produse (`--skip-done`)
-- Extragerea specs AI + generare embeddings la scară completă
+- **Extragerea specs AI din fișele deja descărcate** — PDF-urile sunt în Storage, specs nu sunt extrase.
+  Comandă de rulat din terminal (durează ore pentru toate produsele):
+  ```bash
+  node scraper/extract_specs_from_pdfs.mjs --skip-done
+  ```
+- Generare embeddings după extragerea specs:
+  ```bash
+  node scraper/generate_embeddings.mjs --skip-done
+  ```
 - Testare și validare Edge Function `semantic-search` cu date reale
 
 ### Cunoscut ca problematic ⚠️
 - `bun.lock` și `bun.lockb` există în repo din istoricul Lovable, dar proiectul folosește `npm`. Nu șterge aceste fișiere, ignoră-le.
 - `supabase-go.exe` și `supabase.exe` sunt binare locale, nu fac parte din codul aplicației.
+- `fisa_tehnica_processed` (boolean în `products`) NU este sincronizat automat cu `specifications.fisa_tehnica_specs` (JSONB). Filtrul din Catalog verifică `fisa_tehnica_url IS NOT NULL`.
 
 ---
 
@@ -170,7 +184,8 @@ npm run test
 1. **Nu scana toate fișierele la începutul sesiunii** — folosește AGENTS.md ca punct de pornire.
 2. **Nu expune niciodată cheile din `.env`** în răspunsuri sau artefacte.
 3. **Nu șterge** `.env.backup`, `bun.lock`, `bun.lockb` sau executabilele `.exe` — sunt acolo intenționat.
-4. **Actualizează secțiunea 8** (Stadiul Curent) la finalul oricărei sesiuni în care se fac modificări semnificative.
+4. **Actualizează secțiunea 8 AUTOMAT** la finalul oricărei sesiuni cu commits, fără a fi nevoie să ți se ceară explicit. La `/learn`, actualizarea Secțiunii 8 este primul lucru de propus.
 5. **Migrările SQL** din `supabase/migrations/` sunt numerotate și ordonate — nu le reordona și nu le sterge.
 6. **Edge Functions** rulează în runtime Deno — sintaxa importurilor este diferită față de Node.js (`import ... from "npm:..."` sau din URL-uri `esm.sh`).
 7. Când user-ul menționează „asistentul AI" sau „consilerul tehnic", se referă la Edge Function `ai-consultant`.
+8. **Căutare în Supabase-JS**: folosește întotdeauna `buildSearchOrConditions()` din `src/utils/searchUtils.ts` în loc de `ilike` simplu — acoperă diacriticele românești (ă, â, î, ș, ț).
