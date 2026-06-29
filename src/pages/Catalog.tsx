@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { buildSearchOrConditions } from "@/utils/searchUtils";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CategoryTree } from "@/components/CategoryTree";
 import { Input } from "@/components/ui/input";
@@ -96,10 +97,11 @@ const Catalog = () => {
         .order("denumire_completa");
 
       if (search) {
-        const tokens = search.split(/\s+/).filter(Boolean);
+        // Căutare accent-insensitivă: generăm variante cu/fără diacritice românești
+        // (ex: "vata bazaltica" găsește și produse cu "Vată bazaltică" în denumire)
+        const tokens = search.trim().split(/\s+/).filter(Boolean);
         for (const raw of tokens) {
-          const token = raw.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+          query = query.or(buildSearchOrConditions(raw));
         }
       }
 
@@ -121,7 +123,10 @@ const Catalog = () => {
       }
 
       if (onlyWithSpecs) {
-        query = query.eq("fisa_tehnica_processed", true);
+        // Filtrăm produsele care au fișă tehnică PDF descărcată
+        // (fisa_tehnica_processed este setat doar după extragerea specs cu Gemini,
+        //  dar fisa_tehnica_url este disponibil imediat după scraping)
+        query = query.not("fisa_tehnica_url", "is", null);
       }
 
       const { data, error, count } = await query

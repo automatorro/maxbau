@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchWithProxy, parseBrandsPage, parseBrandListingPage } from "../utils/scraperUtils";
+import { buildSearchOrConditions } from "@/utils/searchUtils";
 
 const BATCH_SIZE = 5;
 const PAGE_SIZE = 50;
@@ -191,10 +192,10 @@ const AdminProducts = () => {
         .order("cod_intern");
 
       if (search) {
-        const tokens = search.split(/\s+/).filter(Boolean);
+        // Căutare accent-insensitivă: variante cu/fără diacritice românești
+        const tokens = search.trim().split(/\s+/).filter(Boolean);
         for (const raw of tokens) {
-          const token = raw.replace(/,/g, "\\,");
-          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+          query = query.or(buildSearchOrConditions(raw));
         }
       }
 
