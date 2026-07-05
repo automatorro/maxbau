@@ -1,58 +1,25 @@
-
-# Import inteligent liste de prețuri furnizori
-
 ## Problema
-Fiecare furnizor trimite liste de prețuri în format propriu: coloane diferite, foi multiple, cu/fără categorii, UM diferite, paletizări, etc. Nimic nu e standard.
 
-## Soluția propusă
+În pagina **Configurator Rețete & Sisteme** (`src/pages/RecipeQuote.tsx`), câmpul „Discount global" se aplică doar liniilor de materiale auxiliare (`lines`), NU și **produsului principal** (vată/polistiren/gips etc., stocat în `woolCalc.woolTotalCost`).
 
-### 1. Tabel nou: `suppliers` (furnizori)
-Păstrăm identitatea fiecărui furnizor și profilul lui de import:
-- `id`, `name` (ex: "Baumit", "Weber", "Knauf")
-- `ai_column_map` (JSONB) — mapping-ul de coloane învățat de AI la primul import și refolosit automat la importurile ulterioare (ex: `{"denumire": "Articol", "pret": "PV fara TVA", "um": "UM", "cod": "Cod articol"}`)
-- `notes` — observații manuale
+Cum produsul principal este de obicei cea mai mare parte din valoarea ofertei, când aplici un discount total pare că „nu se aplică" — de fapt se reduce doar partea auxiliară, iar produsul principal rămâne la preț întreg.
 
-### 2. Extensie `price_sheets` — legare de furnizor
-- Adăugăm coloana `supplier_id` (uuid, nullable, FK spre suppliers)
-- Astfel fiecare listă importată e legată de furnizor, și poți vedea istoricul importurilor per furnizor
+### Locurile relevante
+- `discount` (state) → aplicat pe linii în `useEffect [surface, discount]` (liniile 432-456).
+- `totals` (liniile 537-547) → `net = suma liniilor + woolCalc.woolTotalCost + palletGuarantee`. Aici `woolTotalCost` intră fără discount.
+- La salvare (liniile 588-601), produsul principal se salvează cu `pret_final = pretUnitar` (fără discount).
 
-### 3. Suport multi-sheet în Excel
-Acum se citește doar primul sheet. Schimbăm:
-- Parsăm TOATE sheet-urile din workbook
-- UI: dropdown de selecție sheet (sau "importă toate")
-- Fiecare sheet poate deveni un price_sheet separat sau se combină
+## Soluția
 
-### 4. AI normalizare îmbunătățită (edge function `ai-product-info`, action `ocr-excel`)
-Promptul AI primește și profilul furnizorului (dacă există `ai_column_map` salvat) pentru a ști deja cum arată structura. AI-ul va returna și:
-- **column_map detectat** — ce coloană e denumire, preț, UM, cod, cantitate palet, etc.
-- **categorii detectate** — dacă tabelul are rânduri de categorie (bold, fără preț), le marchează
-- La primul import de la un furnizor nou, salvăm automat `ai_column_map` pentru reutilizare
+Aplicarea discountului global și pe produsul principal, coerent în afișare și la salvare. Garanția paleților (85 lei/palet) rămâne neafectată — este o taxă returnabilă, nu se discountează.
 
-### 5. Coloane suplimentare în `price_sheet_items`
-Adăugăm câmpuri opționale pentru a stoca datele extra pe care le oferă unii furnizori:
-- `cod_furnizor` (text) — codul produsului la furnizor
-- `cantitate_palet` (text) — info paletizare
-- `consum` (text) — consum orientativ
-- `extra_data` (JSONB) — orice altceva non-standard (greutate, dimensiuni, etc.)
+### Modificări în `src/pages/RecipeQuote.tsx`
 
-### 6. UI îmbunătățit pe pagina Import
-- Selector furnizor (din lista `suppliers`, sau "Furnizor nou")
-- Selector sheet din Excel (dacă sunt mai multe)
-- AI detectează automat coloanele, dar userul poate corecta mapping-ul
-- Coloanele extra (cod furnizor, paletizare, etc.) apar în tabel dacă există
-- La salvare: price_sheet se leagă de supplier
+1. **Totaluri** (`totals`, liniile 537-547): aplică `(1 - discount/100)` pe `woolCalc.woolTotalCost` la calculul `net`, astfel încât produsul principal + auxiliarele să fie reduse cu același procent.
 
-### 7. Căutare produse prin cod furnizor
-Odată ce avem `cod_furnizor` salvat în `price_sheet_items`, la importurile ulterioare putem face matching automat pe cod, nu doar pe denumire — mult mai precis.
+2. **Rând sumar „Produs principal"** (liniile 1033-1034): afișează valoarea principală după discount (și, opțional, un rând care arată reducerea aplicată produsului principal când `discount > 0`).
 
-## Ordine implementare
+3. **Salvare ofertă** (liniile 588-601): la salvarea produsului principal, setează `pret_final = pretUnitar * (1 - discount/100)`, adaugă `discount_percent` pe item și recalculează `subtotal` din prețul redus, ca oferta salvată să reflecte reducerea.
 
-1. **Migrare DB**: creare tabel `suppliers`, adăugare `supplier_id` pe `price_sheets`, adăugare coloane pe `price_sheet_items`
-2. **Update edge function**: AI returnează și column_map + categorii detectate; primește profil furnizor
-3. **UI Import**: selector furnizor, selector sheet, mapping coloane vizual, coloane extra
-4. **Pagină Furnizori** (simplă): listă furnizori, editare profil, vezi importuri anterioare
-
-## Ce NU se schimbă
-- Structura produselor (`products`) — rămâne neschimbată
-- Matching engine existent — se extinde doar cu match pe `cod_furnizor`
-- Logica de salvare price_sheet — se extinde, nu se înlocuiește
+### Rezultat
+Când modifici „Discount global", atât produsul principal cât și materialele auxiliare se reduc, iar „Total fără TVA" / „Total cu TVA" se actualizează corect. Garanția paleților rămâne neschimbată.
