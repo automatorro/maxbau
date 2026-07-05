@@ -599,9 +599,9 @@ const RecipeQuote = () => {
         quantity: isPerBax ? woolCalc.packsNeeded : woolCalc.actualArea,
         unit: woolCalc.unitDb,
         pret_unitar: woolCalc.pretUnitar,
-        discount_percent: 0,
-        pret_final: woolCalc.pretUnitar,
-        subtotal: woolCalc.woolTotalCost,
+        discount_percent: parseFloat(discount) || 0,
+        pret_final: woolCalc.pretUnitar * (1 - (parseFloat(discount) || 0) / 100),
+        subtotal: woolCalc.woolTotalCost * (1 - (parseFloat(discount) || 0) / 100),
         nota_ai: {
           ambalare: `${woolCalc.packsNeeded} pachete × ${pkg.acoperire_bax_mp} ${woolCalc.unitDb}`,
           grosime: `${pkg.grosime_mm} mm`,
