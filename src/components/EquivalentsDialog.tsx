@@ -77,7 +77,7 @@ export function EquivalentsDialog({ open, onOpenChange, product, onReplace }: Eq
           ) : equivalents.length > 0 ? (
             <div className="space-y-2 px-2">
               {equivalents.map((eq) => {
-                const specs = eq.specifications || {};
+                const specs = (eq.specifications || {}) as any;
                 const ftSpecs = specs.fisa_tehnica_specs || null;
                 const aiInfo = specs.ai_info || null;
                 const source = ftSpecs ? "verified" : (aiInfo ? "ai" : "none");

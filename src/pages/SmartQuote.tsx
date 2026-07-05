@@ -231,7 +231,7 @@ const SmartQuote = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, pret_lista, category_id, specifications")
+        .select("id, pret_lista, category_id, specifications, fisa_tehnica_url")
         .in("id", productIdsInQuote);
       if (error) throw error;
       return data as { id: string; pret_lista: number; category_id: string | null; specifications: any }[];
@@ -239,8 +239,8 @@ const SmartQuote = () => {
   });
 
   const productDetailsByProductId = useMemo(() => {
-    const map = new Map<string, { category_id: string | null; specifications: any }>();
-    listPrices.forEach((p) => map.set(p.id, { category_id: p.category_id, specifications: p.specifications }));
+    const map = new Map<string, { category_id: string | null; specifications: any; fisa_tehnica_url: string | null }>();
+    listPrices.forEach((p) => map.set(p.id, { category_id: p.category_id, specifications: p.specifications, fisa_tehnica_url: (p as any).fisa_tehnica_url }));
     return map;
   }, [listPrices]);
 
@@ -799,7 +799,7 @@ const SmartQuote = () => {
                               )}
 
                               {(() => {
-                                const specs = p.specifications || {};
+                                const specs = ((p as any).specifications || {}) as any;
                                 if (specs.fisa_tehnica_specs) {
                                   return (
                                     <Badge variant="outline" className="text-[9px] text-emerald-600 bg-emerald-50 border-emerald-200 shrink-0 h-4 px-1.5 flex items-center gap-0.5">

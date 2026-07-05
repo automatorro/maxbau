@@ -328,7 +328,7 @@ const Catalog = () => {
                               return null;
                             })()}
                             {(() => {
-                              const specs = product.specifications || {};
+                              const specs = (product.specifications || {}) as any;
                               if (specs.fisa_tehnica_specs) {
                                 return (
                                   <Badge
