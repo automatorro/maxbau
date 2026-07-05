@@ -535,16 +535,19 @@ const RecipeQuote = () => {
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const totals = useMemo(() => {
+    const discountNum = parseFloat(discount) || 0;
+    const discountFactor = 1 - discountNum / 100;
     let net = lines.reduce((s, l) => s + (l.excluded ? 0 : l.line_total), 0);
     if (woolCalc) {
-      net += woolCalc.woolTotalCost + woolCalc.palletGuarantee;
+      net += woolCalc.woolTotalCost * discountFactor + woolCalc.palletGuarantee;
     }
     const tva = net * TVA_RATE;
     const totalList = lines.reduce((s, l) => s + (l.excluded ? 0 : l.quantity * l.list_unit_price), 0) +
       (woolCalc ? woolCalc.woolTotalCost : 0);
     const overallDiscountPercent = totalList > 0 ? (1 - (net - (woolCalc ? woolCalc.palletGuarantee : 0)) / totalList) * 100 : 0;
     return { net, tva, gross: net + tva, totalList, overallDiscountPercent };
-  }, [lines, woolCalc]);
+  }, [lines, woolCalc, discount]);
+
 
   // ── Save quote ────────────────────────────────────────────────────────────
   const handleCreateQuote = async () => {
