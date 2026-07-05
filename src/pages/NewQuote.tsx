@@ -275,7 +275,7 @@ const NewQuote = () => {
   }, [listPrices]);
 
   const productDetailsByProductId = useMemo(() => {
-    const map = new Map<string, { category_id: string | null; specifications: any }>();
+    const map = new Map<string, { category_id: string | null; specifications: any; fisa_tehnica_url: string | null }>();
     listPrices.forEach((p) => map.set(p.id, { category_id: p.category_id, specifications: p.specifications, fisa_tehnica_url: (p as any).fisa_tehnica_url }));
     return map;
   }, [listPrices]);
