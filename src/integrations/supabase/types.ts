@@ -354,6 +354,9 @@ export type Database = {
           created_at: string
           denumire_completa: string
           description: string | null
+          fisa_tehnica_processed: boolean
+          fisa_tehnica_storage_path: string | null
+          fisa_tehnica_url: string | null
           grile_pret: Json | null
           id: string
           image_url: string | null
@@ -376,6 +379,9 @@ export type Database = {
           created_at?: string
           denumire_completa: string
           description?: string | null
+          fisa_tehnica_processed?: boolean
+          fisa_tehnica_storage_path?: string | null
+          fisa_tehnica_url?: string | null
           grile_pret?: Json | null
           id?: string
           image_url?: string | null
@@ -398,6 +404,9 @@ export type Database = {
           created_at?: string
           denumire_completa?: string
           description?: string | null
+          fisa_tehnica_processed?: boolean
+          fisa_tehnica_storage_path?: string | null
+          fisa_tehnica_url?: string | null
           grile_pret?: Json | null
           id?: string
           image_url?: string | null
