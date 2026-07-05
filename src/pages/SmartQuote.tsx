@@ -799,7 +799,7 @@ const SmartQuote = () => {
                               )}
 
                               {(() => {
-                                const specs = p.specifications || {};
+                                const specs = ((p as any).specifications || {}) as any;
                                 if (specs.fisa_tehnica_specs) {
                                   return (
                                     <Badge variant="outline" className="text-[9px] text-emerald-600 bg-emerald-50 border-emerald-200 shrink-0 h-4 px-1.5 flex items-center gap-0.5">
