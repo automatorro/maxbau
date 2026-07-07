@@ -159,8 +159,21 @@ npm run test
   (ex: "vata bazaltica" găsește acum "Vată bazaltică" în DB)
 - **Fix filtrul "Doar cu fișă tehnică"** în Catalog: verifică `fisa_tehnica_url IS NOT NULL`
   în loc de `fisa_tehnica_processed = true` (care era mereu false)
+- **Fix categorii false în DB** (sesiunea 2026-07-07):
+  - Cauza: Edge Function `scrape-maxbau` inserta TOATE nivelurile breadcrumb-ului maxbau.ro
+    ca sub-categorii în DB, inclusiv gama produsului (ex: "Baumit BaumaCol", "AK Isomat")
+  - Fix cod: `supabase/functions/scrape-maxbau/index.ts` — `parseProduct()` limitează acum
+    breadcrumb-urile la maxim 2 niveluri (`breadcrumbs.slice(0, 2)`)
+  - Fix DB retroactiv (SQL rulat direct în Supabase Dashboard):
+    * ~50 produse remapate de la categorii false la categoria-părinte corectă
+    * ~80 categorii false șterse (produse individuale inserate ca categorii)
+    * 5 categorii rădăcină orfane șterse ("Fara categorie", "Home", etc.)
+    * Categorii în engleză din proiectul Lovable vechi șterse
+  - ⚠️ Modificarea în Edge Function trebuie deploy-uită manual din Supabase Dashboard
+    (nu avem Supabase CLI instalat pe mașina de serviciu)
 
 ### În curs / Următor ⏳
+- **Deploy Edge Function `scrape-maxbau`** după fix-ul breadcrumbs (manual din Supabase Dashboard)
 - **Extragerea specs AI din fișele deja descărcate** — PDF-urile sunt în Storage, specs nu sunt extrase.
   Comandă de rulat din terminal (durează ore pentru toate produsele):
   ```bash
@@ -176,6 +189,7 @@ npm run test
 - `bun.lock` și `bun.lockb` există în repo din istoricul Lovable, dar proiectul folosește `npm`. Nu șterge aceste fișiere, ignoră-le.
 - `supabase-go.exe` și `supabase.exe` sunt binare locale, nu fac parte din codul aplicației.
 - `fisa_tehnica_processed` (boolean în `products`) NU este sincronizat automat cu `specifications.fisa_tehnica_specs` (JSONB). Filtrul din Catalog verifică `fisa_tehnica_url IS NOT NULL`.
+- Categoriile din DB au maxim 2 niveluri (rădăcină + sub-categorie). Nu adăuga un al 3-lea nivel.
 
 ---
 

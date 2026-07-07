@@ -251,12 +251,19 @@ function parseProduct(markdown: string, url: string, html?: string, knownBrandSl
   if (unitMatch) unit = unitMatch[1].toUpperCase();
 
   // Breadcrumb → categorii
+  // Limităm la maxim 3 niveluri pentru a evita ca gama de produs (ex: "Baumit BaumaCol")
+  // să fie inserată ca sub-categorie în DB. Ierarhia reală are 3 niveluri:
+  //   Acasă > Nivel1 (ex: Finisaje) > Nivel2 (ex: Termosistem) > Nivel3 (ex: Polistiren) > Produs
+  // maxbau.ro poate adăuga un al 4-lea nivel pentru gama de brand:
+  //   Acasă > Finisaje > Termosistem > Polistiren > [Briotherm Gias] > Produs  ← eliminăm asta
   const breadcrumbs: string[] = [];
   const bcMatches = markdown.matchAll(/^\d+\.\s+\[([^\]]+)\]/gm);
   for (const bc of bcMatches) {
     const name = bc[1].trim();
     if (name !== "Acasa" && name !== productName) breadcrumbs.push(name);
   }
+  // Păstrăm primele 3 niveluri: [Nivel1, Nivel2, Nivel3] — gama de brand (nivelul 4) eliminată
+  const breadcrumbsLimited = breadcrumbs.slice(0, 3);
 
   // Imagine
   const imgMatch = markdown.match(/\(https:\/\/cdn\.contentspeed\.ro[^)]+products\/original[^)]+\)/);
@@ -356,7 +363,7 @@ function parseProduct(markdown: string, url: string, html?: string, knownBrandSl
     denumire_completa: productName,
     pret_lista: price,
     unit,
-    breadcrumbs,
+    breadcrumbs: breadcrumbsLimited,
     image_url: imageUrl,
     source_url: url,
     description,
