@@ -133,7 +133,7 @@ export async function extractPlanWithGeminiVision(
   // Construim payload-ul Gemini multimodal
   const parts: any[] = [{ text: FLOOR_PLAN_PROMPT }];
   for (const b64 of pageImages) {
-    parts.push({ inline_data: { mime_type: "image/jpeg", data: b64 } });
+    parts.push({ inlineData: { mimeType: "image/jpeg", data: b64 } });
   }
 
   const payload = {
