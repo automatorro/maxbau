@@ -554,7 +554,7 @@ export default function AntemasuratorImport() {
           const buf = await file.arrayBuffer();
 
           // 1. Detectăm rapid dacă e plan (heuristică text)
-          const textItems = await extractPdfTextItems(buf);
+          const textItems = await extractPdfTextItems(buf.slice(0));
           const autoIsFloorPlan = detectIsFloorPlan(textItems);
           setDetectedAsFloorPlan(autoIsFloorPlan);
 
@@ -567,7 +567,7 @@ export default function AntemasuratorImport() {
             setProgressMsg("Inițializare Gemini Vision...");
 
             const extracted = await extractPlanWithGeminiVision(
-              buf,
+              buf.slice(0),
               (msg) => setProgressMsg(msg)
             );
 
