@@ -163,7 +163,7 @@ export async function extractPlanWithGeminiVision(
     },
   };
 
-  const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.5-flash");
+  const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.0-flash");
 
   if (!ok) {
     throw new Error(`Gemini Vision error (${status}): ${data?.error ?? "eroare necunoscută"}`);
