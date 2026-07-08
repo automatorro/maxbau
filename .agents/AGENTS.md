@@ -171,8 +171,32 @@ npm run test
     * Categorii în engleză din proiectul Lovable vechi șterse
   - ⚠️ Modificarea în Edge Function trebuie deploy-uită manual din Supabase Dashboard
     (nu avem Supabase CLI instalat pe mașina de serviciu)
+- **Parser planuri arhitecturale PDF** (sesiunea 2026-07-08) — commit `66281a9`:
+  - Creat `src/utils/floorPlanParser.ts` [NOU, 350 linii]
+    * Dicționar corecții glyph CAD: `m²` corupt, `antiderapantă` corupt
+    * `detectIsFloorPlan()`: heuristică ≥2 `S=\d` + ≥1 keyword finisaj
+    * `detectRoomBlocks()`: validare etichetă cameră cu S= în raza 500pt + Voronoi 2D
+    * `parseRoomBlock()`: extragere suprafață, înălțime, pardoseală, tavan, finisaj perete, text rotit
+    * `applyMandatoryAttributePenalty()`: plafonare scor dacă lipsesc atribute obligatorii
+    * `ocrSuspiciousZone()`: Tesseract lazy-load pentru S= trunchiat / text rotit >5°
+  - Modificat `src/utils/anthropic.ts`:
+    * `extractFloorPlanFromTextWithAnthropic()`: prompt dedicat, fallback AI când parser local <2 camere
+    * Penalizare scor integrată în `findEquivalentWithAnthropic()`
+  - Modificat `src/pages/AntemasuratorImport.tsx`:
+    * `ExtractedItem` extins cu câmpuri plan arhitectural
+    * Branching PDF: plan vs deviz tabular cu auto-detecție + toggle manual
+    * UI: banner detecție, rânduri galben, câmp perimetru editabil pentru finisaje
+  - Creat `src/test/floorPlanParser.test.ts` [NOU, 35 teste Vitest]
+  - ⚠️ Testele NU au putut fi rulate (node_modules lipsesc pe mașina de serviciu)
+    Rulează `npm install && npm run test` pe laptop înainte de orice altceva
 
 ### În curs / Următor ⏳
+- **PRIORITATE 1: Testare parser pe `PLAN C1 PROPUS.pdf`** (pe laptop cu Node.js)
+  - `npm install && npm run test` — verificare 35 teste
+  - `npm run dev` → upload PDF → verificare camere detectate
+  - Document complet de handoff: `.agents/HANDOFF_FLOOR_PLAN_PARSER.md` (sau în brain/)
+    ⚠️ AGENTS.md nu știe calea exactă — caută în repo `HANDOFF_FLOOR_PLAN_PARSER.md`
+    sau în `C:\Users\LucianCebuc\.gemini\antigravity\brain\db832a1d-43cd-412c-8212-de4a5f9b4bf6\HANDOFF_FLOOR_PLAN_PARSER.md`
 - **Deploy Edge Function `scrape-maxbau`** după fix-ul breadcrumbs (manual din Supabase Dashboard)
 - **Extragerea specs AI din fișele deja descărcate** — PDF-urile sunt în Storage, specs nu sunt extrase.
   Comandă de rulat din terminal (durează ore pentru toate produsele):
@@ -190,6 +214,9 @@ npm run test
 - `supabase-go.exe` și `supabase.exe` sunt binare locale, nu fac parte din codul aplicației.
 - `fisa_tehnica_processed` (boolean în `products`) NU este sincronizat automat cu `specifications.fisa_tehnica_specs` (JSONB). Filtrul din Catalog verifică `fisa_tehnica_url IS NOT NULL`.
 - Categoriile din DB au maxim 2 niveluri (rădăcină + sub-categorie). Nu adăuga un al 3-lea nivel.
+- **[NOU]** `node_modules` NU sunt în repo (.gitignore). Rulează `npm install` la orice mașină nouă.
+- **[NOU]** Funcția `extractTextFromPdf()` din `AntemasuratorImport.tsx` (linia ~306) este definită dar
+  NU mai e apelată în fluxul PDF (înlocuită cu `extractPdfTextItems()` din floorPlanParser). Nu șterge — e folosită eventual pentru text brut în alt context.
 
 ---
 
