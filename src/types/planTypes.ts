@@ -96,6 +96,8 @@ export interface PlanData {
   generalNotes?: string[];
   /** True dacă Gemini a returnat date parțiale (plan greu de citit) */
   isPartialExtraction?: boolean;
+  /** Răspunsul brut al API-ului pentru debugging */
+  rawResponseText?: string;
 }
 
 // ── BOM Engine ────────────────────────────────────────────────────────────────

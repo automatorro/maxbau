@@ -194,7 +194,7 @@ function parsePlanDataResponse(rawText: string, numPages: number): PlanData {
   let parsed: any;
   try {
     parsed = JSON.parse(cleaned);
-  } catch {
+  } catch (err: any) {
     // Dacă JSON-ul e malformat, returnăm un PlanData minimal cu review necesar
     console.error("[geminiVision] JSON parse error. Raw:", cleaned.slice(0, 500));
     return {
@@ -203,7 +203,8 @@ function parsePlanDataResponse(rawText: string, numPages: number): PlanData {
       spaces: [],
       structuralElements: [],
       isPartialExtraction: true,
-      generalNotes: ["Eroare parsare răspuns Gemini — verificați manual planul."],
+      generalNotes: ["Eroare parsare răspuns Gemini: " + err.message],
+      rawResponseText: rawText,
     };
   }
 
@@ -267,6 +268,7 @@ function parsePlanDataResponse(rawText: string, numPages: number): PlanData {
       : undefined,
     generalNotes: Array.isArray(parsed.generalNotes) ? parsed.generalNotes : [],
     isPartialExtraction: Boolean(parsed.isPartialExtraction),
+    rawResponseText: rawText,
   };
 }
 

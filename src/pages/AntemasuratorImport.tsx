@@ -1276,6 +1276,15 @@ export default function AntemasuratorImport() {
                       Confirmă {bomItems.filter(b => b.selected).length} materiale → Căută echivalente
                     </Button>
                   </div>
+
+                  {planData.rawResponseText && (
+                    <div className="mt-4 p-3 border border-slate-200 bg-slate-50 rounded-lg">
+                      <h4 className="font-semibold text-xs text-slate-500 mb-2">DEBUG: RĂSPUNS BRUT AI (GEMINI)</h4>
+                      <pre className="text-[10px] leading-tight font-mono bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-[200px] whitespace-pre-wrap">
+                        {planData.rawResponseText}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
 
