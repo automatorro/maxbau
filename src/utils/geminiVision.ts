@@ -99,6 +99,20 @@ REGULI IMPORTANTE:
    industrială epoxidică, etc.
 7. Returnează NUMAI JSON valid. Fără \`\`\`json sau alte prefixe.`;
 
+/**
+ * Helper pentru conversia rapidă a ArrayBuffer în Base64 în mod securizat (fără call stack overflow).
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000; // 32KB chunks
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk as any);
+  }
+  return btoa(binary);
+}
+
 // ── Apel Gemini Vision ────────────────────────────────────────────────────────
 
 /**
@@ -114,33 +128,37 @@ export async function extractPlanWithGeminiVision(
 ): Promise<PlanData> {
   onProgress?.("Inițializare PDF...");
 
-  const pdf = await pdfjsLib.getDocument({ data: pdfBuf }).promise;
-  const totalPages = pdf.numPages;
-
-  // Randăm toate paginile (maxim 8 — suficient pentru orice proiect)
-  const pagesToRender = Math.min(totalPages, 8);
-  const pageImages: string[] = [];
-
-  for (let i = 1; i <= pagesToRender; i++) {
-    onProgress?.(`Procesez pagina ${i}/${pagesToRender}...`);
-    const page = await pdf.getPage(i);
-    const b64 = await renderPageToBase64(page);
-    pageImages.push(b64);
+  let totalPages = 1;
+  try {
+    const pdf = await pdfjsLib.getDocument({ data: pdfBuf.slice(0) }).promise;
+    totalPages = pdf.numPages;
+  } catch (err) {
+    console.warn("Nu s-a putut citi numărul de pagini din PDF:", err);
   }
 
-  onProgress?.("Trimit la Gemini Vision pentru analiză...");
+  onProgress?.("Pregătesc fișierul PDF pentru analiză...");
+  const base64Pdf = arrayBufferToBase64(pdfBuf);
 
-  // Construim payload-ul Gemini multimodal
-  const parts: any[] = [{ text: FLOOR_PLAN_PROMPT }];
-  for (const b64 of pageImages) {
-    parts.push({ inlineData: { mimeType: "image/jpeg", data: b64 } });
-  }
+  onProgress?.("Trimit planul direct la Gemini Vision...");
 
+  // Construim payload-ul Gemini multimodal cu PDF-ul direct
   const payload = {
-    contents: [{ parts }],
+    contents: [
+      {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "application/pdf",
+              data: base64Pdf
+            }
+          },
+          { text: FLOOR_PLAN_PROMPT }
+        ]
+      }
+    ],
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.1,      // deterministic — vrem extragere precisă, nu creativitate
+      temperature: 0.1,      // deterministic — vrem extragere precisă
       maxOutputTokens: 8192,
     },
   };
