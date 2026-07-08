@@ -5,7 +5,19 @@ import * as pdfjsLib from "pdfjs-dist";
 import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
-import { findEquivalentWithAnthropic, extractTableFromImageWithAnthropic, extractAntemasuratoareFromTextWithAnthropic } from "@/utils/anthropic";
+import {
+  findEquivalentWithAnthropic,
+  extractTableFromImageWithAnthropic,
+  extractAntemasuratoareFromTextWithAnthropic,
+  extractFloorPlanFromTextWithAnthropic,
+} from "@/utils/anthropic";
+import {
+  detectIsFloorPlan,
+  extractPdfTextItems,
+  detectRoomBlocks,
+  roomBlocksToExtractedItems,
+  type FloorPlanItem,
+} from "@/utils/floorPlanParser";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +66,13 @@ interface ExtractedItem {
   descriere_client: string;
   cantitate: number;
   unitate: string;
+  // ── Câmpuri plan arhitectural (opționale) ────────────────────────────────
+  needsManualReview?: boolean;
+  reviewReason?: string;
+  cameraNume?: string;
+  materialTip?: "pardoseala" | "tavan" | "finisaj_perete";
+  hFinisaj?: number;      // înălțimea finisajului (ex: 1.20)
+  perimeterM?: number;    // perimetru cameră editabil (mp perete = perimeterM × hFinisaj)
 }
 
 interface MatchedProduct {
@@ -64,6 +83,7 @@ interface MatchedProduct {
   unit: string;
   justificare: string;
   scor: number;
+  scorPenalized?: boolean;  // true dacă scorul a fost plafonat din cauza unui atribut obligatoriu lipsă
 }
 
 type MatchStatus = "pending" | "loading" | "found" | "not_found";
@@ -447,6 +467,10 @@ export default function AntemasuratorImport() {
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tipul documentului detectat (auto sau forțat de utilizator)
+  const [docType, setDocType] = useState<"auto" | "floor_plan" | "bof">("auto");
+  // null = nu s-a detectat încă, true/false = rezultatul ultimei detecții
+  const [detectedAsFloorPlan, setDetectedAsFloorPlan] = useState<boolean | null>(null);
 
   // Step 2
   const [itemsWithMatches, setItemsWithMatches] = useState<ItemWithMatch[]>([]);
@@ -498,24 +522,112 @@ export default function AntemasuratorImport() {
     async (file: File) => {
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
       setProcessing(true);
+      // Resetăm detecția la fiecare upload nou
+      setDetectedAsFloorPlan(null);
 
       try {
         if (ext === "xlsx" || ext === "xls") {
-          // Excel → client-side XLSX parsing
+          // Excel → client-side XLSX parsing (nemodificat)
           const buf = await file.arrayBuffer();
           applyItems(parseExcelToItems(buf), "Excel");
+
         } else if (ext === "pdf") {
-          // PDF → pdfjs extrage text din TOATE paginile → extragere tabel via AI
           const buf = await file.arrayBuffer();
-          const text = await extractTextFromPdf(buf);
-          const data = await extractAntemasuratoareFromTextWithAnthropic(text);
-          if (!data?.headers || !data?.rows) {
-            toast.error("Nu s-a putut extrage tabelul din PDF");
-            return;
+
+          // 1. Extragem textele cu coordonate
+          const textItems = await extractPdfTextItems(buf);
+
+          // 2. Detecție tip document
+          const autoIsFloorPlan = detectIsFloorPlan(textItems);
+          setDetectedAsFloorPlan(autoIsFloorPlan);
+
+          // 3. Determinăm dacă tratăm ca plan arhitectural
+          const treatAsFloorPlan =
+            docType === "floor_plan" ||
+            (docType === "auto" && autoIsFloorPlan);
+
+          if (treatAsFloorPlan) {
+            // ── FLUX PLAN ARHITECTURAL ──────────────────────────────────
+            // Pasul A: parser local (rapid, fără API)
+            const roomBlocks = detectRoomBlocks(textItems);
+
+            let floorItems: FloorPlanItem[] = [];
+
+            if (roomBlocks.length >= 2) {
+              // Parser local a găsit suficiente camere
+              floorItems = roomBlocksToExtractedItems(roomBlocks);
+              const reviewCount = floorItems.filter((i) => i.needsManualReview).length;
+              toast.success(
+                `Plan arhitectural: ${roomBlocks.length} camere detectate, ${floorItems.length} linii extrase` +
+                  (reviewCount > 0 ? ` (${reviewCount} necesită verificare)` : "")
+              );
+            } else {
+              // Fallback AI: parser local a găsit prea puține camere
+              toast.info("Parser local: camere insuficiente — se folosește AI ca fallback...");
+              const flatText = textItems.map((i) => i.str).join("\n");
+              const aiResult = await extractFloorPlanFromTextWithAnthropic(flatText);
+
+              floorItems = (aiResult.camere ?? []).flatMap((cam) => {
+                const lines: ExtractedItem[] = [];
+                const camName = cam.camera;
+                const sup = cam.suprafata_mp ?? 0;
+
+                if (cam.pardoseala) {
+                  lines.push({
+                    id: randomId(), nr: String(lines.length + 1),
+                    sectiune: camName, descriere_client: cam.pardoseala,
+                    cantitate: sup, unitate: "mp",
+                    needsManualReview: cam.suprafata_needs_review || sup === 0,
+                    reviewReason: cam.suprafata_needs_review ? "Suprafață de verificat" : undefined,
+                    cameraNume: camName, materialTip: "pardoseala",
+                  });
+                }
+                if (cam.tavan) {
+                  lines.push({
+                    id: randomId(), nr: String(lines.length + 1),
+                    sectiune: camName, descriere_client: cam.tavan,
+                    cantitate: sup, unitate: "mp",
+                    needsManualReview: sup === 0,
+                    cameraNume: camName, materialTip: "tavan",
+                  });
+                }
+                if (cam.finisaj_perete) {
+                  lines.push({
+                    id: randomId(), nr: String(lines.length + 1),
+                    sectiune: camName,
+                    descriere_client: cam.finisaj_perete + (cam.h_finisaj ? ` h=${cam.h_finisaj}m` : ""),
+                    cantitate: 0, unitate: "mp",
+                    needsManualReview: true,
+                    reviewReason: "Introduceți perimetrul pentru calcul suprafață perete",
+                    cameraNume: camName, materialTip: "finisaj_perete",
+                    hFinisaj: cam.h_finisaj ?? undefined,
+                  });
+                }
+                return lines;
+              });
+
+              toast.success(
+                `Plan arhitectural (AI): ${floorItems.length} linii extrase din ${
+                  aiResult.camere?.length ?? 0
+                } camere`
+              );
+            }
+
+            applyItems(floorItems as ExtractedItem[], "Plan arhitectural PDF");
+
+          } else {
+            // ── FLUX DEVIZ TABULAR (existent, nemodificat) ───────────────
+            const flatText = textItems.map((i) => i.str).join("\n");
+            const data = await extractAntemasuratoareFromTextWithAnthropic(flatText);
+            if (!data?.headers || !data?.rows) {
+              toast.error("Nu s-a putut extrage tabelul din PDF");
+              return;
+            }
+            applyItems(mapOcrToItems(data.headers, data.rows), "PDF");
           }
-          applyItems(mapOcrToItems(data.headers, data.rows), "PDF");
+
         } else {
-          // Imagine → ocr-whatsapp (Gemini vision)
+          // Imagine → Gemini vision (nemodificat)
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
@@ -525,12 +637,10 @@ export default function AntemasuratorImport() {
           const mime = file.type || "image/jpeg";
 
           const data = await extractTableFromImageWithAnthropic(base64, mime, "antemasuratoare");
-
           if (!data?.headers || !data?.rows) {
             toast.error("Imaginea nu conține un tabel lizibil");
             return;
           }
-
           applyItems(
             mapOcrToItems(data.headers as string[], data.rows as string[][]),
             file.name
@@ -542,8 +652,9 @@ export default function AntemasuratorImport() {
         setProcessing(false);
       }
     },
-    [applyItems]
+    [applyItems, docType]
   );
+
 
   const addEmptyItem = () =>
     setItems((prev) => [
@@ -927,6 +1038,37 @@ export default function AntemasuratorImport() {
                       </div>
                     )}
                   </div>
+                  {/* Tip document detectat + toggle override */}
+                  {detectedAsFloorPlan !== null && (
+                    <div className={`mt-2 flex items-center gap-2 rounded-md border p-2 text-sm ${
+                      detectedAsFloorPlan
+                        ? "bg-blue-50 border-blue-200 text-blue-800"
+                        : "bg-slate-50 border-slate-200 text-slate-700"
+                    }`}>
+                      <Info className="w-4 h-4 shrink-0" />
+                      <span className="flex-1">
+                        {detectedAsFloorPlan
+                          ? "Plan arhitectural detectat (camere + finisaje)"
+                          : "Antemasurătoare tabelară detectată"}
+                      </span>
+                      <button
+                        type="button"
+                        className="underline text-xs font-medium shrink-0"
+                        onClick={() => {
+                          const next = detectedAsFloorPlan ? "bof" : "floor_plan";
+                          setDocType(next);
+                          toast.info(next === "floor_plan"
+                            ? "Forțat: Plan arhitectural"
+                            : "Forțat: Antemasurătoare tabelară");
+                        }}
+                      >
+                        {detectedAsFloorPlan
+                          ? "Schimbă în Antemasurătoare"
+                          : "Schimbă în Plan arhitectural"}
+                      </button>
+                    </div>
+                  )}
+
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -978,13 +1120,17 @@ export default function AntemasuratorImport() {
                 </TabsContent>
               </Tabs>
 
-              {/* Extracted items table */}
+                {/* Extracted items table */}
               {items.length > 0 && (
                 <div className="mt-6">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm font-medium text-muted-foreground">
-                      {items.length} produse extrase — verificați și corectați
-                      dacă e necesar
+                      {items.length} produse extrase
+                      {items.filter((i) => i.needsManualReview).length > 0 && (
+                        <span className="ml-2 text-amber-600 font-semibold">
+                          · ⚠️ {items.filter((i) => i.needsManualReview).length} necesită verificare
+                        </span>
+                      )}
                     </p>
                     <Button variant="outline" size="sm" onClick={addEmptyItem}>
                       <Plus className="w-3 h-3 mr-1" />
@@ -992,21 +1138,28 @@ export default function AntemasuratorImport() {
                     </Button>
                   </div>
 
-                  <div className="rounded border overflow-x-auto overflow-y-auto max-h-[420px]">
+                  <div className="rounded border overflow-x-auto overflow-y-auto max-h-[480px]">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-10">#</TableHead>
-                          <TableHead className="w-36">Secțiune</TableHead>
+                          <TableHead className="w-36">Secțiune / Cameră</TableHead>
                           <TableHead>Denumire produs (din cerere)</TableHead>
                           <TableHead className="w-28">Cantitate</TableHead>
+                          <TableHead className="w-32">Perimetru (m)</TableHead>
                           <TableHead className="w-24">UM</TableHead>
                           <TableHead className="w-10" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {items.map((item, i) => (
-                          <TableRow key={item.id}>
+                          <TableRow
+                            key={item.id}
+                            className={item.needsManualReview
+                              ? "bg-amber-50 hover:bg-amber-100"
+                              : undefined
+                            }
+                          >
                             <TableCell className="text-xs text-muted-foreground">
                               {item.nr || i + 1}
                             </TableCell>
@@ -1014,28 +1167,36 @@ export default function AntemasuratorImport() {
                               <Input
                                 value={item.sectiune ?? ""}
                                 onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "sectiune",
-                                    e.target.value
-                                  )
+                                  updateItem(item.id, "sectiune", e.target.value)
                                 }
                                 className="h-7 text-xs"
                                 placeholder="Secțiune"
                               />
                             </TableCell>
                             <TableCell>
-                              <Input
-                                value={item.descriere_client}
-                                onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "descriere_client",
-                                    e.target.value
-                                  )
-                                }
-                                className="h-7 text-xs"
-                              />
+                              <div className="flex flex-col gap-1">
+                                <Input
+                                  value={item.descriere_client}
+                                  onChange={(e) =>
+                                    updateItem(item.id, "descriere_client", e.target.value)
+                                  }
+                                  className={`h-7 text-xs ${
+                                    item.needsManualReview
+                                      ? "border-amber-400 focus:ring-amber-400"
+                                      : ""
+                                  }`}
+                                />
+                                {item.needsManualReview && (
+                                  <span
+                                    className="flex items-center gap-1 text-xs text-amber-700"
+                                    title={item.reviewReason}
+                                  >
+                                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                                    {item.reviewReason?.slice(0, 60) ??
+                                      "Verificare manuală necesară"}
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <Input
@@ -1048,18 +1209,56 @@ export default function AntemasuratorImport() {
                                     parseFloat(e.target.value) || 0
                                   )
                                 }
-                                className="h-7 text-xs"
+                                className={`h-7 text-xs ${
+                                  item.needsManualReview && item.cantitate === 0
+                                    ? "border-amber-400"
+                                    : ""
+                                }`}
+                                placeholder={item.needsManualReview && item.cantitate === 0 ? "?" : ""}
                               />
+                            </TableCell>
+                            {/* Câmp perimetru — vizibil doar pentru finisaje perete */}
+                            <TableCell>
+                              {item.materialTip === "finisaj_perete" ? (
+                                <div className="flex flex-col gap-1">
+                                  <Input
+                                    type="number"
+                                    placeholder="m"
+                                    value={item.perimeterM ?? ""}
+                                    onChange={(e) => {
+                                      const p = parseFloat(e.target.value) || 0;
+                                      const h = item.hFinisaj ?? 1.2;
+                                      // Actualizăm perimetrul și recalculăm cantitatea
+                                      setItems((prev) =>
+                                        prev.map((it) =>
+                                          it.id === item.id
+                                            ? {
+                                                ...it,
+                                                perimeterM: p,
+                                                cantitate: p > 0 ? Math.round(p * h * 100) / 100 : 0,
+                                                needsManualReview: p === 0,
+                                              }
+                                            : it
+                                        )
+                                      );
+                                    }}
+                                    className="h-7 text-xs w-20"
+                                  />
+                                  {item.hFinisaj && (
+                                    <span className="text-xs text-muted-foreground">
+                                      × {item.hFinisaj}m
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Input
                                 value={item.unitate}
                                 onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "unitate",
-                                    e.target.value
-                                  )
+                                  updateItem(item.id, "unitate", e.target.value)
                                 }
                                 className="h-7 text-xs"
                               />

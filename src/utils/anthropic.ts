@@ -347,6 +347,97 @@ Reguli stricte:
   }
 }
 
+// ── Floor Plan Text Extractor ────────────────────────────────────────────────
+// Prompt dedicat pentru planuri arhitecturale (planșe de etaj/parter).
+// DIFERIT de extractAntemasuratoareFromTextWithAnthropic care e pentru devize tabelulare.
+export async function extractFloorPlanFromTextWithAnthropic(
+  text: string
+): Promise<{
+  camere: Array<{
+    camera: string;
+    suprafata_mp: number | null;
+    suprafata_needs_review: boolean;
+    pardoseala: string | null;
+    tavan: string | null;
+    finisaj_perete: string | null;
+    h_finisaj: number | null;
+    inaltime_camera: number | null;
+    note: string;
+  }>;
+}> {
+  const systemPrompt = `Ești expert în citirea planșelor de arhitectură (plan parter, plan etaj) din România.
+Textul primit este extras din PDF și conține datele de finisaje ale camerelor.
+Fiecare cameră are de regulă:
+- Nume cameră (ALL CAPS, ex: "G.S. FETE", "SALA CLASA 1", "HOL 1")
+- S = <valoare> mp (suprafața pardoselii)
+- Material pardoseală (ex: gresie antiderapantă de interior, parchet laminat, beton)
+- Tavan: "tavan fals" dacă apare explicit
+- Finisaj perete: "faianță h=1,20m" sau "vopsea pe bază de ulei h=1,20m"
+- H = <valoare> (înălțimea camerei, dacă diferă de standard)
+
+REGULI STRICTE:
+1. Extrage FIECARE cameră ca un obiect separat
+2. Pentru fiecare cameră extrage TOATE cele 3-4 atribute: pardoseala, tavan, finisaj_perete
+3. Dacă valoarea S= pare trunchiată (ex: "41." fără zecimale sau "S=" fără cifre), setează suprafata_needs_review=true
+4. Normalizează: "antiderapanta" → "antiderapantă", "faianta" → "faianță"
+5. "gresie" lângă text corupt = probabil "gresie antiderapantă de interior"
+6. Dacă un atribut lipsește, returnează null (nu inventa date)
+7. Nu confunda etichetele de plan ("LIMITA PROPRIETATE", "NORD") cu camere — camerele au S= asociat`;
+
+  const toolSchema = {
+    name: "extract_floor_plan",
+    description: "Extracts room-by-room finishing materials from architectural floor plan text",
+    input_schema: {
+      type: "object",
+      properties: {
+        camere: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              camera:                 { type: "string",  description: "Numele camerei (ALL CAPS)" },
+              suprafata_mp:          { type: ["number", "null"], description: "Valoarea S= în mp. null dacă lipsește." },
+              suprafata_needs_review:{ type: "boolean", description: "true dacă S= pare trunchiat sau lipsă" },
+              pardoseala:            { type: ["string", "null"], description: "Material pardoseală. null dacă nu apare." },
+              tavan:                 { type: ["string", "null"], description: "'tavan fals' sau null" },
+              finisaj_perete:        { type: ["string", "null"], description: "'faianță' sau 'vopsea pe bază de ulei' sau null" },
+              h_finisaj:             { type: ["number", "null"], description: "Înălțimea finisajului de perete în m (ex: 1.20). null dacă nu e specificat." },
+              inaltime_camera:       { type: ["number", "null"], description: "Înălțimea camerei H= în m. null dacă nu apare." },
+              note:                  { type: "string",  description: "Observații (corupții detectate, text rotit, etc.)" },
+            },
+            required: ["camera", "suprafata_mp", "suprafata_needs_review", "pardoseala", "tavan", "finisaj_perete", "h_finisaj", "inaltime_camera", "note"],
+          },
+        },
+      },
+      required: ["camere"],
+    },
+  };
+
+  const userMsg = `Text extras din planșa de arhitectură:\n\n${text.substring(0, 60000)}`;
+
+  try {
+    const result = await callAnthropicTool(
+      systemPrompt,
+      userMsg,
+      toolSchema,
+      "extract_floor_plan"
+    );
+    return result;
+  } catch (error) {
+    console.warn("extractFloorPlanFromTextWithAnthropic failed:", error);
+    // Gemini fallback
+    try {
+      return await callGeminiTool(systemPrompt, userMsg, toolSchema);
+    } catch (geminiError: any) {
+      throw new Error(
+        `Eroare extragere plan arhitectural. Anthropic: ${
+          error instanceof Error ? error.message : error
+        }. Gemini: ${geminiError?.message ?? geminiError}`
+      );
+    }
+  }
+}
+
 // ── Equivalent Finder (replacing ai-find-equivalent) ────────────────────────
 export async function findEquivalentWithAnthropic(cerereClient: string) {
   if (cerereClient.trim().length < 3) throw new Error("Cererea este prea scurtă.");
@@ -563,14 +654,36 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
         );
       }
       if (!p) return null;
+
+      // Aplică penalizare scor dacă cererea conține atribute tehnice obligatorii
+      // pe care produsul candidat nu le menționează explicit.
+      // Import lazy pentru a evita circular dependency (logica e în floorPlanParser).
+      let finalScor = r.scor;
+      let penaltyReason: string | undefined;
+      try {
+        const { applyMandatoryAttributePenalty } = await import("./floorPlanParser");
+        const penalty = applyMandatoryAttributePenalty(
+          cerereClient,
+          p.denumire_completa ?? "",
+          r.scor
+        );
+        finalScor = penalty.score;
+        penaltyReason = penalty.reason;
+      } catch (_) {
+        // Dacă importul eșuează, continuăm cu scorul original
+      }
+
       return {
         product_id: p.id,
         cod_intern: p.cod_intern,
         denumire_completa: p.denumire_completa,
         pret_lista: p.pret_lista,
         unit: p.unit,
-        justificare: r.justificare,
-        scor: r.scor,
+        justificare: penaltyReason
+          ? `${r.justificare} ⚠️ ${penaltyReason}`
+          : r.justificare,
+        scor: finalScor,
+        scorPenalized: finalScor < r.scor,
       };
     })
     .filter(Boolean);
