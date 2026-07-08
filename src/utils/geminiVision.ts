@@ -160,10 +160,13 @@ export async function extractPlanWithGeminiVision(
       responseMimeType: "application/json",
       temperature: 0.1,      // deterministic — vrem extragere precisă
       maxOutputTokens: 8192,
+      thinkingConfig: {
+        thinkingBudget: 0
+      }
     },
   };
 
-  const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.0-flash");
+  const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.5-flash");
 
   if (!ok) {
     throw new Error(`Gemini Vision error (${status}): ${data?.error ?? "eroare necunoscută"}`);
