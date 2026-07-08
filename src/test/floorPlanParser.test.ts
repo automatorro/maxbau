@@ -5,7 +5,15 @@
  * Rulare: npm run test sau npx vitest run
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock pdfjs-dist înainte de orice import din floorPlanParser.
+// pdfjs accesează DOMMatrix la inițializare — API care nu există în jsdom.
+// Testele acoperă funcții pure care nu apelează pdfjs direct.
+vi.mock("pdfjs-dist", () => ({
+  getDocument: vi.fn(),
+  GlobalWorkerOptions: { workerSrc: "" },
+}));
 import {
   applyGlyphCorrections,
   detectIsFloorPlan,

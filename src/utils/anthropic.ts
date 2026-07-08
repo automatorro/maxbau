@@ -636,6 +636,14 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
     products.map((p) => [(p.cod_intern || "").toLowerCase().trim(), p])
   );
 
+  let applyMandatoryAttributePenaltyFn: any = null;
+  try {
+    const parser = await import("./floorPlanParser");
+    applyMandatoryAttributePenaltyFn = parser.applyMandatoryAttributePenalty;
+  } catch (_) {
+    // Ignore import failure
+  }
+
   const echivalente = (ranking.echivalente || [])
     .map((r: any) => {
       // 1. Exact match
@@ -657,20 +665,20 @@ export async function findEquivalentWithAnthropic(cerereClient: string) {
 
       // Aplică penalizare scor dacă cererea conține atribute tehnice obligatorii
       // pe care produsul candidat nu le menționează explicit.
-      // Import lazy pentru a evita circular dependency (logica e în floorPlanParser).
       let finalScor = r.scor;
       let penaltyReason: string | undefined;
-      try {
-        const { applyMandatoryAttributePenalty } = await import("./floorPlanParser");
-        const penalty = applyMandatoryAttributePenalty(
-          cerereClient,
-          p.denumire_completa ?? "",
-          r.scor
-        );
-        finalScor = penalty.score;
-        penaltyReason = penalty.reason;
-      } catch (_) {
-        // Dacă importul eșuează, continuăm cu scorul original
+      if (applyMandatoryAttributePenaltyFn) {
+        try {
+          const penalty = applyMandatoryAttributePenaltyFn(
+            cerereClient,
+            p.denumire_completa ?? "",
+            r.scor
+          );
+          finalScor = penalty.score;
+          penaltyReason = penalty.reason;
+        } catch (_) {
+          // Dacă apelul eșuează, continuăm cu scorul original
+        }
       }
 
       return {

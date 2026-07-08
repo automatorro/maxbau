@@ -18,6 +18,14 @@ import {
   roomBlocksToExtractedItems,
   type FloorPlanItem,
 } from "@/utils/floorPlanParser";
+import { extractPlanWithGeminiVision } from "@/utils/geminiVision";
+import {
+  MATERIAL_SYSTEMS,
+  expandToBOM,
+  bomToExtractedItems,
+  aggregateBOM,
+} from "@/utils/bomEngine";
+import type { PlanData, BOMItem } from "@/types/planTypes";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +63,10 @@ import {
   Trash2,
   ClipboardList,
   Info,
+  Eye,
+  Package,
+  Layers,
+  Building2,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -464,6 +476,7 @@ export default function AntemasuratorImport() {
   // Step 1
   const [textInput, setTextInput] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [progressMsg, setProgressMsg] = useState("");
   const [items, setItems] = useState<ExtractedItem[]>([]);
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -471,6 +484,12 @@ export default function AntemasuratorImport() {
   const [docType, setDocType] = useState<"auto" | "floor_plan" | "bof">("auto");
   // null = nu s-a detectat încă, true/false = rezultatul ultimei detecții
   const [detectedAsFloorPlan, setDetectedAsFloorPlan] = useState<boolean | null>(null);
+
+  // ── BOM (Vision AI + Bill of Materials) ──────────────────────────────────
+  const [planData, setPlanData] = useState<PlanData | null>(null);
+  const [bomItems, setBomItems] = useState<BOMItem[]>([]);
+  // "upload" → "bom_review" → "items" (lista clasică)
+  const [bomStage, setBomStage] = useState<"upload" | "bom_review" | "items">("upload");
 
   // Step 2
   const [itemsWithMatches, setItemsWithMatches] = useState<ItemWithMatch[]>([]);
@@ -534,86 +553,40 @@ export default function AntemasuratorImport() {
         } else if (ext === "pdf") {
           const buf = await file.arrayBuffer();
 
-          // 1. Extragem textele cu coordonate
+          // 1. Detectăm rapid dacă e plan (heuristică text)
           const textItems = await extractPdfTextItems(buf);
-
-          // 2. Detecție tip document
           const autoIsFloorPlan = detectIsFloorPlan(textItems);
           setDetectedAsFloorPlan(autoIsFloorPlan);
 
-          // 3. Determinăm dacă tratăm ca plan arhitectural
           const treatAsFloorPlan =
             docType === "floor_plan" ||
             (docType === "auto" && autoIsFloorPlan);
 
           if (treatAsFloorPlan) {
-            // ── FLUX PLAN ARHITECTURAL ──────────────────────────────────
-            // Pasul A: parser local (rapid, fără API)
-            const roomBlocks = detectRoomBlocks(textItems);
+            // ── NOU: FLUX GEMINI VISION + BOM ENGINE ─────────────────────
+            setProgressMsg("Inițializare Gemini Vision...");
 
-            let floorItems: FloorPlanItem[] = [];
+            const extracted = await extractPlanWithGeminiVision(
+              buf,
+              (msg) => setProgressMsg(msg)
+            );
 
-            if (roomBlocks.length >= 2) {
-              // Parser local a găsit suficiente camere
-              floorItems = roomBlocksToExtractedItems(roomBlocks);
-              const reviewCount = floorItems.filter((i) => i.needsManualReview).length;
-              toast.success(
-                `Plan arhitectural: ${roomBlocks.length} camere detectate, ${floorItems.length} linii extrase` +
-                  (reviewCount > 0 ? ` (${reviewCount} necesită verificare)` : "")
-              );
-            } else {
-              // Fallback AI: parser local a găsit prea puține camere
-              toast.info("Parser local: camere insuficiente — se folosește AI ca fallback...");
-              const flatText = textItems.map((i) => i.str).join("\n");
-              const aiResult = await extractFloorPlanFromTextWithAnthropic(flatText);
+            setPlanData(extracted);
 
-              floorItems = (aiResult.camere ?? []).flatMap((cam) => {
-                const lines: ExtractedItem[] = [];
-                const camName = cam.camera;
-                const sup = cam.suprafata_mp ?? 0;
+            // Expandăm imediat cu toate sistemele (toate bifate default)
+            const bom = expandToBOM(extracted);
+            setBomItems(bom);
+            setBomStage("bom_review");
+            setProgressMsg("");
 
-                if (cam.pardoseala) {
-                  lines.push({
-                    id: randomId(), nr: String(lines.length + 1),
-                    sectiune: camName, descriere_client: cam.pardoseala,
-                    cantitate: sup, unitate: "mp",
-                    needsManualReview: cam.suprafata_needs_review || sup === 0,
-                    reviewReason: cam.suprafata_needs_review ? "Suprafață de verificat" : undefined,
-                    cameraNume: camName, materialTip: "pardoseala",
-                  });
-                }
-                if (cam.tavan) {
-                  lines.push({
-                    id: randomId(), nr: String(lines.length + 1),
-                    sectiune: camName, descriere_client: cam.tavan,
-                    cantitate: sup, unitate: "mp",
-                    needsManualReview: sup === 0,
-                    cameraNume: camName, materialTip: "tavan",
-                  });
-                }
-                if (cam.finisaj_perete) {
-                  lines.push({
-                    id: randomId(), nr: String(lines.length + 1),
-                    sectiune: camName,
-                    descriere_client: cam.finisaj_perete + (cam.h_finisaj ? ` h=${cam.h_finisaj}m` : ""),
-                    cantitate: 0, unitate: "mp",
-                    needsManualReview: true,
-                    reviewReason: "Introduceți perimetrul pentru calcul suprafață perete",
-                    cameraNume: camName, materialTip: "finisaj_perete",
-                    hFinisaj: cam.h_finisaj ?? undefined,
-                  });
-                }
-                return lines;
-              });
-
-              toast.success(
-                `Plan arhitectural (AI): ${floorItems.length} linii extrase din ${
-                  aiResult.camere?.length ?? 0
-                } camere`
-              );
-            }
-
-            applyItems(floorItems as ExtractedItem[], "Plan arhitectural PDF");
+            const nSpaces = extracted.spaces.length;
+            const nItems = bom.filter(b => b.selected).length;
+            toast.success(
+              `Plan detectat: ${nSpaces} spații, ${nItems} materiale în sistemele de finisaj.`,
+              { duration: 5000 }
+            );
+            // Nu apelăm applyItems încă — utilizatorul revizuiește BOM-ul mai întâi
+            return;
 
           } else {
             // ── FLUX DEVIZ TABULAR (existent, nemodificat) ───────────────
@@ -1020,11 +993,12 @@ export default function AntemasuratorImport() {
                     {processing ? (
                       <div className="flex flex-col items-center gap-3 text-muted-foreground">
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                        <p>Procesare document...</p>
-                        <p className="text-xs">
-                          PDF și imagini: extragere tabel via AI · Excel:
-                          procesare directă
-                        </p>
+                        <p>{progressMsg || "Procesare document..."}</p>
+                        {progressMsg && (
+                          <p className="text-xs text-blue-600 font-medium">
+                            Gemini Vision analizează planul arhitectural…
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-3">
@@ -1120,7 +1094,192 @@ export default function AntemasuratorImport() {
                 </TabsContent>
               </Tabs>
 
-                {/* Extracted items table */}
+              {/* ── BOM REVIEW (după extragere Vision AI) ───────────────────── */}
+              {step === 1 && bomStage === "bom_review" && planData && (
+                <div className="mt-6 space-y-4">
+                  {/* Header plan */}
+                  <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <Building2 className="w-6 h-6 text-blue-600 shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-blue-900">
+                        {planData.titlu ?? "Plan arhitectural detectat"}
+                      </p>
+                      <p className="text-sm text-blue-700">
+                        {planData.spaces.length} spații identificate &middot;&nbsp;
+                        {planData.totalArieConstruita
+                          ? `${planData.totalArieConstruita} mp total`
+                          : planData.spaces.reduce((s, x) => s + x.areaSqm, 0).toFixed(1) + " mp total"}
+                        {planData.scara && ` · Scară ${planData.scara}`}
+                      </p>
+                      {planData.isPartialExtraction && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠️ Extragere parțială — unele spații pot necesita completare manuală
+                        </p>
+                      )}
+                    </div>
+                    <Badge variant="outline" className="text-blue-700 border-blue-300">
+                      {planData.planType.replace(/_/g, " ")}
+                    </Badge>
+                  </div>
+
+                  {/* Spații extrase */}
+                  <div>
+                    <h3 className="font-semibold mb-2 flex items-center gap-2">
+                      <Eye className="w-4 h-4" /> Spații detectate
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Spațiu</TableHead>
+                            <TableHead className="text-right">S (mp)</TableHead>
+                            <TableHead className="text-right">Perimetru (m)</TableHead>
+                            <TableHead>Pardoseală</TableHead>
+                            <TableHead>Pereți</TableHead>
+                            <TableHead>Tavan</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {planData.spaces.map((sp, idx) => (
+                            <TableRow key={idx} className={sp.isWetRoom ? "bg-blue-50" : ""}>
+                              <TableCell className="font-medium">
+                                {sp.name}
+                                {sp.isWetRoom && (
+                                  <Badge variant="outline" className="ml-2 text-xs text-blue-600 border-blue-300">
+                                    zonă umedă
+                                  </Badge>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right">{sp.areaSqm}</TableCell>
+                              <TableCell className="text-right">
+                                {sp.perimeterM ? sp.perimeterM.toFixed(1) : 
+                                  <span className="text-amber-500 text-xs">estimat</span>}
+                              </TableCell>
+                              <TableCell className="text-sm">{sp.pardoseala ?? "—"}</TableCell>
+                              <TableCell className="text-sm">
+                                {sp.pereti?.finisaj
+                                  ? `${sp.pereti.finisaj}${sp.pereti.hFinisaj ? ` h=${sp.pereti.hFinisaj}m` : ""}`
+                                  : "—"}
+                              </TableCell>
+                              <TableCell className="text-sm">{sp.tavan ?? "—"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+
+                  {/* Sisteme de materiale */}
+                  <div>
+                    <h3 className="font-semibold mb-2 flex items-center gap-2">
+                      <Layers className="w-4 h-4" /> Sisteme de materiale generate
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Bifează materialele pe care dorești să le incluzi în ofertă. 
+                      Cantitățile sunt calculate automat cu procente de pierderi standard.
+                    </p>
+
+                    {/* Grupat pe sistem */}
+                    {(() => {
+                      const bySystem = new Map<string, BOMItem[]>();
+                      for (const item of bomItems) {
+                        const key = `${item.spaceName}:::${item.systemName}`;
+                        if (!bySystem.has(key)) bySystem.set(key, []);
+                        bySystem.get(key)!.push(item);
+                      }
+                      return [...bySystem.entries()].map(([key, sItems]) => {
+                        const [spaceName, systemName] = key.split(":::");
+                        const allSelected = sItems.every(i => i.selected);
+                        const someSelected = sItems.some(i => i.selected);
+                        return (
+                          <div key={key} className="border rounded-lg mb-3 overflow-hidden">
+                            <div className="bg-muted/40 px-4 py-2 flex items-center gap-3">
+                              <Checkbox
+                                checked={allSelected}
+                                onCheckedChange={(checked) => {
+                                  setBomItems(prev => prev.map(b =>
+                                    b.spaceName === spaceName && b.systemName === systemName
+                                      ? { ...b, selected: Boolean(checked) }
+                                      : b
+                                  ));
+                                }}
+                              />
+                              <div>
+                                <span className="font-medium text-sm">{systemName}</span>
+                                <span className="text-xs text-muted-foreground ml-2">— {spaceName}</span>
+                              </div>
+                              <Badge variant="outline" className="ml-auto text-xs">
+                                {sItems.filter(i => i.selected).length}/{sItems.length} componente
+                              </Badge>
+                            </div>
+                            <div className="divide-y">
+                              {sItems.map(bItem => (
+                                <div
+                                  key={bItem.id}
+                                  className={`flex items-center gap-3 px-4 py-2 text-sm ${
+                                    !bItem.selected ? "opacity-50" : ""
+                                  } ${bItem.isOptional ? "bg-slate-50/50" : ""}`}
+                                >
+                                  <Checkbox
+                                    checked={bItem.selected}
+                                    onCheckedChange={(checked) => {
+                                      setBomItems(prev => prev.map(b =>
+                                        b.id === bItem.id ? { ...b, selected: Boolean(checked) } : b
+                                      ));
+                                    }}
+                                  />
+                                  <span className="flex-1">{bItem.descriere}</span>
+                                  {bItem.isOptional && (
+                                    <Badge variant="outline" className="text-xs shrink-0">opțional</Badge>
+                                  )}
+                                  <span className="text-right font-mono font-semibold shrink-0 min-w-[80px]">
+                                    {bItem.cantitate.toFixed(2)} {bItem.unit}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  {/* Acțiuni */}
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setPlanData(null);
+                        setBomItems([]);
+                        setBomStage("upload");
+                      }}
+                    >
+                      ↩ Încearcă alt fișier
+                    </Button>
+                    <Button
+                      className="ml-auto"
+                      onClick={() => {
+                        const aggregated = aggregateBOM(bomItems);
+                        const extracted = bomToExtractedItems(aggregated);
+                        if (!extracted.length) {
+                          toast.error("Selectează cel puțin un material");
+                          return;
+                        }
+                        applyItems(
+                          extracted.map(e => ({ ...e, unitate: e.unitate })) as any,
+                          "Plan arhitectural (BOM)"
+                        );
+                        setBomStage("items");
+                      }}
+                    >
+                      <Package className="w-4 h-4 mr-2" />
+                      Confirmă {bomItems.filter(b => b.selected).length} materiale → Căută echivalente
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Extracted items table */}
               {items.length > 0 && (
                 <div className="mt-6">
                   <div className="flex items-center justify-between mb-3">

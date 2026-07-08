@@ -90,7 +90,6 @@ export const GLYPH_CORRECTIONS: Record<string, string> = {
   "Pð":    "m²",
   "P²":    "m²",
   "mð":    "m²",
-  "m\u00f0": "m²",
   "m\u00b2": "m²",
   // antiderapantă — Windows-1252 citit ca Latin-1 → rot13-like
   "DQWLGHUDSDQWă": "antiderapantă",
