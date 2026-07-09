@@ -15,6 +15,7 @@ import {
   detectIsFloorPlan,
   extractPdfTextItems,
   detectRoomBlocks,
+  roomBlocksToPlanData,
   roomBlocksToExtractedItems,
   type FloorPlanItem,
 } from "@/utils/floorPlanParser";
@@ -563,13 +564,24 @@ export default function AntemasuratorImport() {
             (docType === "auto" && autoIsFloorPlan);
 
           if (treatAsFloorPlan) {
-            // ── NOU: FLUX GEMINI VISION + BOM ENGINE ─────────────────────
-            setProgressMsg("Inițializare Gemini Vision...");
+            // ── FLUX HIBRID: PARSER LOCAL ➔ GEMINI VISION FALLBACK ──────
+            setProgressMsg("Inițializare Parser Local...");
+            const roomBlocks = detectRoomBlocks(textItems);
 
-            const extracted = await extractPlanWithGeminiVision(
-              buf.slice(0),
-              (msg) => setProgressMsg(msg)
-            );
+            let extracted: any = null;
+
+            if (roomBlocks.length >= 2) {
+              // Parserul local a funcționat cu succes (ex: planul C1)
+              setProgressMsg("Procesare locală a planului...");
+              extracted = roomBlocksToPlanData(roomBlocks);
+            } else {
+              // Plan complex/scanat -> fallback pe Gemini Vision AI
+              setProgressMsg("Inițializare Gemini Vision...");
+              extracted = await extractPlanWithGeminiVision(
+                buf.slice(0),
+                (msg) => setProgressMsg(msg)
+              );
+            }
 
             setPlanData(extracted);
 

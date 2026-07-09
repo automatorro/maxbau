@@ -21,6 +21,7 @@
  */
 
 import * as pdfjsLib from "pdfjs-dist";
+import type { PlanData } from "../types/planTypes";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -750,4 +751,48 @@ export function roomBlocksToExtractedItems(
   }
 
   return items;
+}
+
+/**
+ * Convertește RoomBlock[] generat de parserul local într-o structură PlanData
+ * compatibilă cu motorul BOM.
+ */
+export function roomBlocksToPlanData(blocks: RoomBlock[]): PlanData {
+  const spaces = blocks.map((block) => {
+    const camName = block.name + (block.number ? ` (${block.number})` : "");
+    const areaSqm = block.suprafata ?? 0;
+
+    const floorAttr = block.attributes.find((a) => a.type === "pardoseala");
+    const tavanAttr = block.attributes.find((a) => a.type === "tavan");
+    const peretiAttr = block.attributes.find((a) => a.type === "finisaj_perete");
+    const heightAttr = block.attributes.find((a) => a.type === "inaltime");
+
+    const nameLower = camName.toLowerCase();
+    const isWetRoom =
+      nameLower.includes("baie") ||
+      nameLower.includes("g.s.") ||
+      nameLower.includes("wc") ||
+      nameLower.includes("toilet") ||
+      nameLower.includes("bucatarie") ||
+      nameLower.includes("spalatorie");
+
+    return {
+      name: camName,
+      areaSqm,
+      isWetRoom,
+      pardoseala: floorAttr ? floorAttr.normalizedText : undefined,
+      tavan: tavanAttr ? tavanAttr.normalizedText : undefined,
+      pereti: peretiAttr ? {
+        finisaj: peretiAttr.normalizedText,
+        hFinisaj: peretiAttr.hFinisaj ?? heightAttr?.value ?? undefined,
+      } : undefined,
+      heightM: heightAttr?.value ?? undefined,
+    };
+  });
+
+  return {
+    planType: "finisaje_rezidential",
+    spaces,
+    structuralElements: [],
+  };
 }
