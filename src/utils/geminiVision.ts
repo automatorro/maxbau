@@ -167,27 +167,32 @@ export async function extractPlanWithGeminiVision(
   };
 
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!geminiKey) {
-    throw new Error("VITE_GEMINI_API_KEY nu este definită în fișierul .env!");
+  let rawText = "";
+
+  if (geminiKey) {
+    onProgress?.("Trimit planul direct la Gemini (browser)...");
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(`Gemini Vision error (${response.status}): ${errorData?.error?.message ?? "eroare necunoscută"}`);
+    }
+
+    const data = await response.json();
+    rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  } else {
+    onProgress?.("Trimit planul prin Proxy (timp limitat la 10s)...");
+    const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.5-flash");
+    if (!ok) {
+      throw new Error(`Gemini Vision error (${status}): ${data?.error ?? "eroare necunoscută"}`);
+    }
+    rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new Error(`Gemini Vision error (${response.status}): ${errorData?.error?.message ?? "eroare necunoscută"}`);
-  }
-
-  const data = await response.json();
-
-  // Extragem textul din răspunsul Gemini
-  const rawText: string =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
   if (!rawText.trim()) {
     throw new Error("Gemini Vision nu a returnat date. Verificați că PDF-ul conține un plan lizibil.");
