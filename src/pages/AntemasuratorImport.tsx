@@ -592,6 +592,20 @@ export default function AntemasuratorImport() {
     toast.success("Memoria importului curent a fost resetată.");
   }, []);
 
+  // Ștergere spațiu din listă cu recalculare BOM
+  const handleDeleteSpace = useCallback((idx: number) => {
+    if (!planData) return;
+    const deletedSpaceName = planData.spaces[idx]?.name;
+    const newSpaces = planData.spaces.filter((_, i) => i !== idx);
+    const newPlanData = { ...planData, spaces: newSpaces };
+    setPlanData(newPlanData);
+
+    const newBom = expandToBOM(newPlanData);
+    setBomItems(newBom);
+
+    toast.info(`Spațiul "${deletedSpaceName}" a fost șters.`);
+  }, [planData]);
+
   // ── Step 1 handlers ───────────────────────────────────────────────────────
 
   const applyItems = useCallback(
@@ -1250,6 +1264,7 @@ export default function AntemasuratorImport() {
                             <TableHead>Pardoseală</TableHead>
                             <TableHead>Pereți</TableHead>
                             <TableHead>Tavan</TableHead>
+                            <TableHead className="w-[50px] text-center">Șterge</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1275,6 +1290,17 @@ export default function AntemasuratorImport() {
                                   : "—"}
                               </TableCell>
                               <TableCell className="text-sm">{sp.tavan ?? "—"}</TableCell>
+                              <TableCell className="text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteSpace(idx)}
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  title="Șterge acest spațiu"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
