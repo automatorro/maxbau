@@ -166,11 +166,24 @@ export async function extractPlanWithGeminiVision(
     },
   };
 
-  const { ok, status, data } = await callAiProxy("gemini", payload, "gemini-2.5-flash");
-
-  if (!ok) {
-    throw new Error(`Gemini Vision error (${status}): ${data?.error ?? "eroare necunoscută"}`);
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!geminiKey) {
+    throw new Error("VITE_GEMINI_API_KEY nu este definită în fișierul .env!");
   }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(`Gemini Vision error (${response.status}): ${errorData?.error?.message ?? "eroare necunoscută"}`);
+  }
+
+  const data = await response.json();
 
   // Extragem textul din răspunsul Gemini
   const rawText: string =
