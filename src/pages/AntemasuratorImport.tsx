@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import * as pdfjsLib from "pdfjs-dist";
@@ -472,13 +472,19 @@ export default function AntemasuratorImport() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(() => {
+    const saved = localStorage.getItem("import_step");
+    return saved ? (parseInt(saved) as 1 | 2 | 3) : 1;
+  });
 
   // Step 1
   const [textInput, setTextInput] = useState("");
   const [processing, setProcessing] = useState(false);
   const [progressMsg, setProgressMsg] = useState("");
-  const [items, setItems] = useState<ExtractedItem[]>([]);
+  const [items, setItems] = useState<ExtractedItem[]>(() => {
+    const saved = localStorage.getItem("import_items");
+    return saved ? JSON.parse(saved) : [];
+  });
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tipul documentului detectat (auto sau forțat de utilizator)
@@ -487,22 +493,104 @@ export default function AntemasuratorImport() {
   const [detectedAsFloorPlan, setDetectedAsFloorPlan] = useState<boolean | null>(null);
 
   // ── BOM (Vision AI + Bill of Materials) ──────────────────────────────────
-  const [planData, setPlanData] = useState<PlanData | null>(null);
-  const [bomItems, setBomItems] = useState<BOMItem[]>([]);
+  const [planData, setPlanData] = useState<PlanData | null>(() => {
+    const saved = localStorage.getItem("import_planData");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [bomItems, setBomItems] = useState<BOMItem[]>(() => {
+    const saved = localStorage.getItem("import_bomItems");
+    return saved ? JSON.parse(saved) : [];
+  });
   // "upload" → "bom_review" → "items" (lista clasică)
-  const [bomStage, setBomStage] = useState<"upload" | "bom_review" | "items">("upload");
+  const [bomStage, setBomStage] = useState<"upload" | "bom_review" | "items" >(() => {
+    const saved = localStorage.getItem("import_bomStage");
+    return (saved as any) || "upload";
+  });
 
   // Step 2
-  const [itemsWithMatches, setItemsWithMatches] = useState<ItemWithMatch[]>([]);
+  const [itemsWithMatches, setItemsWithMatches] = useState<ItemWithMatch[]>(() => {
+    const saved = localStorage.getItem("import_itemsWithMatches");
+    return saved ? JSON.parse(saved) : [];
+  });
   const [matchProgress, setMatchProgress] = useState(0);
   const [matching, setMatching] = useState(false);
 
   // Step 3
-  const [clientName, setClientName] = useState("");
-  const [clientPhone, setClientPhone] = useState("");
-  const [clientEmail, setClientEmail] = useState("");
-  const [projectDesc, setProjectDesc] = useState("");
+  const [clientName, setClientName] = useState(() => localStorage.getItem("import_clientName") || "");
+  const [clientPhone, setClientPhone] = useState(() => localStorage.getItem("import_clientPhone") || "");
+  const [clientEmail, setClientEmail] = useState(() => localStorage.getItem("import_clientEmail") || "");
+  const [projectDesc, setProjectDesc] = useState(() => localStorage.getItem("import_projectDesc") || "");
   const [saving, setSaving] = useState(false);
+
+  // ── LocalStorage auto-save watchers ────────────────────────────────────────
+  useEffect(() => {
+    localStorage.setItem("import_step", String(step));
+  }, [step]);
+
+  useEffect(() => {
+    localStorage.setItem("import_items", JSON.stringify(items));
+  }, [items]);
+
+  useEffect(() => {
+    localStorage.setItem("import_planData", JSON.stringify(planData));
+  }, [planData]);
+
+  useEffect(() => {
+    localStorage.setItem("import_bomItems", JSON.stringify(bomItems));
+  }, [bomItems]);
+
+  useEffect(() => {
+    localStorage.setItem("import_bomStage", bomStage);
+  }, [bomStage]);
+
+  useEffect(() => {
+    localStorage.setItem("import_itemsWithMatches", JSON.stringify(itemsWithMatches));
+  }, [itemsWithMatches]);
+
+  useEffect(() => {
+    localStorage.setItem("import_clientName", clientName);
+  }, [clientName]);
+
+  useEffect(() => {
+    localStorage.setItem("import_clientPhone", clientPhone);
+  }, [clientPhone]);
+
+  useEffect(() => {
+    localStorage.setItem("import_clientEmail", clientEmail);
+  }, [clientEmail]);
+
+  useEffect(() => {
+    localStorage.setItem("import_projectDesc", projectDesc);
+  }, [projectDesc]);
+
+  // Resetare memorie import
+  const clearSavedProgress = useCallback(() => {
+    setStep(1);
+    setItems([]);
+    setPlanData(null);
+    setBomItems([]);
+    setBomStage("upload");
+    setItemsWithMatches([]);
+    setClientName("");
+    setClientPhone("");
+    setClientEmail("");
+    setProjectDesc("");
+    setDetectedAsFloorPlan(null);
+    setTextInput("");
+
+    localStorage.removeItem("import_step");
+    localStorage.removeItem("import_items");
+    localStorage.removeItem("import_planData");
+    localStorage.removeItem("import_bomItems");
+    localStorage.removeItem("import_bomStage");
+    localStorage.removeItem("import_itemsWithMatches");
+    localStorage.removeItem("import_clientName");
+    localStorage.removeItem("import_clientPhone");
+    localStorage.removeItem("import_clientEmail");
+    localStorage.removeItem("import_projectDesc");
+
+    toast.success("Memoria importului curent a fost resetată.");
+  }, []);
 
   // ── Step 1 handlers ───────────────────────────────────────────────────────
 
@@ -955,7 +1043,20 @@ export default function AntemasuratorImport() {
   return (
     <DashboardLayout>
       <div className="w-full">
-        <h1 className="text-xl md:text-2xl font-bold mb-1">Import Antemasurătoare</h1>
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-xl md:text-2xl font-bold">Import Antemasurătoare</h1>
+          {(items.length > 0 || planData !== null) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearSavedProgress}
+              className="text-muted-foreground hover:text-destructive flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Resetează progres
+            </Button>
+          )}
+        </div>
         <p className="text-muted-foreground mb-6">
           Încarcă o antemasurătoare (PDF, Excel, imagine sau text) — AI
           identifică produsele echivalente din catalog și generează oferta.
@@ -1288,15 +1389,6 @@ export default function AntemasuratorImport() {
                       Confirmă {bomItems.filter(b => b.selected).length} materiale → Căută echivalente
                     </Button>
                   </div>
-
-                  {planData.rawResponseText && (
-                    <div className="mt-4 p-3 border border-slate-200 bg-slate-50 rounded-lg">
-                      <h4 className="font-semibold text-xs text-slate-500 mb-2">DEBUG: RĂSPUNS BRUT AI (GEMINI)</h4>
-                      <pre className="text-[10px] leading-tight font-mono bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-[200px] whitespace-pre-wrap">
-                        {planData.rawResponseText}
-                      </pre>
-                    </div>
-                  )}
                 </div>
               )}
 
