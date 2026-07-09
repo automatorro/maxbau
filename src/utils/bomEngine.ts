@@ -337,7 +337,7 @@ export const MATERIAL_SYSTEMS: MaterialSystem[] = [
     id: "tavan_casetat",
     name: "Tavan casetat 600×600",
     triggers: ["tavan casetat", "tavan armstrong", "tavan modular",
-                "tavan demontabil", "plafon casetat"],
+                "tavan demontabil", "plafon casetat", "tavan fals", "tavan suspendat", "tavan", "plafon"],
     planTypes: ["finisaje_rezidential", "finisaje_public", "industrial", "mixt"],
     components: [
       {
@@ -406,7 +406,7 @@ export const MATERIAL_SYSTEMS: MaterialSystem[] = [
   {
     id: "tavan_rigips",
     name: "Tavan fals rigips",
-    triggers: ["tavan rigips", "tavan fals rigips", "tavan fals", "plafon rigips"],
+    triggers: ["tavan rigips", "tavan fals rigips", "tavan fals", "plafon rigips", "tavan suspendat", "tavan casetat", "tavan", "plafon"],
     planTypes: ["finisaje_rezidential", "finisaje_public", "mixt"],
     components: [
       {
@@ -695,8 +695,19 @@ export function expandToBOM(
   const result: BOMItem[] = [];
 
   // ── Spații cu finisaje ──────────────────────────────────────────────────────
+  const nameCounts = new Map<string, number>();
   for (const space of planData.spaces) {
-    const ctx = buildContext(space);
+    const rawCtx = buildContext(space);
+    
+    // Asigurăm nume unice pentru încăperile duplicat din plan (ex: "G.S.FETE", "G.S.FETE 2")
+    let currentSpaceName = space.name.trim();
+    const count = nameCounts.get(currentSpaceName) ?? 0;
+    nameCounts.set(currentSpaceName, count + 1);
+    if (count > 0) {
+      currentSpaceName = `${currentSpaceName} ${count + 1}`;
+    }
+
+    const ctx = { ...rawCtx, spaceName: currentSpaceName };
 
     // Colectăm toate specificațiile spațiului
     const specs: Array<{ text: string; hFinisajOverride?: number }> = [];
@@ -716,7 +727,7 @@ export function expandToBOM(
         // Niciun sistem matched — adăugăm ca item simplu pentru review
         result.push({
           id: uid(),
-          spaceName: space.name,
+          spaceName: currentSpaceName,
           systemId: "manual",
           systemName: "Specificație neidentificată",
           role: "manual",
@@ -735,6 +746,23 @@ export function expandToBOM(
       for (const system of systems) {
         if (selectedSystemIds && !selectedSystemIds.includes(system.id)) continue;
 
+        // Selectare inteligentă a preferinței: rigips vs. casetat
+        let isPreferred = true;
+        const specLower = spec.text.toLowerCase();
+        const hasCaseteKeywords =
+          specLower.includes("casetat") ||
+          specLower.includes("armstrong") ||
+          specLower.includes("modular") ||
+          specLower.includes("demontabil");
+
+        if (system.id === "tavan_casetat") {
+          // Dacă textul nu conține cuvinte specifice de casetat, nu îl selectăm implicit
+          if (!hasCaseteKeywords) isPreferred = false;
+        } else if (system.id === "tavan_rigips") {
+          // Dacă textul conține cuvinte specifice de casetat, preferăm tavanul casetat
+          if (hasCaseteKeywords) isPreferred = false;
+        }
+
         // Override hFinisaj dacă vine din specificația de perete
         const ctxForSystem: RoomContext = spec.hFinisajOverride
           ? { ...ctx, hFinisaj: spec.hFinisajOverride }
@@ -747,7 +775,7 @@ export function expandToBOM(
           const qty = comp.quantityFormula(ctxForSystem);
           result.push({
             id: uid(),
-            spaceName: space.name,
+            spaceName: currentSpaceName,
             systemId: system.id,
             systemName: system.name,
             role: comp.role,
@@ -755,7 +783,7 @@ export function expandToBOM(
             searchTerms: comp.searchTerms,
             cantitate: qty,
             unit: comp.unit,
-            selected: comp.defaultSelected,
+            selected: isPreferred ? comp.defaultSelected : false,
             isOptional: comp.isOptional,
           });
         }
