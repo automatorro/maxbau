@@ -751,10 +751,10 @@ const ImportOcr = () => {
       } catch (edgeErr) {
         console.warn("Funcția edge OCR a eșuat, încercăm fallback direct din browser...", edgeErr);
         
-        // 2. Fallback direct din browser (care are fallback-ul Gemini integrat)
+        // 2. Fallback direct din browser (Anthropic)
         const data = await extractTableFromImageWithAnthropic(base64, file.type || "image/jpeg", "price_list");
         loadAiResult(data.headers, data.rows, null, data.column_map);
-        toast.success(`${data.rows.length} rânduri extrase direct din browser (Gemini)`);
+        toast.success(`${data.rows.length} rânduri extrase direct din browser (Anthropic)`);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Eroare scanare imagine");
