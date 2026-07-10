@@ -99,6 +99,7 @@ REGULI IMPORTANTE:
    * Extrageți cantitățile exacte de beton în metri cubi (mc) și de oțel fasonat în kilograme (kg) sau tone (t) din aceste tabele.
    * Pentru oțel/armături, creați o înregistrare în structuralElements: type: "alt" (sau "planseu"/"grinda"), material: "otel BST500S" (sau PC52/OB37), unit: "kg" (sau "t"), cantitate: valoarea brută din tabel, locatie: "Extras armătură".
    * Pentru volume de beton, creați înregistrări în structuralElements: type: "planseu"/"grinda"/"fundatie"/"stalp", material: "beton C20/25" (sau clasa indicată), unit: "mc", cantitate: volumul de beton din tabel.
+   * **Rotire pagină:** Unele pagini pot fi orientate landscape dar salvate portrait (rotite la 90 de grade). AI-ul trebuie să citească și să interpreteze textele și cifrele din orice unghi/orientare.
 6. isWetRoom = true pentru: baie, grup sanitar, G.S., WC, bucătărie, spălătorie, filtru sanitar.
 7. Pentru clădiri industriale/hale, tipul pardoselii poate fi: beton sclivisit, pardoseală
    industrială epoxidică, etc.
