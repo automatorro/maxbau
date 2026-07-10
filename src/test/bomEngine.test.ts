@@ -91,4 +91,55 @@ describe("BOM Engine", () => {
     expect(uiItems[0]).toHaveProperty("cantitate");
     expect(uiItems[0]).toHaveProperty("unitate");
   });
+
+  it("should expand structural elements into correct concrete, formwork and steel reinforcement components", () => {
+    const structuralPlan: PlanData = {
+      planType: "structural",
+      spaces: [],
+      structuralElements: [
+        {
+          type: "planseu",
+          material: "beton C20/25",
+          cantitate: 45.5, // 45.5 mc
+          unit: "mc",
+          locatie: "Planșeu peste Parter",
+        },
+        {
+          type: "alt",
+          material: "otel BST500S",
+          cantitate: 3450, // 3450 kg
+          unit: "kg",
+          locatie: "Extras armătură",
+        },
+      ],
+    };
+
+    const bom = expandToBOM(structuralPlan);
+
+    // Beton structural components
+    const betonComponents = bom.filter(
+      (b) => b.spaceName === "Planșeu peste Parter" && b.systemId === "beton_structural"
+    );
+    expect(betonComponents.length).toBeGreaterThan(0);
+    const betonMaterial = betonComponents.find((c) => c.role === "beton");
+    expect(betonMaterial).toBeDefined();
+    expect(betonMaterial!.cantitate).toBe(45.5);
+    expect(betonMaterial!.unit).toBe("mc");
+
+    // Oțel armătură components
+    const otelComponents = bom.filter(
+      (b) => b.spaceName === "Extras armătură" && b.systemId === "armatura_otel"
+    );
+    expect(otelComponents.length).toBeGreaterThan(0);
+    const otelMaterial = otelComponents.find((c) => c.role === "otel_fasonat");
+    expect(otelMaterial).toBeDefined();
+    expect(otelMaterial!.cantitate).toBe(3450);
+    expect(otelMaterial!.unit).toBe("kg");
+
+    // Sârmă de legat: 3450 * 0.015 = 51.75 kg
+    const sarma = otelComponents.find((c) => c.role === "sarma_legat");
+    expect(sarma).toBeDefined();
+    expect(sarma!.cantitate).toBe(51.75);
+    expect(sarma!.unit).toBe("kg");
+  });
 });

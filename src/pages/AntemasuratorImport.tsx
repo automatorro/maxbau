@@ -488,7 +488,7 @@ export default function AntemasuratorImport() {
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tipul documentului detectat (auto sau forțat de utilizator)
-  const [docType, setDocType] = useState<"auto" | "floor_plan" | "bof">("auto");
+  const [docType, setDocType] = useState<"auto" | "floor_plan" | "structural" | "bof">("auto");
   // null = nu s-a detectat încă, true/false = rezultatul ultimei detecții
   const [detectedAsFloorPlan, setDetectedAsFloorPlan] = useState<boolean | null>(null);
 
@@ -606,6 +606,20 @@ export default function AntemasuratorImport() {
     toast.info(`Spațiul "${deletedSpaceName}" a fost șters.`);
   }, [planData]);
 
+  // Ștergere element structural din listă cu recalculare BOM
+  const handleDeleteStructuralElement = useCallback((idx: number) => {
+    if (!planData) return;
+    const deletedName = `${planData.structuralElements[idx]?.type} (${planData.structuralElements[idx]?.material ?? ""})`;
+    const newElements = planData.structuralElements.filter((_, i) => i !== idx);
+    const newPlanData = { ...planData, structuralElements: newElements };
+    setPlanData(newPlanData);
+
+    const newBom = expandToBOM(newPlanData);
+    setBomItems(newBom);
+
+    toast.info(`Elementul "${deletedName}" a fost șters.`);
+  }, [planData]);
+
   // ── Step 1 handlers ───────────────────────────────────────────────────────
 
   const applyItems = useCallback(
@@ -663,6 +677,7 @@ export default function AntemasuratorImport() {
 
           const treatAsFloorPlan =
             docType === "floor_plan" ||
+            docType === "structural" ||
             (docType === "auto" && autoIsFloorPlan);
 
           if (treatAsFloorPlan) {
@@ -1139,34 +1154,34 @@ export default function AntemasuratorImport() {
                       </div>
                     )}
                   </div>
-                  {/* Tip document detectat + toggle override */}
+                  {/* Tip document detectat + dropdown override */}
                   {detectedAsFloorPlan !== null && (
-                    <div className={`mt-2 flex items-center gap-2 rounded-md border p-2 text-sm ${
-                      detectedAsFloorPlan
-                        ? "bg-blue-50 border-blue-200 text-blue-800"
-                        : "bg-slate-50 border-slate-200 text-slate-700"
-                    }`}>
-                      <Info className="w-4 h-4 shrink-0" />
-                      <span className="flex-1">
-                        {detectedAsFloorPlan
-                          ? "Plan arhitectural detectat (camere + finisaje)"
-                          : "Antemasurătoare tabelară detectată"}
-                      </span>
-                      <button
-                        type="button"
-                        className="underline text-xs font-medium shrink-0"
-                        onClick={() => {
-                          const next = detectedAsFloorPlan ? "bof" : "floor_plan";
-                          setDocType(next);
-                          toast.info(next === "floor_plan"
-                            ? "Forțat: Plan arhitectural"
-                            : "Forțat: Antemasurătoare tabelară");
-                        }}
-                      >
-                        {detectedAsFloorPlan
-                          ? "Schimbă în Antemasurătoare"
-                          : "Schimbă în Plan arhitectural"}
-                      </button>
+                    <div className="mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-md border p-3 text-sm bg-slate-50 border-slate-200">
+                      <div className="flex items-center gap-2 text-slate-700">
+                        <Info className="w-4 h-4 shrink-0 text-blue-500" />
+                        <span>
+                          {detectedAsFloorPlan
+                            ? "Detecție automată: Plan Arhitectural"
+                            : "Detecție automată: Antemasurătoare tabelară"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Interpretează ca:</span>
+                        <select
+                          value={docType}
+                          onChange={(e) => {
+                            const val = e.target.value as "auto" | "floor_plan" | "structural" | "bof";
+                            setDocType(val);
+                            toast.info(`Tip interpretare setat pe: ${val === "auto" ? "Autodetecție" : val === "floor_plan" ? "Plan Finisaje" : val === "structural" ? "Plan Structură" : "Antemasurătoare"}`);
+                          }}
+                          className="text-xs bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary w-full sm:w-auto"
+                        >
+                          <option value="auto">Autodetecție automată</option>
+                          <option value="floor_plan">Plan Finisaje / Pardoseli</option>
+                          <option value="structural">Plan Rezistență & Structură</option>
+                          <option value="bof">Antemasurătoare tabelară (deviz)</option>
+                        </select>
+                      </div>
                     </div>
                   )}
 
@@ -1232,7 +1247,10 @@ export default function AntemasuratorImport() {
                         {planData.titlu ?? "Plan arhitectural detectat"}
                       </p>
                       <p className="text-sm text-blue-700">
-                        {planData.spaces.length} spații identificate &middot;&nbsp;
+                        {planData.spaces.length > 0 && `${planData.spaces.length} spații identificate`}
+                        {planData.spaces.length > 0 && planData.structuralElements && planData.structuralElements.length > 0 && " · "}
+                        {planData.structuralElements && planData.structuralElements.length > 0 && `${planData.structuralElements.length} elemente structurale`}
+                        &nbsp;&middot;&nbsp;
                         {planData.totalArieConstruita
                           ? `${planData.totalArieConstruita} mp total`
                           : planData.spaces.reduce((s, x) => s + x.areaSqm, 0).toFixed(1) + " mp total"}
@@ -1250,63 +1268,110 @@ export default function AntemasuratorImport() {
                   </div>
 
                   {/* Spații extrase */}
-                  <div>
-                    <h3 className="font-semibold mb-2 flex items-center gap-2">
-                      <Eye className="w-4 h-4" /> Spații detectate
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Spațiu</TableHead>
-                            <TableHead className="text-right">S (mp)</TableHead>
-                            <TableHead className="text-right">Perimetru (m)</TableHead>
-                            <TableHead>Pardoseală</TableHead>
-                            <TableHead>Pereți</TableHead>
-                            <TableHead>Tavan</TableHead>
-                            <TableHead className="w-[50px] text-center">Șterge</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {planData.spaces.map((sp, idx) => (
-                            <TableRow key={idx} className={sp.isWetRoom ? "bg-blue-50" : ""}>
-                              <TableCell className="font-medium">
-                                {sp.name}
-                                {sp.isWetRoom && (
-                                  <Badge variant="outline" className="ml-2 text-xs text-blue-600 border-blue-300">
-                                    zonă umedă
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell className="text-right">{sp.areaSqm}</TableCell>
-                              <TableCell className="text-right">
-                                {sp.perimeterM ? sp.perimeterM.toFixed(1) : 
-                                  <span className="text-amber-500 text-xs">estimat</span>}
-                              </TableCell>
-                              <TableCell className="text-sm">{sp.pardoseala ?? "—"}</TableCell>
-                              <TableCell className="text-sm">
-                                {sp.pereti?.finisaj
-                                  ? `${sp.pereti.finisaj}${sp.pereti.hFinisaj ? ` h=${sp.pereti.hFinisaj}m` : ""}`
-                                  : "—"}
-                              </TableCell>
-                              <TableCell className="text-sm">{sp.tavan ?? "—"}</TableCell>
-                              <TableCell className="text-center">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDeleteSpace(idx)}
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  title="Șterge acest spațiu"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </TableCell>
+                  {planData.spaces && planData.spaces.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-2 flex items-center gap-2">
+                        <Eye className="w-4 h-4" /> Spații detectate
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Spațiu</TableHead>
+                              <TableHead className="text-right">S (mp)</TableHead>
+                              <TableHead className="text-right">Perimetru (m)</TableHead>
+                              <TableHead>Pardoseală</TableHead>
+                              <TableHead>Pereți</TableHead>
+                              <TableHead>Tavan</TableHead>
+                              <TableHead className="w-[50px] text-center">Șterge</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                          </TableHeader>
+                          <TableBody>
+                            {planData.spaces.map((sp, idx) => (
+                              <TableRow key={idx} className={sp.isWetRoom ? "bg-blue-50" : ""}>
+                                <TableCell className="font-medium">
+                                  {sp.name}
+                                  {sp.isWetRoom && (
+                                    <Badge variant="outline" className="ml-2 text-xs text-blue-600 border-blue-300">
+                                      zonă umedă
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">{sp.areaSqm}</TableCell>
+                                <TableCell className="text-right">
+                                  {sp.perimeterM ? sp.perimeterM.toFixed(1) : 
+                                    <span className="text-amber-500 text-xs">estimat</span>}
+                                </TableCell>
+                                <TableCell className="text-sm">{sp.pardoseala ?? "—"}</TableCell>
+                                <TableCell className="text-sm">
+                                  {sp.pereti?.finisaj
+                                    ? `${sp.pereti.finisaj}${sp.pereti.hFinisaj ? ` h=${sp.pereti.hFinisaj}m` : ""}`
+                                    : "—"}
+                                </TableCell>
+                                <TableCell className="text-sm">{sp.tavan ?? "—"}</TableCell>
+                                <TableCell className="text-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteSpace(idx)}
+                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                    title="Șterge acest spațiu"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Elemente Structurale extrase */}
+                  {planData.structuralElements && planData.structuralElements.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="font-semibold mb-2 flex items-center gap-2">
+                        <Package className="w-4 h-4" /> Elemente structurale detectate
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Element</TableHead>
+                              <TableHead>Material</TableHead>
+                              <TableHead className="text-right">Cantitate</TableHead>
+                              <TableHead>Locație</TableHead>
+                              <TableHead className="w-[50px] text-center">Șterge</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {planData.structuralElements.map((el, idx) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-medium capitalize">{el.type}</TableCell>
+                                <TableCell className="text-sm">{el.material ?? "—"}</TableCell>
+                                <TableCell className="text-right font-mono font-medium">
+                                  {el.cantitate} {el.unit}
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{el.locatie ?? "—"}</TableCell>
+                                <TableCell className="text-center">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteStructuralElement(idx)}
+                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                    title="Șterge acest element"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Sisteme de materiale */}
                   <div>

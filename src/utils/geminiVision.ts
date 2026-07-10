@@ -92,12 +92,17 @@ REGULI IMPORTANTE:
 2. Perimetrul se calculează din liniile de cotă (dimensiunile înscrise pe plan). Dacă spațiul
    are dimensiunile 3.50m x 4.20m, perimetrul = 2*(3.50+4.20) = 15.40m.
 3. Dacă nu găsești o valoare, pune null (nu omite câmpul).
-4. Dacă planul nu are finisaje specificate (ex: plan structural), returnează spaces[] gol
+4. Dacă planul nu are finisaje specificate (ex: plan structural/armare), returnează spaces[] gol
    și completează structuralElements[].
-5. isWetRoom = true pentru: baie, grup sanitar, G.S., WC, bucătărie, spălătorie, filtru sanitar.
-6. Pentru clădiri industriale/hale, tipul pardoselii poate fi: beton sclivisit, pardoseală
+5. **PLANURI STRUCTURALE (Armări placă, Centuri/Grinzi, Fundații):**
+   * Căutați cu atenție tabelele rectangulare intitulate "Extras de armătură", "Tabel materiale/oțel", "Tabel beton/volume" desenate pe plan.
+   * Extrageți cantitățile exacte de beton în metri cubi (mc) și de oțel fasonat în kilograme (kg) sau tone (t) din aceste tabele.
+   * Pentru oțel/armături, creați o înregistrare în structuralElements: type: "alt" (sau "planseu"/"grinda"), material: "otel BST500S" (sau PC52/OB37), unit: "kg" (sau "t"), cantitate: valoarea brută din tabel, locatie: "Extras armătură".
+   * Pentru volume de beton, creați înregistrări în structuralElements: type: "planseu"/"grinda"/"fundatie"/"stalp", material: "beton C20/25" (sau clasa indicată), unit: "mc", cantitate: volumul de beton din tabel.
+6. isWetRoom = true pentru: baie, grup sanitar, G.S., WC, bucătărie, spălătorie, filtru sanitar.
+7. Pentru clădiri industriale/hale, tipul pardoselii poate fi: beton sclivisit, pardoseală
    industrială epoxidică, etc.
-7. Returnează NUMAI JSON valid. Fără \`\`\`json sau alte prefixe.`;
+8. Returnează NUMAI JSON valid. Fără \`\`\`json sau alte prefixe.`;
 
 /**
  * Helper pentru conversia rapidă a ArrayBuffer în Base64 în mod securizat (fără call stack overflow).

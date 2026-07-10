@@ -635,6 +635,120 @@ export const MATERIAL_SYSTEMS: MaterialSystem[] = [
       },
     ],
   },
+
+  // ══════════════════════════════════════════════════════
+  // STRUCTURĂ & REZISTENȚĂ (FAZA 2)
+  // ══════════════════════════════════════════════════════
+
+  {
+    id: "beton_structural",
+    name: "Beton structural preparat",
+    triggers: ["beton", "beton structural", "beton c20/25", "beton c25/30", "c20/25", "c25/30", "turnare beton"],
+    planTypes: ["structural", "mixt"],
+    components: [
+      {
+        role: "beton", label: "Beton preparat (clasa C20/25 sau superioară)",
+        searchTerms: ["beton preparat C20 25 C25 30 statie"],
+        quantityFormula: ctx => round2(ctx.S), // cantitatea brută în mc din extrasul de beton sau volum estimat
+        unit: "mc", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "pompare", label: "Serviciu pompare beton (stație/autopompă)",
+        searchTerms: ["serviciu pompare beton autopompa"],
+        quantityFormula: ctx => round2(ctx.S),
+        unit: "mc", isOptional: true, defaultSelected: true,
+      },
+    ],
+  },
+
+  {
+    id: "armatura_otel",
+    name: "Oțel beton fasonat & accesorii (BST500S / PC52)",
+    triggers: ["otel", "oțel", "armatura", "armătură", "extras armatura", "bst500", "pc52", "ob37"],
+    planTypes: ["structural", "mixt"],
+    components: [
+      {
+        role: "otel_fasonat", label: "Oțel beton fasonat BST500S / PC52",
+        searchTerms: ["otel beton fasonat BST500S fasonare fier"],
+        quantityFormula: ctx => round2(ctx.S), // cantitatea brută în kg din extrasul de armătură
+        unit: "kg", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "sarma_legat", label: "Sârmă neagră de legat armături",
+        searchTerms: ["sarma neagra legat fier 1.2mm 1.5mm"],
+        quantityFormula: ctx => round2(ctx.S * 0.015), // 1.5% din masa oțelului
+        unit: "kg", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "distantieri", label: "Distanțieri plastic pentru oțel beton",
+        searchTerms: ["distantieri plastic armatura placa sticla"],
+        quantityFormula: ctx => Math.ceil(ctx.S * 0.05), // ~50 buc per tonă/1000kg
+        unit: "buc", isOptional: true, defaultSelected: true,
+      },
+    ],
+  },
+
+  {
+    id: "plasa_sudabila_placa",
+    name: "Plase sudabile armare placă",
+    triggers: ["plasa sudabila", "plasă sudabilă", "plasa ø6", "plasa ø8", "plasa sarma"],
+    planTypes: ["structural", "mixt"],
+    components: [
+      {
+        role: "plasa", label: "Plasă sudabilă armare (în funcție de diametru)",
+        searchTerms: ["plasa sudabila Q4 Q5 Q6 Q8 panou"],
+        quantityFormula: ctx => round2(ctx.S * 1.10), // 10% suprapunere
+        unit: "mp", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "distantieri_plasa", label: "Distanțieri tip șină/capră plastic pentru plase",
+        searchTerms: ["distantier sina plastic plasa sudabila capra"],
+        quantityFormula: ctx => Math.ceil(ctx.S * 0.5), // 0.5 buc per mp
+        unit: "buc", isOptional: true, defaultSelected: true,
+      },
+    ],
+  },
+
+  {
+    id: "cofraje_planseu_grinzi",
+    name: "Sistem de cofrare (Planșee, Grinzi, Centuri)",
+    triggers: ["cofraj", "cofrare", "tego", "doka", "placaj tego", "panou doka"],
+    planTypes: ["structural", "mixt"],
+    components: [
+      {
+        role: "placaj_tego", label: "Placaj Tego / Panou de cofraj tip Doka",
+        searchTerms: ["placaj tego cofraj 18mm 21mm panou doka"],
+        quantityFormula: ctx => round2(ctx.S * 1.05), // suprafața de cofrare în mp + 5% pierderi
+        unit: "mp", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "decofrol", label: "Decofrol emulsionat pentru cofraje",
+        searchTerms: ["decofrol emulsionat ulei decofrant"],
+        quantityFormula: ctx => round2(ctx.S * 0.2), // 0.2 litri per mp
+        unit: "L", isOptional: false, defaultSelected: true,
+      },
+      {
+        role: "popi_metalici", label: "Pop metalic telescopic (susținere planșeu)",
+        searchTerms: ["pop metalic telescopic reglabila sustinere"],
+        quantityFormula: ctx => Math.ceil(ctx.S * 1.0), // 1 pop per mp de placă cofrată
+        unit: "buc", isOptional: true, defaultSelected: true,
+        condition: ctx => ctx.spaceName.toLowerCase().includes("placa") || ctx.spaceName.toLowerCase().includes("planseu") || ctx.spaceName.toLowerCase().includes("planşeu"),
+      },
+      {
+        role: "grinzi_h20", label: "Grinzi din lemn tip H20",
+        searchTerms: ["grinzi lemn H20 doka popi"],
+        quantityFormula: ctx => round2(ctx.S * 3.0), // ~3 ml per mp de placă
+        unit: "ml", isOptional: true, defaultSelected: true,
+        condition: ctx => ctx.spaceName.toLowerCase().includes("placa") || ctx.spaceName.toLowerCase().includes("planseu") || ctx.spaceName.toLowerCase().includes("planşeu"),
+      },
+      {
+        role: "montanti_cleme", label: "Montanți metalici 50cm / Cleme și arcuri",
+        searchTerms: ["montanti metalici elicoidali cofraj pana clema"],
+        quantityFormula: ctx => Math.ceil(ctx.S * 2.0),
+        unit: "buc", isOptional: true, defaultSelected: true,
+      },
+    ],
+  },
 ];
 
 // ── Utilități ─────────────────────────────────────────────────────────────────
