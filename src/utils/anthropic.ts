@@ -242,25 +242,8 @@ Reguli stricte:
 
     return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
   } catch (error) {
-    console.warn("Vision Anthropic call failed, trying Gemini fallback...", error);
-    try {
-      const extracted = await callGeminiTool(
-        systemPrompt,
-        "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date.",
-        toolSchema,
-        { mimeType, base64: imageBase64 }
-      );
-      const colCount = (extracted.headers || []).length;
-      const normalizedRows = (extracted.rows || []).map((row: string[]) => {
-        const padded = [...row];
-        while (padded.length < colCount) padded.push("");
-        return padded.slice(0, colCount);
-      });
-      return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
-    } catch (geminiError: any) {
-      console.error("Gemini Vision fallback also failed:", geminiError);
-      throw new Error(`Eroare extragere imagine (Vision). Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
-    }
+    console.error("Vision Anthropic call failed:", error);
+    throw new Error(`Eroare extragere imagine (Vision). Anthropic: ${error instanceof Error ? error.message : error}`);
   }
 }
 
