@@ -1154,36 +1154,39 @@ export default function AntemasuratorImport() {
                       </div>
                     )}
                   </div>
-                  {/* Tip document detectat + dropdown override */}
-                  {detectedAsFloorPlan !== null && (
-                    <div className="mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-md border p-3 text-sm bg-slate-50 border-slate-200">
-                      <div className="flex items-center gap-2 text-slate-700">
-                        <Info className="w-4 h-4 shrink-0 text-blue-500" />
-                        <span>
-                          {detectedAsFloorPlan
+
+                  {/* Tip document + dropdown de selecție */}
+                  <div className="mt-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-md border p-3 text-sm bg-slate-50 border-slate-200">
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <Info className="w-4 h-4 shrink-0 text-blue-500" />
+                      <span>
+                        {detectedAsFloorPlan !== null ? (
+                          detectedAsFloorPlan
                             ? "Detecție automată: Plan Arhitectural"
-                            : "Detecție automată: Antemasurătoare tabelară"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                        <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Interpretează ca:</span>
-                        <select
-                          value={docType}
-                          onChange={(e) => {
-                            const val = e.target.value as "auto" | "floor_plan" | "structural" | "bof";
-                            setDocType(val);
-                            toast.info(`Tip interpretare setat pe: ${val === "auto" ? "Autodetecție" : val === "floor_plan" ? "Plan Finisaje" : val === "structural" ? "Plan Structură" : "Antemasurătoare"}`);
-                          }}
-                          className="text-xs bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary w-full sm:w-auto"
-                        >
-                          <option value="auto">Autodetecție automată</option>
-                          <option value="floor_plan">Plan Finisaje / Pardoseli</option>
-                          <option value="structural">Plan Rezistență & Structură</option>
-                          <option value="bof">Antemasurătoare tabelară (deviz)</option>
-                        </select>
-                      </div>
+                            : "Detecție automată: Antemasurătoare tabelară"
+                        ) : (
+                          "Selectează manual tipul de plan înainte sau după încărcare"
+                        )}
+                      </span>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Interpretează ca:</span>
+                      <select
+                        value={docType}
+                        onChange={(e) => {
+                          const val = e.target.value as "auto" | "floor_plan" | "structural" | "bof";
+                          setDocType(val);
+                          toast.info(`Tip interpretare setat pe: ${val === "auto" ? "Autodetecție" : val === "floor_plan" ? "Plan Finisaje" : val === "structural" ? "Plan Structură" : "Antemasurătoare"}`);
+                        }}
+                        className="text-xs bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary w-full sm:w-auto"
+                      >
+                        <option value="auto">Autodetecție automată</option>
+                        <option value="floor_plan">Plan Finisaje / Pardoseli</option>
+                        <option value="structural">Plan Rezistență & Structură</option>
+                        <option value="bof">Antemasurătoare tabelară (deviz)</option>
+                      </select>
+                    </div>
+                  </div>
 
                   <input
                     ref={fileInputRef}
