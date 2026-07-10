@@ -19,7 +19,6 @@ import {
   roomBlocksToExtractedItems,
   type FloorPlanItem,
 } from "@/utils/floorPlanParser";
-import { extractPlanWithGeminiVision } from "@/utils/geminiVision";
 import {
   MATERIAL_SYSTEMS,
   expandToBOM,
@@ -681,7 +680,7 @@ export default function AntemasuratorImport() {
             (docType === "auto" && autoIsFloorPlan);
 
           if (treatAsFloorPlan) {
-            // ── FLUX HIBRID: PARSER LOCAL ➔ GEMINI VISION FALLBACK ──────
+            // ── FLUX HIBRID: PARSER LOCAL ➔ ANTHROPIC AI FALLBACK ──────
             setProgressMsg("Inițializare Parser Local...");
             const roomBlocks = detectRoomBlocks(textItems);
 
@@ -692,12 +691,43 @@ export default function AntemasuratorImport() {
               setProgressMsg("Procesare locală a planului...");
               extracted = roomBlocksToPlanData(roomBlocks);
             } else {
-              // Plan complex/scanat -> fallback pe Gemini Vision AI
-              setProgressMsg("Inițializare Gemini Vision...");
-              extracted = await extractPlanWithGeminiVision(
-                buf.slice(0),
-                (msg) => setProgressMsg(msg)
-              );
+              // Plan complex/scanat -> fallback pe Anthropic AI
+              setProgressMsg("Inițializare Analiză AI (Anthropic)...");
+              const flatText = textItems.map((i) => i.str).join("\n");
+              const aiResult = await extractFloorPlanFromTextWithAnthropic(flatText);
+
+              const spaces = (aiResult.camere ?? []).map((cam) => {
+                const nameLower = cam.camera.toLowerCase();
+                const isWetRoom =
+                  nameLower.includes("baie") ||
+                  nameLower.includes("g.s.") ||
+                  nameLower.includes("wc") ||
+                  nameLower.includes("toilet") ||
+                  nameLower.includes("bucatarie") ||
+                  nameLower.includes("spalatorie");
+
+                return {
+                  name: cam.camera,
+                  areaSqm: cam.suprafata_mp ?? 0,
+                  isWetRoom,
+                  pardoseala: cam.pardoseala ?? undefined,
+                  tavan: cam.tavan ?? undefined,
+                  pereti: cam.finisaj_perete
+                    ? {
+                        finisaj: cam.finisaj_perete,
+                        hFinisaj: cam.h_finisaj ?? cam.inaltime_camera ?? undefined,
+                      }
+                    : undefined,
+                  heightM: cam.inaltime_camera ?? undefined,
+                  specialNotes: cam.note ? [cam.note] : [],
+                };
+              });
+
+              extracted = {
+                planType: "finisaje_rezidential",
+                spaces,
+                structuralElements: [],
+              };
             }
 
             setPlanData(extracted);
@@ -729,7 +759,7 @@ export default function AntemasuratorImport() {
           }
 
         } else {
-          // Imagine → Gemini vision (nemodificat)
+          // Imagine → Anthropic vision (restaurat)
           const buf = await file.arrayBuffer();
           const bytes = new Uint8Array(buf);
           let binary = "";
@@ -1138,7 +1168,7 @@ export default function AntemasuratorImport() {
                         <p>{progressMsg || "Procesare document..."}</p>
                         {progressMsg && (
                           <p className="text-xs text-blue-600 font-medium">
-                            Gemini Vision analizează planul arhitectural…
+                            AI-ul analizează planul arhitectural…
                           </p>
                         )}
                       </div>

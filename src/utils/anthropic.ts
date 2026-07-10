@@ -114,8 +114,37 @@ async function callAnthropicTool(
   toolSchema: any,
   toolName: string
 ): Promise<any> {
-  // Bypassed Anthropic, calling Gemini directly
-  return await callGeminiTool(systemPrompt, userPrompt, toolSchema);
+  try {
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: toolName }
+    });
+
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status})`);
+    }
+
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === toolName);
+
+    if (!toolCall?.input) {
+      throw new Error("Modelul nu a returnat date structurate valabile.");
+    }
+
+    return toolCall.input;
+  } catch (error) {
+    console.warn("Anthropic call failed or key missing, trying Gemini fallback...", error);
+    try {
+      return await callGeminiTool(systemPrompt, userPrompt, toolSchema);
+    } catch (geminiError: any) {
+      console.error("Gemini fallback also failed:", geminiError);
+      throw new Error(`Apelul AI a eșuat. Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
+  }
 }
 
 // ── Vision Table Extractor (replacing ocr-whatsapp) ─────────────────────────
@@ -175,22 +204,63 @@ Reguli stricte:
   };
 
   try {
-    const extracted = await callGeminiTool(
-      systemPrompt,
-      "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date.",
-      toolSchema,
-      { mimeType, base64: imageBase64 }
-    );
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mimeType, data: imageBase64 }
+            },
+            { type: "text", text: "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date." }
+          ]
+        }
+      ],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
+    });
+
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
+    }
+
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+    if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din imagine.");
+    
+    const extracted = toolCall.input;
     const colCount = (extracted.headers || []).length;
     const normalizedRows = (extracted.rows || []).map((row: string[]) => {
       const padded = [...row];
       while (padded.length < colCount) padded.push("");
       return padded.slice(0, colCount);
     });
+
     return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
   } catch (error) {
-    console.error("Gemini Vision extraction failed:", error);
-    throw error;
+    console.warn("Vision Anthropic call failed, trying Gemini fallback...", error);
+    try {
+      const extracted = await callGeminiTool(
+        systemPrompt,
+        "Extrage tabelul complet din această imagine. Include rândul de antet și toate rândurile de date.",
+        toolSchema,
+        { mimeType, base64: imageBase64 }
+      );
+      const colCount = (extracted.headers || []).length;
+      const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+      return { headers: extracted.headers, rows: normalizedRows, column_map: extracted.column_map };
+    } catch (geminiError: any) {
+      console.error("Gemini Vision fallback also failed:", geminiError);
+      throw new Error(`Eroare extragere imagine (Vision). Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
   }
 }
 
@@ -230,21 +300,50 @@ Reguli stricte:
   };
 
   try {
-    const extracted = await callGeminiTool(
-      systemPrompt,
-      `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}`,
-      toolSchema
-    );
+    const { ok, status, data } = await callAiProxy("anthropic", {
+      model: "claude-3-5-sonnet-20241022",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
+      tools: [toolSchema],
+      tool_choice: { type: "tool", name: "extract_price_table" }
+    });
+
+    if (!ok) {
+      console.error("Anthropic API Error:", status, data);
+      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
+    }
+    const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
+    if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
+    
+    const extracted = toolCall.input;
     const colCount = (extracted.headers || []).length;
     const normalizedRows = (extracted.rows || []).map((row: string[]) => {
       const padded = [...row];
       while (padded.length < colCount) padded.push("");
       return padded.slice(0, colCount);
     });
+
     return { headers: extracted.headers, rows: normalizedRows };
   } catch (error) {
-    console.error("Gemini text extraction failed:", error);
-    throw error;
+    console.warn("Text extraction Anthropic call failed, trying Gemini fallback...", error);
+    try {
+      const extracted = await callGeminiTool(
+        systemPrompt,
+        `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}`,
+        toolSchema
+      );
+      const colCount = (extracted.headers || []).length;
+      const normalizedRows = (extracted.rows || []).map((row: string[]) => {
+        const padded = [...row];
+        while (padded.length < colCount) padded.push("");
+        return padded.slice(0, colCount);
+      });
+      return { headers: extracted.headers, rows: normalizedRows };
+    } catch (geminiError: any) {
+      console.error("Gemini text extraction fallback also failed:", geminiError);
+      throw new Error(`Eroare extragere text. Anthropic: ${error instanceof Error ? error.message : error}. Gemini: ${geminiError?.message || geminiError}`);
+    }
   }
 }
 
