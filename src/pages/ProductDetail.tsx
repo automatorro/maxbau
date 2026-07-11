@@ -637,11 +637,11 @@ const QuickQuoteTab = ({ product }: { product: ProductFull }) => {
 
       <div className="flex flex-wrap gap-3">
         <Button
-          onClick={() => navigate(`/quote/smart?add=${product.cod_intern}`)}
+          onClick={() => navigate(`/quote/new?add=${product.cod_intern}`)}
           className="gap-2"
         >
           <ShoppingCart className="h-4 w-4" />
-          Adaugă în Ofertă din cerere
+          Adaugă în Ofertă
         </Button>
         <Button variant="outline" asChild className="gap-2">
           <Link to="/recipe-quote">

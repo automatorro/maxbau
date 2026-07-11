@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams, Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -168,9 +168,11 @@ type ProductForQuote = {
 const NewQuote = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { id: editId } = useParams<{ id: string }>();
   const isEdit = Boolean(editId);
+  const addCode = searchParams.get("add");
 
   const [clientName, setClientName] = useState("");
   const [clientPhone, setClientPhone] = useState("");
@@ -203,6 +205,33 @@ const NewQuote = () => {
   useEffect(() => {
     setEquivalentResults(null);
   }, [cerereText]);
+
+  // Load initial product from query param ?add=CODE
+  useEffect(() => {
+    if (addCode && loaded) {
+      const fetchAndAdd = async () => {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
+          .eq("cod_intern", addCode)
+          .single();
+        if (data && !error) {
+          addProducts([{
+            id: data.id,
+            cod_intern: data.cod_intern,
+            denumire_completa: data.denumire_completa,
+            pret_lista: Number(data.pret_lista),
+            unit: data.unit,
+            category_id: data.category_id,
+          }]);
+          toast.success(`Produsul ${data.denumire_completa} a fost adăugat în ofertă.`);
+          // clear the search param
+          navigate(window.location.pathname, { replace: true });
+        }
+      };
+      fetchAndAdd();
+    }
+  }, [addCode, loaded, addProducts, navigate]);
 
   // States for Proposal 1: Save as Recipe
   const [saveAsRecipeOpen, setSaveAsRecipeOpen] = useState(false);
