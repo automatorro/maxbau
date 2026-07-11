@@ -18,7 +18,6 @@ import AdminDiscounts from "./pages/AdminDiscounts";
 
 import ImportOcr from "./pages/ImportOcr";
 import RecipeQuote from "./pages/RecipeQuote";
-import SmartQuote from "./pages/SmartQuote";
 
 import Consultant from "./pages/Consultant";
 import AntemasuratorImport from "./pages/AntemasuratorImport";
@@ -43,7 +42,7 @@ const App = () => (
             <Route path="/quote/new" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/quote/:id/edit" element={<ProtectedRoute><NewQuote /></ProtectedRoute>} />
             <Route path="/recipe-quote" element={<ProtectedRoute><RecipeQuote /></ProtectedRoute>} />
-            <Route path="/quote/smart" element={<ProtectedRoute><SmartQuote /></ProtectedRoute>} />
+            <Route path="/quote/smart" element={<Navigate to="/quote/new" replace />} />
             <Route path="/wool-configurator" element={<ProtectedRoute><RecipeQuote /></ProtectedRoute>} />
             <Route path="/quotes" element={<ProtectedRoute><MyQuotes /></ProtectedRoute>} />
             <Route path="/quote" element={<Navigate to="/quotes" replace />} />

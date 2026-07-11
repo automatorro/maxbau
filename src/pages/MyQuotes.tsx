@@ -141,10 +141,6 @@ const MyQuotes = () => {
             <p className="text-sm text-muted-foreground">Istoric oferte generate</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate("/quote/smart")} className="gap-1">
-              <FileText className="h-4 w-4" />
-              <span className="hidden sm:inline">Ofertă din cerere client</span>
-            </Button>
             <Button size="sm" onClick={() => navigate("/quote/new")} className="gap-1">
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Ofertă nouă</span>
