@@ -973,3 +973,43 @@ Dacă nu poți aproxima, folosește valori standard de piață rezonabile.`;
   return null;
 }
 
+export async function parseClientRequestWithAI(rawText: string): Promise<{ material: string; quantity: string }[]> {
+  if (rawText.trim().length < 3) throw new Error("Textul cererii este prea scurt.");
+
+  const parserSchema = {
+    name: "parse_quote_request",
+    description: "Analizează cererea brută a unui client de materiale și extrage materialele și cantitățile solicitate.",
+    input_schema: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              material: { 
+                type: "string", 
+                description: "Numele simplificat în limba română al materialului solicitat (ex: vata minerala, adeziv glet, dibluri, plasa)" 
+              },
+              quantity: { 
+                type: "string", 
+                description: "Cantitatea solicitată cu tot cu unitate (ex: 400 mp, 15 saci, 10 bucati, auto)" 
+              }
+            },
+            required: ["material", "quantity"]
+          }
+        }
+      },
+      required: ["items"]
+    }
+  };
+
+  const response = await callGeminiTool(
+    "Ești un asistent AI expert în materiale de construcții din România. Rolul tău este să analizezi un mesaj brut trimis de un client (e-mail, WhatsApp sau notă de pe șantier) și să extragi o listă curată de materiale de construcție și cantitățile menționate. Dacă pentru un material nu se specifică o cantitate clară, folosește valoarea 'auto'.",
+    `Cererea brută a clientului:\n"""\n${rawText}\n"""\n\nExtrage materialele solicitate sub formă de listă JSON.`,
+    parserSchema
+  );
+
+  return response.items || [];
+}
+
