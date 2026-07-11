@@ -206,32 +206,7 @@ const NewQuote = () => {
     setEquivalentResults(null);
   }, [cerereText]);
 
-  // Load initial product from query param ?add=CODE
-  useEffect(() => {
-    if (addCode && loaded) {
-      const fetchAndAdd = async () => {
-        const { data, error } = await supabase
-          .from("products")
-          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
-          .eq("cod_intern", addCode)
-          .single();
-        if (data && !error) {
-          addProducts([{
-            id: data.id,
-            cod_intern: data.cod_intern,
-            denumire_completa: data.denumire_completa,
-            pret_lista: Number(data.pret_lista),
-            unit: data.unit,
-            category_id: data.category_id,
-          }]);
-          toast.success(`Produsul ${data.denumire_completa} a fost adăugat în ofertă.`);
-          // clear the search param
-          navigate(window.location.pathname, { replace: true });
-        }
-      };
-      fetchAndAdd();
-    }
-  }, [addCode, loaded, addProducts, navigate]);
+
 
   // States for Proposal 1: Save as Recipe
   const [saveAsRecipeOpen, setSaveAsRecipeOpen] = useState(false);
@@ -563,6 +538,33 @@ const NewQuote = () => {
     },
     [activeVariant, findBestDiscount]
   );
+
+  // Load initial product from query param ?add=CODE
+  useEffect(() => {
+    if (addCode && loaded) {
+      const fetchAndAdd = async () => {
+        const { data, error } = await supabase
+          .from("products")
+          .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id")
+          .eq("cod_intern", addCode)
+          .single();
+        if (data && !error) {
+          addProducts([{
+            id: data.id,
+            cod_intern: data.cod_intern,
+            denumire_completa: data.denumire_completa,
+            pret_lista: Number(data.pret_lista),
+            unit: data.unit,
+            category_id: data.category_id,
+          }]);
+          toast.success(`Produsul ${data.denumire_completa} a fost adăugat în ofertă.`);
+          // clear the search param
+          navigate(window.location.pathname, { replace: true });
+        }
+      };
+      fetchAndAdd();
+    }
+  }, [addCode, loaded, addProducts, navigate]);
 
   const removeItem = (tempId: string) => {
     setItems((prev) => prev.filter((i) => i.tempId !== tempId));
