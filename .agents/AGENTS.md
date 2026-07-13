@@ -157,6 +157,7 @@ npm run test
 - **Fix căutare diacritice** în Catalog și AdminProducts: creat `src/utils/searchUtils.ts`
   cu funcția `buildSearchOrConditions()` — generează variante cu/fără diacritice românești
   (ex: "vata bazaltica" găsește acum "Vată bazaltică" în DB)
+- **Fix căutare dimensiuni (litera x/spații)**: rezolvat problema prin care produse ca "Teava rectangulara 60 x 40 x 2" nu erau găsite la căutarea "60x40" sau "60x40x2" din cauza spațiilor din denumire. S-a adăugat generare automată de variante cu spații în `src/utils/searchUtils.ts` (`spacedX`) și normalizare în `src/lib/matchingEngine.ts`.
 - **Fix filtrul "Doar cu fișă tehnică"** în Catalog: verifică `fisa_tehnica_url IS NOT NULL`
   în loc de `fisa_tehnica_processed = true` (care era mereu false)
 - **Fix categorii false în DB** (sesiunea 2026-07-07):

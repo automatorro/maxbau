@@ -20,6 +20,12 @@ export function getRomanianSearchVariants(raw: string): string[] {
     .replace(/[țţ]/g, "t");
   variants.add(stripped);
 
+  // 1.1. Adăugăm varianta cu spații în jurul 'x'-ului din dimensiuni (e.g. "60x40x2" -> "60 x 40 x 2")
+  const spacedX = stripped.replace(/(?<=\d)x(?=\d)/gi, " x ");
+  if (spacedX !== stripped) {
+    variants.add(spacedX);
+  }
+
   // 2. Versiune cu diacritice generate din forma fără — sufixe românești comune
   const withDiacritics = stripped
     .replace(/atie$/, "ație")

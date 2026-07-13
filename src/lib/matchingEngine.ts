@@ -52,6 +52,7 @@ export interface MatchResult {
 function normalize(text: string): string {
   return text
     .toLowerCase()
+    .replace(/(?<=\d)x(?=\d)/gi, " x ")
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
