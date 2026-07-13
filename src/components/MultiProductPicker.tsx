@@ -80,7 +80,7 @@ export function MultiProductPicker({
 
       if (searchType === "semantic") {
         const { data, error } = await supabase.functions.invoke("semantic-search", {
-          body: { query: search, limit: 30, threshold: 0.35 }
+          body: { query: search, limit: 30, threshold: 0.50 }
         });
         if (error) throw error;
         
@@ -111,24 +111,14 @@ export function MultiProductPicker({
         const phraseVariants = [...new Set([norm, norm.replace(/\s+/g, "-"), norm.replace(/[\s-]+/g, "")])]
           .filter((p) => p.length >= 2);
 
-        // Use OR logic (same as SmartQuote inline search) to ensure consistent counts.
-        const tokenParts = wordTokens.map(
-          (t) =>
-            `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`
-        );
-        const phraseParts = phraseVariants.map(
-          (p) =>
-            `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`
-        );
-        const orFilter = [...tokenParts, ...phraseParts].join(",");
-
         let query = supabase
           .from("products")
           .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, categories(name), specifications")
           .limit(100);
 
-        if (orFilter) {
-          query = query.or(orFilter);
+        for (const t of allTokens) {
+          const token = t.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
         }
 
         const { data, error } = await query;

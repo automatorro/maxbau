@@ -203,13 +203,11 @@ async function main() {
   if (TEST_LIMIT) console.log(`🔬  TEST: primele ${TEST_LIMIT} produse`);
   console.log('');
 
-  // Fetch produse cu specs extrase
+  // Fetch toate produsele active
   let query = supabase
     .from('products')
     .select('id, cod_intern, denumire_completa, brand, description, specifications')
     .eq('is_active', true)
-    .eq('fisa_tehnica_processed', true)
-    .not('specifications->fisa_tehnica_specs', 'is', null)
     .order('updated_at', { ascending: false });
 
   if (TEST_LIMIT) query = query.limit(TEST_LIMIT);
@@ -222,8 +220,7 @@ async function main() {
   }
 
   if (!products?.length) {
-    console.log('ℹ️   Nu există produse cu specs extrase.');
-    console.log('    Rulează mai întâi: node scraper/extract_specs_from_pdfs.mjs');
+    console.log('ℹ️   Nu există produse active în baza de date.');
     return;
   }
 

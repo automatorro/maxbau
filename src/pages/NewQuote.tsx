@@ -373,7 +373,7 @@ const NewQuote = () => {
 
       if (inlineSearchType === "semantic") {
         const { data, error } = await supabase.functions.invoke("semantic-search", {
-          body: { query: debouncedInlineSearch, limit: 10, threshold: 0.35 }
+          body: { query: debouncedInlineSearch, limit: 10, threshold: 0.50 }
         });
         if (error) throw error;
         return (data.results || []).map((r: any) => ({
@@ -387,15 +387,18 @@ const NewQuote = () => {
           category_id: r.category_id || null,
         }));
       } else {
-        if (inlineTokens.length === 0 && inlinePhraseVariants.length === 0) return [];
-        const tokenParts = inlineTokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`);
-        const phraseParts = inlinePhraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`);
-        const orFilter = [...tokenParts, ...phraseParts].join(",");
-        const { data, error } = await supabase
+        if (inlineTokens.length === 0) return [];
+        let query = supabase
           .from("products")
           .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, specifications")
-          .or(orFilter)
           .limit(40);
+
+        for (const t of inlineTokens) {
+          const token = t.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        }
+
+        const { data, error } = await query;
         if (error) return [];
 
         return (data ?? [])
@@ -719,7 +722,7 @@ const NewQuote = () => {
 
       if (searchType === "semantic") {
         const { data, error } = await supabase.functions.invoke("semantic-search", {
-          body: { query: debouncedCerere, limit: 15, threshold: 0.35 }
+          body: { query: debouncedCerere, limit: 15, threshold: 0.50 }
         });
         if (error) throw error;
         
@@ -734,15 +737,18 @@ const NewQuote = () => {
           category_id: r.category_id || null,
         }));
       } else {
-        if (tokens.length === 0 && phraseVariants.length === 0) return [];
-        const tokenParts = tokens.map((t) => `denumire_completa.ilike.%${t}%,cod_intern.ilike.%${t}%,brand.ilike.%${t}%,brand_slug.ilike.%${t}%`);
-        const phraseParts = phraseVariants.map((p) => `denumire_completa.ilike.%${p}%,cod_intern.ilike.%${p}%,brand.ilike.%${p}%,brand_slug.ilike.%${p}%`);
-        const orFilter = [...tokenParts, ...phraseParts].join(",");
-        const { data, error } = await supabase
+        if (tokens.length === 0) return [];
+        let query = supabase
           .from("products")
           .select("id, cod_intern, denumire_completa, pret_lista, unit, category_id, specifications")
-          .or(orFilter)
           .limit(80);
+
+        for (const t of tokens) {
+          const token = t.replace(/,/g, "\\,");
+          query = query.or(`denumire_completa.ilike.%${token}%,cod_intern.ilike.%${token}%,brand.ilike.%${token}%,brand_slug.ilike.%${token}%`);
+        }
+
+        const { data, error } = await query;
         if (error) return [];
 
         return (data ?? [])
