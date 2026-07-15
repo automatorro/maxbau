@@ -29,6 +29,9 @@ dist-ssr
 .env.production
 
 # Supabase CLI executables
-supabase.exe
 supabase-go.exe
 *.exe
+
+# Scratch directories
+scratch/
+
