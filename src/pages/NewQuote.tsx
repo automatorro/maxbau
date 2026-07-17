@@ -28,7 +28,8 @@ import { Trash2, Save, Send, Plus, Download, Calculator, ArrowLeftRight, BookOpe
 import { toast } from "sonner";
 import { TVA_PERCENT, TVA_RATE } from "@/lib/utils";
 import { exportQuoteToExcel } from "@/lib/exportExcel";
-import { fetchTechInfoWithAnthropic, findEquivalentWithAnthropic, parseClientRequestWithAI } from "@/utils/anthropic";
+import { fetchTechInfoWithAnthropic, parseClientRequestWithAI } from "@/utils/anthropic";
+import { findEquivalents } from "@/utils/equivalents";
 
 interface QuoteItem {
   tempId: string;
@@ -904,7 +905,7 @@ const NewQuote = () => {
     setEquivalentLoading(true);
     setEquivalentResults(null);
     try {
-      const result = await findEquivalentWithAnthropic(cerere);
+      const result = await findEquivalents(cerere);
       if (!result?.success || !Array.isArray(result?.echivalente)) {
         toast.error("Eroare la căutarea echivalentului AI");
         return;

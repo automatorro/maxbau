@@ -118,6 +118,26 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 > Ultima actualizare: **2026-07-17**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **Motor de echivalare DB-first cu bariere dure** (2026-07-17):
+  - `src/lib/equivalentsEngine.ts` [NOU] — motor pur (21 teste Vitest): bariere de
+    familie de produs (vată ≠ OSB ≠ fotovoltaice), de subtip/aplicație (adeziv gresie
+    ≠ adeziv polistiren), de clasă EN (ierarhie C1→C2TE) și de cerințe numerice
+    (kPa/W·mK/kg·m³) din `fisa_tehnica_specs`. Valoare documentată care nu satisface
+    cerința → candidat ELIMINAT; nedocumentată → scor plafonat la 45 + avertisment.
+  - `src/utils/equivalents.ts` [NOU] — `findEquivalents()`: cache normalizat (tokeni
+    sortați, fără diacritice) → DB + motor local (zero tokeni AI) → fallback AI doar
+    dacă DB-ul nu găsește nimic, cu rezultatele AI re-validate prin ACELEAȘI bariere.
+    NewQuote și AntemasuratorImport folosesc acum acest punct unic de intrare
+    (vechea „potrivire rapidă" negardată din import a fost eliminată).
+  - Schema de extragere specs extinsă (scraper + Edge Function `extract-pdf-specs`):
+    `tip_produs` (tip normalizat cu aplicație), `alte_specificatii` (listă liberă
+    cheie/valoare/um — capturează TOT din fișe atipice), `valori_numerice` (calculate
+    determinist în JS, fără AI). ⚠️ Necesită RE-EXTRACȚIE: `--force` la rulare.
+  - `scraper/scrape_producer_fise.mjs` [NOU] — fișe de pe site-urile producătorilor
+    pentru produse fără fișă pe maxbau.ro (10 branduri configurate în BRAND_SOURCES;
+    validează cu `--list-brands` apoi `--brand X --test 5 --dry-run` înainte de rulare).
+  - Edge Function `ai-find-equivalent` ȘTEARSĂ din repo (relicvă Lovable gateway,
+    neapelată) — ⚠️ de retras manual și din Supabase Dashboard.
 - Migrare completă Lovable → Supabase nou; 28 migrări SQL aplicate; 9 Edge Functions
 - Căutare: diacritice românești (`searchUtils.buildSearchOrConditions()`), normalizare
   dimensiuni cu/fără spații ("60x40" ↔ "60 x 40"), logică AND la căutarea standard,
@@ -139,13 +159,19 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 - Fix categorii false din breadcrumbs scraper (max 2-3 niveluri) + curățenie DB retroactivă.
 
 ### În curs / Următor ⏳
-- **Extragere specs AI** pentru PDF-urile deja descărcate în Storage:
-  `node scraper/extract_specs_from_pdfs.mjs --skip-done` (durează ore), apoi
-  `node scraper/generate_embeddings.mjs --skip-done`
-- Completare fișe tehnice lipsă: `discover_missing_datasheets.js` → `scrape_missing_fise.mjs`
-- Verificare deploy manual al Edge Functions modificate recent (mai ales `scrape-maxbau`
-  după fix-ul de breadcrumbs) din Supabase Dashboard
+- **RE-extragere specs cu schema nouă** (rulare locală, durează ore):
+  `node scraper/extract_specs_from_pdfs.mjs --force` — schema veche nu are
+  `tip_produs`/`alte_specificatii`/`valori_numerice`, deci barierele motorului de
+  echivalare lucrează doar pe denumiri până la re-extracție. Apoi
+  `node scraper/generate_embeddings.mjs --skip-done`.
+- **Deploy manual din Supabase Dashboard**: `extract-pdf-specs` (schemă nouă),
+  `scrape-maxbau` (fix breadcrumbs) + retragerea `ai-find-equivalent`
+- Completare fișe lipsă: `discover_missing_datasheets.js` → `scrape_missing_fise.mjs`
+  → `scrape_producer_fise.mjs` (site-uri producători, validează brandurile întâi)
 - Validare `semantic-search` cu date reale după generarea embeddings
+- Tipuri Supabase negenerate după migrarea `variant_name` → 4 erori `tsc` preexistente
+  (`exportExcel.ts`, `NewQuote.tsx`); build-ul Vite trece, dar regenerarea tipurilor
+  ar curăța `tsc --noEmit`
 
 ### Cunoscut ca problematic ⚠️
 - `fisa_tehnica_processed` (boolean) NU e sincronizat cu `specifications.fisa_tehnica_specs`;

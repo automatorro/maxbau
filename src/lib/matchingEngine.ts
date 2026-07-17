@@ -157,7 +157,7 @@ const CLASS_HIERARCHY: Record<string, string[]> = {
   CG2:  ["CG2"],
 };
 
-function classSatisfies(cerut: string, oferit: string): boolean {
+export function classSatisfies(cerut: string, oferit: string): boolean {
   const allowed = CLASS_HIERARCHY[cerut.toUpperCase()];
   if (!allowed) return cerut.toUpperCase() === oferit.toUpperCase();
   return allowed.includes(oferit.toUpperCase());

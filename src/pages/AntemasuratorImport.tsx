@@ -6,11 +6,11 @@ import { toast } from "sonner";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  findEquivalentWithAnthropic,
   extractTableFromImageWithAnthropic,
   extractAntemasuratoareFromTextWithAnthropic,
   extractFloorPlanFromTextWithAnthropic,
 } from "@/utils/anthropic";
+import { findEquivalents } from "@/utils/equivalents";
 import {
   detectIsFloorPlan,
   extractPdfTextItems,
@@ -863,7 +863,7 @@ export default function AntemasuratorImport() {
       );
 
       try {
-        const data = await findEquivalentWithAnthropic(item.descriere_client);
+        const data = await findEquivalents(item.descriere_client);
 
         if (!data?.success) {
           setItemsWithMatches((prev) =>
@@ -922,69 +922,13 @@ export default function AntemasuratorImport() {
 
     try {
       const desc = (currentItem as ItemWithMatch).descriere_client;
-      
-      // 1. Căutare rapidă în DB: OR pe cei mai semnificativi tokeni (ignorăm stop-words scurte)
-      const rawTokens = desc
-        .split(/\s+/)
-        .map((t) => t.replace(/[.,;:()"']+/g, "").trim())
-        .filter((t) => t.length >= 4); // ignorăm cuvinte scurte ("de", "la", "cu" etc.)
 
-      // Luăm maxim 3 tokeni cei mai lungi (mai specifici) pentru OR search
-      const topTokens = [...rawTokens]
-        .sort((a, b) => b.length - a.length)
-        .slice(0, 3);
-
+      // Motor unificat de echivalare: DB-first cu bariere dure de tip/atribute,
+      // fallback AI (tot prin bariere) doar dacă DB-ul nu găsește nimic.
       let echivalente: MatchedProduct[] = [];
-
-      if (topTokens.length > 0) {
-        const orParts = topTokens.map((raw) => {
-          const fuzzy = raw
-            .replace(/[aăâ]/gi, "_")
-            .replace(/[iî]/gi, "_")
-            .replace(/[sșş]/gi, "_")
-            .replace(/[tțţ]/gi, "_")
-            .replace(/,/g, "\\,");
-          return `denumire_completa.ilike.%${fuzzy}%,cod_intern.ilike.%${fuzzy}%,brand.ilike.%${fuzzy}%`;
-        });
-        const orFilter = orParts.join(",");
-
-        const { data: directMatches } = await supabase
-          .from("products")
-          .select("id, cod_intern, denumire_completa, pret_lista, unit")
-          .or(orFilter)
-          .limit(8);
-
-        if (directMatches && directMatches.length > 0) {
-          // Scor local: câți tokeni din descriere se regăsesc în denumire
-          const descNorm = desc.toLowerCase();
-          const scored = directMatches
-            .map((p) => {
-              const pNorm = (p.denumire_completa || "").toLowerCase();
-              const matchCount = topTokens.filter((t) =>
-                pNorm.includes(t.toLowerCase())
-              ).length;
-              return { ...p, _score: matchCount };
-            })
-            .sort((a, b) => b._score - a._score);
-
-          echivalente = scored.map((p) => ({
-            product_id: p.id,
-            cod_intern: p.cod_intern,
-            denumire_completa: p.denumire_completa,
-            pret_lista: p.pret_lista,
-            unit: p.unit,
-            justificare: "Potrivire rapidă (Catalog)",
-            scor: Math.max(50, Math.round((p._score / topTokens.length) * 100)),
-          }));
-        }
-      }
-
-      // 2. Fallback AI dacă DB-ul n-a găsit nimic util
-      if (echivalente.length === 0) {
-        const data = await findEquivalentWithAnthropic(desc);
-        if (data?.success && data.echivalente) {
-          echivalente = data.echivalente.filter((e: any) => e.scor >= 20).slice(0, 5);
-        }
+      const data = await findEquivalents(desc);
+      if (data?.success && data.echivalente) {
+        echivalente = data.echivalente.filter((e: any) => e.scor >= 20).slice(0, 5);
       }
 
       const found = echivalente.length > 0;

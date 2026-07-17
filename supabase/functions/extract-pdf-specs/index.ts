@@ -51,10 +51,57 @@ const SPECS_SCHEMA = {
     producator:               { type: "STRING", description: 'ex: "Adeplast", "Baumit" sau null' },
     serie_produs:             { type: "STRING", description: 'ex: "Optim Dekor Rinoterm" sau null' },
     garantie:                 { type: "STRING", description: 'ex: "10 ani" sau null' },
+    tip_produs:               { type: "STRING", description: 'Tipul normalizat al produsului, ex: "adeziv gresie/faianță", "adeziv polistiren", "vată bazaltică", "tencuială decorativă", "membrană bituminoasă"' },
+    alte_specificatii:        {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          caracteristica: { type: "STRING", description: 'numele caracteristicii, ex: "Absorbție de apă"' },
+          valoare:        { type: "STRING", description: 'valoarea, ex: "< 1 kg/m²"' },
+          um:             { type: "STRING", description: "unitatea de măsură sau null" },
+        },
+        required: ["caracteristica", "valoare"],
+      },
+      description: "TOATE celelalte caracteristici tehnice explicite din fișă care NU se încadrează în câmpurile de mai sus — fiecare fișă e diferită, nu pierde nimic",
+    },
     rezumat_tehnic:           { type: "STRING", description: 'Rezumat de 2-3 fraze cu principalele caracteristici și utilizare' },
   },
-  required: ["rezumat_tehnic", "utilizare", "compatibil_cu"],
+  required: ["rezumat_tehnic", "utilizare", "compatibil_cu", "tip_produs", "alte_specificatii"],
 };
+
+/**
+ * Valori numerice normalizate din specs-urile string (determinist, fără AI) —
+ * folosite de motorul de echivalare din frontend pentru comparații exacte.
+ */
+function computeValoriNumerice(specs: Record<string, unknown>): Record<string, number> {
+  const parse = (raw: unknown, conservative: "min" | "max" = "min"): number | null => {
+    if (raw === null || raw === undefined) return null;
+    let s = String(raw).toLowerCase().replace(/,/g, ".");
+    const cs = s.match(/cs\s*\(\s*10\s*\)\s*(\d+(?:\.\d+)?)/);
+    if (cs) return parseFloat(cs[1]);
+    s = s.replace(/[≥≤><~±]/g, "");
+    const range = s.match(/(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)/);
+    if (range) {
+      const a = parseFloat(range[1]);
+      const b = parseFloat(range[2]);
+      return conservative === "min" ? Math.min(a, b) : Math.max(a, b);
+    }
+    const single = s.match(/(\d+(?:\.\d+)?)/);
+    return single ? parseFloat(single[1]) : null;
+  };
+
+  const out: Record<string, number> = {};
+  const compresiune = parse(specs.rezistenta_compresiune, "min");
+  if (compresiune !== null) out.rezistenta_compresiune_kpa = compresiune;
+  const lambda = parse(specs.conductivitate_termica, "max");
+  if (lambda !== null && lambda < 5) out.conductivitate_termica_w_mk = lambda;
+  const densitate = parse(specs.densitate, "min");
+  if (densitate !== null) out.densitate_kg_m3 = densitate;
+  const tractiune = parse(specs.rezistenta_tractiune, "min");
+  if (tractiune !== null) out.rezistenta_tractiune_n_mm2 = tractiune;
+  return out;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -228,6 +275,9 @@ INSTRUCȚIUNI:
 - Dacă o caracteristică nu apare în document, pune null (pentru string) sau [] (pentru array).
 - Pentru "utilizare": include tipul aplicației (interior/exterior) și suportul/sistemul recomandat.
 - Pentru "compatibil_cu": listează materialele de suport sau produsele din sistem cu care e compatibil.
+- "tip_produs": tipul normalizat, incluzând aplicația (ex: "adeziv gresie/faianță" NU doar "adeziv").
+- "alte_specificatii": TOATE caracteristicile tehnice explicite care nu au câmp dedicat — fiecare
+  fișă tehnică e diferită; nu omite nimic măsurabil (rezistențe, toleranțe, clase, absorbții etc.).
 - "rezumat_tehnic": 2-3 fraze clare despre ce este produsul, unde se folosește și principalele avantaje.`;
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiApiKey}`;
@@ -280,6 +330,7 @@ INSTRUCȚIUNI:
     const specs = JSON.parse(resultText);
     specs._extracted_at = new Date().toISOString();
     specs._source = "edge_function_multimodal";
+    specs.valori_numerice = computeValoriNumerice(specs);
 
     // 7. Update specifications inside DB
     const currentSpecs = (product.specifications as Record<string, unknown>) || {};
