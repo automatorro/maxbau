@@ -384,21 +384,19 @@ async function main() {
   console.log('  Maxbau.ro — Extragere Specs AI din Fișe Tehnice');
   console.log('═══════════════════════════════════════════════════════');
   if (DRY_RUN) console.log('⚠️   DRY-RUN: nu se scrie în DB');
-  if (TEST_LIMIT) console.log(`🔬  TEST: primele ${TEST_LIMIT} produse`);
+  if (TEST_LIMIT) console.log(`🔬  TEST: se oprește după ${TEST_LIMIT} extracții reale`);
   if (FORCE) console.log('🔄  FORCE: reprocessează și produsele deja extrase');
   console.log('');
 
-  // Fetch produse de procesat din log
-  let query = supabase
+  // Fetch produse de procesat din log. Includem și 'specs_extracted': acele
+  // produse pot avea schema VECHE de specs — processProduct() decide per produs
+  // (sare doar ce are deja schema nouă, cu tip_produs).
+  const { data: rows, error } = await supabase
     .from('fise_tehnice_scrape_log')
     .select('cod_intern, fisa_tehnica_url, storage_path, product_url, status')
-    .eq('status', 'found')
+    .in('status', ['found', 'specs_extracted'])
     .not('fisa_tehnica_url', 'is', null)
     .order('scraped_at', { ascending: true });
-
-  if (TEST_LIMIT) query = query.limit(TEST_LIMIT);
-
-  const { data: rows, error } = await query;
 
   if (error) {
     console.error('❌  Eroare la citire log:', error.message);
@@ -418,6 +416,9 @@ async function main() {
   const startTime = Date.now();
 
   for (const row of rows) {
+    // --test N = oprește-te după N EXTRACȚII reale (nu N rânduri — primele
+    // rânduri pot fi skip-uri ○, care nu spun nimic despre calitatea extracției)
+    if (TEST_LIMIT && stats.extracted >= TEST_LIMIT) break;
     await processProduct(row);
   }
 
