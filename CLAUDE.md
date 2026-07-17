@@ -160,9 +160,10 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ### În curs / Următor ⏳
 - **RE-extragere specs cu schema nouă** (rulare locală, durează ore):
-  `node scraper/extract_specs_from_pdfs.mjs --force` — schema veche nu are
-  `tip_produs`/`alte_specificatii`/`valori_numerice`, deci barierele motorului de
-  echivalare lucrează doar pe denumiri până la re-extracție. Apoi
+  `node scraper/extract_specs_from_pdfs.mjs` — scriptul detectează singur schema
+  veche (fără `tip_produs`) și reprocesează doar ce trebuie, deci se poate
+  întrerupe/relua oricând; `--force` doar pentru a reface TOT. Până la re-extracție
+  barierele motorului de echivalare lucrează doar pe denumiri. Apoi
   `node scraper/generate_embeddings.mjs --skip-done`.
 - **Deploy manual din Supabase Dashboard**: `extract-pdf-specs` (schemă nouă),
   `scrape-maxbau` (fix breadcrumbs) + retragerea `ai-find-equivalent`

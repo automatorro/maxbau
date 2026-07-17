@@ -259,8 +259,12 @@ async function processProduct(logRow) {
     .eq('cod_intern', cod_intern)
     .maybeSingle();
 
-  // Verifică dacă deja e procesat
-  if (!FORCE && product?.specifications?.fisa_tehnica_specs) {
+  // Verifică dacă deja e procesat CU SCHEMA NOUĂ (tip_produs există doar în
+  // extracțiile post-2026-07-17). Produsele cu schema veche se reprocesează
+  // automat, fără --force — astfel rularea se poate relua oricând de unde a rămas.
+  const existingSpecs = product?.specifications?.fisa_tehnica_specs;
+  const hasNewSchema = existingSpecs && (existingSpecs.tip_produs !== undefined || existingSpecs._no_text);
+  if (!FORCE && hasNewSchema) {
     stats.cached++;
     process.stdout.write('○');
     return;
