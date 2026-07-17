@@ -339,8 +339,8 @@ async function processProduct(logRow) {
   }
 
   if (DRY_RUN) {
-    console.log(`\n  [DRY-RUN] Specs extrase pentru ${cod_intern}:`);
-    console.log(JSON.stringify(specs, null, 2).slice(0, 500));
+    console.log(`\n  [DRY-RUN] Specs extrase pentru ${cod_intern} (${productName}):`);
+    console.log(JSON.stringify(specs, null, 2));
     stats.extracted++;
     process.stdout.write('✓');
     return;
