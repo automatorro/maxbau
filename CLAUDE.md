@@ -171,3 +171,6 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
    nu `ilike` simplu (acoperă diacriticele ă, â, î, ș, ț).
 9. Apeluri AI din frontend: doar prin `callAiProxy()` (`src/utils/aiProxy.ts`), niciodată
    direct cu chei API în browser.
+10. **Git workflow**: la începutul sesiunii verifică sincronizarea cu remote
+    (`git fetch origin main`). Modificările majore se commit-uiesc și se push-uiesc
+    **direct în `main`** — nu crea branch-uri auxiliare (decizia user-ului, 2026-07-17).
