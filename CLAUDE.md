@@ -1,0 +1,173 @@
+# MaxBau Sales — Context Unic pentru Agentul AI
+
+> **Acest fișier este SURSA UNICĂ DE ADEVĂR despre starea proiectului.**
+> Claude Code îl citește AUTOMAT la fiecare sesiune nouă. Nu scana alte fișiere
+> la început de sesiune — pornește de aici și deschide fișiere doar când task-ul o cere.
+> **ACTUALIZEAZĂ Secțiunea 8 (Stadiul Curent) la finalul fiecărei sesiuni cu commits.**
+
+---
+
+## 1. Descrierea Proiectului
+
+**Aplicație web B2B de vânzări pentru materiale de construcții MaxBau.**
+
+React + TypeScript + Vite, cu:
+- catalog de produse (~4.400 produse) cu prețuri, grile de discount pe client și fișe tehnice PDF
+- modul unificat de ofertare (`NewQuote`) cu multi-variante, căutare inline și parser AI pentru mesaje WhatsApp
+- asistent AI tehnic (consilier) care recomandă produse pe baza nevoii clientului
+- import antemăsurători: parsare PDF-uri de devize tabulare ȘI planuri arhitecturale/structurale, cu expansiune de materiale prin BOM Engine
+- pipeline de ingestie fișe tehnice: scraping maxbau.ro → Supabase Storage → extragere specs cu AI → embeddings vectoriale → căutare semantică
+
+## 2. Stack Tehnic
+
+| Layer | Tehnologie |
+|---|---|
+| Frontend | React 18 + TypeScript + Vite 5 |
+| Styling | TailwindCSS v3 + shadcn/ui (Radix UI) |
+| Backend | Supabase (PostgreSQL + pgvector + Edge Functions Deno + Storage) |
+| AI | **Anthropic Claude** (OCR, parsare planuri, matching — via `ai-proxy`) + Google Gemini (chat consultant, `text-embedding-004` pentru vectori) |
+| State/Routing | TanStack React Query v5, React Router DOM v6 |
+| PDF/OCR | `pdf-parse`, `pdfjs-dist`, `tesseract.js` |
+| Teste | Vitest (`npm run test`) + Playwright |
+| Package manager | `npm` (`bun.lock`/`bun.lockb` sunt relicve Lovable — nu le șterge, ignoră-le) |
+| Deploy frontend | Vercel (`vercel.json`) |
+
+**Toate apelurile AI din browser trec prin Edge Function `ai-proxy`** (`src/utils/aiProxy.ts`,
+provider `"anthropic"` sau `"gemini"`) — cheile API nu ajung niciodată în browser.
+
+## 3. Supabase
+
+- **Project ID**: `eklxkylfqlrkwoqtgpcw` — URL: `https://eklxkylfqlrkwoqtgpcw.supabase.co`
+- Chei în `.env` (NU le expune niciodată); chei vechi Lovable în `.env.backup` (nu-l șterge)
+- Migrarea din vechiul proiect Lovable este finalizată
+- Edge Functions se deploy-uiesc **manual din Supabase Dashboard** (nu există Supabase CLI pe mașinile de lucru)
+
+## 4. Structura Fișierelor Cheie
+
+```
+maxbau/
+├── CLAUDE.md                   ← ești aici (sursa unică de adevăr)
+├── .agents/AGENTS.md           ← doar pointer către CLAUDE.md (pentru alți agenți)
+├── src/
+│   ├── App.tsx                 ← router principal (vezi rutele în §5)
+│   ├── pages/                  ← Catalog, NewQuote, MyQuotes, RecipeQuote, Consultant,
+│   │                             AntemasuratorImport, ImportOcr, ProductDetail,
+│   │                             AdminProducts, AdminDiscounts, AdminSuppliers, auth
+│   ├── components/             ← ProductPicker, MultiProductPicker, EquivalentsDialog,
+│   │                             CategoryTree, blocuri packaging, layout, ui/ (shadcn)
+│   ├── hooks/                  ← useAuth, useAiMemory, use-toast, use-mobile
+│   ├── lib/                    ← matchingEngine.ts, exportExcel.ts
+│   ├── utils/                  ← aiProxy.ts, anthropic.ts (~1000 l), bomEngine.ts (~1080 l),
+│   │                             floorPlanParser.ts (~800 l), searchUtils.ts, geminiVision.ts
+│   ├── test/                   ← floorPlanParser.test.ts, bomEngine.test.ts (Vitest)
+│   └── integrations/supabase/  ← client + tipuri generate
+├── supabase/
+│   ├── functions/              ← 9 Edge Functions Deno: ai-consultant, ai-find-equivalent,
+│   │                             ai-product-info, ai-proxy, extract-pdf-specs,
+│   │                             generate-product-embedding, ocr-whatsapp,
+│   │                             scrape-maxbau, semantic-search
+│   └── migrations/             ← 28 fișiere SQL ordonate (ultima: 20260713 fix_vector_index)
+├── scraper/                    ← pipeline Node.js: scrape_fise_tehnice.mjs,
+│                                 extract_specs_from_pdfs.mjs, generate_embeddings.mjs,
+│                                 scrape_missing_fise.mjs, check_stats.mjs, migrate_data.mjs
+└── scripts/                    ← utilitare DB: backfill_datasheets.js, bulk_extract_specs.js,
+                                  discover_missing_datasheets.js, check_pdf_size.js
+```
+
+## 5. Rute (din `src/App.tsx`)
+
+- `/` (Index), `/login`, `/register`
+- `/catalog`, `/catalog/product/:id`
+- `/quote/new` și `/quote/:id/edit` → **NewQuote** (pagina unificată de ofertare)
+- `/quote/smart` → redirect la `/quote/new` (SmartQuote a fost ȘTERS)
+- `/quotes` (MyQuotes), `/recipe-quote` + `/wool-configurator` (RecipeQuote)
+- `/quote/antemasuratori` (AntemasuratorImport), `/import` (ImportOcr)
+- `/consultant` (chat AI)
+- `/admin/products`, `/admin/discounts` (protejate cu AdminRoute)
+
+## 6. Schema Bazei de Date (tabele principale)
+
+| Tabelă | Scop |
+|---|---|
+| `products` | Catalog (name, price, category_id, supplier_id, specifications JSONB, fisa_tehnica_url) |
+| `categories` | Categorii ierarhice — **maxim 2 niveluri**, nu adăuga al 3-lea |
+| `product_embeddings` | Vectori 768D pgvector (index reparat în migrarea 20260713) |
+| `quotes` / `quote_items` | Oferte; `quote_items.variant_name` adăugat 2026-07-10 |
+| `product_prices`, `price_sheets`, `discount_rules`, `grile_pret` | Prețuri și discounturi pe client |
+| `suppliers` | Furnizori (legați de products.supplier_id) |
+| `echivalente_produse` | Mapare produse echivalente |
+| `fise_tehnice_scrape_log`, `app_config` | Log scraping, configurări globale |
+
+## 7. Comenzi Frecvente
+
+```bash
+npm install            # obligatoriu pe mașină nouă (node_modules nu sunt în repo)
+npm run dev            # dev server
+npm run build          # build producție
+npm run test           # teste Vitest
+node scraper/scrape_fise_tehnice.mjs --test 20
+node scraper/extract_specs_from_pdfs.mjs --skip-done   # extragere specs (durează ore)
+node scraper/generate_embeddings.mjs --skip-done
+node scraper/check_stats.mjs                           # statistici progres DB
+node scripts/discover_missing_datasheets.js            # găsește produse fără fișă tehnică
+node scripts/backfill_datasheets.js                    # completează fisa_tehnica_url lipsă
+```
+
+## 8. Stadiul Curent al Proiectului
+
+> Ultima actualizare: **2026-07-17**. Actualizează după fiecare sesiune importantă.
+
+### Finalizat ✅
+- Migrare completă Lovable → Supabase nou; 28 migrări SQL aplicate; 9 Edge Functions
+- Căutare: diacritice românești (`searchUtils.buildSearchOrConditions()`), normalizare
+  dimensiuni cu/fără spații ("60x40" ↔ "60 x 40"), logică AND la căutarea standard,
+  căutare semantică AI extinsă la 100% din produse (2026-07-13)
+- **Pagina unificată de ofertare `NewQuote`** (2026-07-10/11): multi-variante,
+  multi-picker, layout split paralel cu căutare inline, parser AI pentru mesaje WhatsApp.
+  SmartQuote șters, rutele vechi redirecționează.
+- **OCR și parsare planuri revenite pe Anthropic** (2026-07-10): Gemini Vision eliminat
+  complet din fluxul OCR/planuri din cauza costurilor API mari. Gemini rămâne pentru
+  chat consultant și embeddings.
+- **Parser planuri arhitecturale** (`floorPlanParser.ts`): detecție spațială 2D a camerelor,
+  parsare hibridă (local întâi, fallback AI), suport planuri structurale/rezistență
+  (armare placă, centuri), OCR Tesseract pentru zone suspecte. 35 teste Vitest.
+- **BOM Engine** (`bomEngine.ts`): expansiune materiale din camere parsate — pereți
+  rigips, tavane casetate (spec Saint Gobain T24), defaults inteligente; recalculare
+  automată la ștergerea spațiilor; memorie localStorage în wizard-ul de import.
+- **Scripturi datasheets** (2026-07-15): backfill URL-uri fișe tehnice, descoperire
+  fișe lipsă, extragere specs în masă (`scripts/`).
+- Fix categorii false din breadcrumbs scraper (max 2-3 niveluri) + curățenie DB retroactivă.
+
+### În curs / Următor ⏳
+- **Extragere specs AI** pentru PDF-urile deja descărcate în Storage:
+  `node scraper/extract_specs_from_pdfs.mjs --skip-done` (durează ore), apoi
+  `node scraper/generate_embeddings.mjs --skip-done`
+- Completare fișe tehnice lipsă: `discover_missing_datasheets.js` → `scrape_missing_fise.mjs`
+- Verificare deploy manual al Edge Functions modificate recent (mai ales `scrape-maxbau`
+  după fix-ul de breadcrumbs) din Supabase Dashboard
+- Validare `semantic-search` cu date reale după generarea embeddings
+
+### Cunoscut ca problematic ⚠️
+- `fisa_tehnica_processed` (boolean) NU e sincronizat cu `specifications.fisa_tehnica_specs`;
+  filtrul din Catalog verifică `fisa_tehnica_url IS NOT NULL`
+- `extractTextFromPdf()` din `AntemasuratorImport.tsx` nu mai e apelată în fluxul PDF
+  (înlocuită de `extractPdfTextItems()` din floorPlanParser) — nu o șterge
+- Fișiere de lucru în root (`debug_*.ts/.cjs`, `*.sql`, `duplicates_report.json`,
+  `.trae_tmp_diff.patch` etc.) sunt artefacte de sesiuni vechi — ignoră-le, nu le șterge
+- `node_modules` nu sunt în repo — rulează `npm install` pe orice mașină nouă
+
+## 9. Reguli de Lucru pentru Agent
+
+1. **Pornește de la acest fișier** — nu scana repo-ul la început de sesiune.
+2. **Nu expune cheile din `.env`** în răspunsuri, commits sau artefacte.
+3. **Nu șterge** `.env.backup`, `bun.lock(b)`, executabilele `.exe` sau fișierele de lucru din root.
+4. **Actualizează Secțiunea 8 AUTOMAT** la finalul oricărei sesiuni cu commits — inclusiv
+   data din antetul secțiunii. Ține secțiunea compactă: consolidează intrările vechi în
+   loc să adaugi la nesfârșit.
+5. Migrările SQL sunt ordonate cronologic — nu le reordona/șterge; migrare nouă = fișier nou.
+6. Edge Functions rulează pe Deno — importuri `npm:` sau `esm.sh`, nu sintaxă Node.
+7. „Asistentul AI" / „consilierul tehnic" = Edge Function `ai-consultant`.
+8. Pentru căutări Supabase folosește `buildSearchOrConditions()` din `searchUtils.ts`,
+   nu `ilike` simplu (acoperă diacriticele ă, â, î, ș, ț).
+9. Apeluri AI din frontend: doar prin `callAiProxy()` (`src/utils/aiProxy.ts`), niciodată
+   direct cu chei API în browser.
