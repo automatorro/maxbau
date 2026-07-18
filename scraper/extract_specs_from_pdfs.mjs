@@ -219,21 +219,43 @@ INSTRUCȚIUNI:
   fișă tehnică e diferită; nu omite nimic măsurabil (rezistențe, toleranțe, clase, absorbții etc.)
 - "rezumat_tehnic": 2-3 fraze clare despre ce este produsul, unde se folosește și principalele avantaje`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: SPECS_SCHEMA,
-          temperature: 0.1,
-        },
-      }),
+  // Retry pentru erori tranzitorii (fetch failed, 429 rate limit, 5xx).
+  // 3 încercări cu backoff 2s → 4s → 8s. Erorile client (4xx altele) nu se reîncearcă.
+  const RETRY_DELAYS_MS = [2000, 4000, 8000];
+  let response;
+  let lastErr;
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length + 1; attempt++) {
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+              responseSchema: SPECS_SCHEMA,
+              temperature: 0.1,
+            },
+          }),
+        }
+      );
+      // Rate limit sau server error → retry
+      if (response.status === 429 || response.status >= 500) {
+        lastErr = new Error(`HTTP ${response.status}`);
+      } else {
+        break; // orice altceva (ok sau 4xx definitiv) iese din retry
+      }
+    } catch (err) {
+      // fetch failed = eroare de rețea (DNS, TCP, TLS, timeout)
+      lastErr = err;
     }
-  );
+    if (attempt < RETRY_DELAYS_MS.length) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+    }
+  }
+  if (!response) throw lastErr ?? new Error('Gemini fetch failed');
 
   if (!response.ok) {
     const errBody = await response.text();
