@@ -274,25 +274,12 @@ function scoreXpsMatch(dbProduct, excelItem) {
   const isXps = name.includes('xps');
   if (isXps) { score++; reasons.push('xps'); }
 
-  // Producător
+  // Producător (Fibran / Fibrostir — fără diferențiere subtip G/BT, P/BT, R/SV)
   const dbProducer = extractProducer(name, XPS_PRODUCERS);
   const excelProdNorm = normalize(excelItem.producator);
   if (dbProducer && excelProdNorm.includes(dbProducer)) {
     score++;
     reasons.push(`prod:${dbProducer}`);
-  }
-  // Fibrostir L vs Fibrostir Muchie Dreaptă — diferențiem după "muchie" / " l "
-  if (dbProducer === 'fibrostir') {
-    const excelHasMuchie = excelProdNorm.includes('muchie');
-    const dbHasMuchie = name.includes('muchie');
-    const excelIsL = excelItem.producator.trim().endsWith(' L') || excelItem.producator.trim() === 'Fibrostir L';
-    const dbIsL = name.match(/fibrostir\s+l\b/);
-    if ((excelHasMuchie && !dbHasMuchie) || (!excelHasMuchie && dbHasMuchie)) {
-      score--; reasons.push('!subtip_fibrostir');
-    }
-    if ((excelIsL && !dbIsL) || (!excelIsL && dbIsL)) {
-      score--; reasons.push('!subtip_L');
-    }
   }
 
   // Grosime
