@@ -46,7 +46,8 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 // ── Argumente CLI ─────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const EXECUTE        = args.includes('--execute');
-const INSERT_HIRSCH  = args.includes('--insert-hirsch');
+const INSERT_HIRSCH   = args.includes('--insert-hirsch');
+const INSERT_MISSING  = args.includes('--insert-missing');
 let epsPath = null, xpsPath = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--eps') epsPath = args[i + 1];
@@ -577,6 +578,159 @@ async function previewAndInsertHirsch(hirschItems, supplierId, categoryId) {
   console.log(`\n📌  Caută produsele fără cod real: SELECT cod_intern, denumire_completa FROM products WHERE cod_intern LIKE 'HIRSCH-%';`);
 }
 
+// ── Insert produse lipsă (Adeplast EPS120/150/200/GRAFITAT + Baumit EPS60/70/100+) ──
+async function findSupplier(partialName) {
+  const { data } = await sb
+    .from('suppliers')
+    .select('id, name')
+    .ilike('name', `%${partialName}%`)
+    .maybeSingle();
+  if (data) console.log(`   → Supplier găsit: "${data.name}" (${data.id})`);
+  return data?.id || null;
+}
+
+async function codInternExists(cod) {
+  const { data } = await sb
+    .from('products')
+    .select('id')
+    .eq('cod_intern', cod)
+    .maybeSingle();
+  return !!data;
+}
+
+function buildDenumireAndCod(excel) {
+  const grosimeCm  = excel.grosime / 10;
+  const gStr       = Number.isInteger(grosimeCm) ? String(grosimeCm) : grosimeCm.toFixed(1);
+  const rez        = excel.rezistenta; // ex: "EPS120", "EPS80 GRAFITAT", "EPS100 GRAFITAT"
+  const isGrafitat = rez.includes('GRAFITAT');
+  const prodNorm   = normalize(excel.producator);
+
+  if (prodNorm.includes('adeplast')) {
+    const denumire = isGrafitat
+      ? `Polistiren expandat grafitat Adeplast ${gStr} cm ${rez}`
+      : `Polistiren expandat Adeplast ${gStr} cm ${rez}`;
+    const cod = `ADEPLAST-${rez.replace(/\s+/g, '-')}-${excel.grosime}mm`;
+    return { denumire, cod, brand: 'Adeplast', supplierKey: 'adeplast' };
+  }
+
+  if (prodNorm.includes('baumit')) {
+    // EPS80 non-grafitat urmează naming-ul existent din DB (ignifug ProTherm)
+    let denumire;
+    if (rez === 'EPS80' && !isGrafitat) {
+      denumire = `Polistiren expandat ignifug Baumit ${gStr} cm EPS80 ProTherm`;
+    } else if (isGrafitat) {
+      denumire = `Polistiren expandat grafitat Baumit ${gStr} cm ${rez}`;
+    } else {
+      denumire = `Polistiren expandat Baumit ${gStr} cm ${rez}`;
+    }
+    const cod = `BAUMIT-${rez.replace(/\s+/g, '-')}-${excel.grosime}mm`;
+    return { denumire, cod, brand: 'Baumit', supplierKey: 'baumit' };
+  }
+
+  return null;
+}
+
+async function previewAndInsertMissing(missingItems, categoryId, supplierCache) {
+  // Filtrăm Hirsch (tratat separat) și XPS-uri (toate sunt deja matchuite)
+  const toProcess = missingItems.filter(r => {
+    const p = normalize(r.excel.producator);
+    return !p.includes('hirsch') && (p.includes('adeplast') || p.includes('baumit'));
+  });
+
+  if (toProcess.length === 0) {
+    console.log('   ℹ️   Nu există produse Adeplast/Baumit lipsă de inserat.');
+    return;
+  }
+
+  console.log(`\n${'═'.repeat(100)}`);
+  console.log(`  INSERT PRODUSE LIPSĂ — Adeplast EPS120/150/200/GRAFITAT + Baumit EPS neconfigurat`);
+  console.log(`  Total: ${toProcess.length} produse`);
+  console.log('═'.repeat(100));
+
+  let inserted = 0, skipped = 0, errors = 0;
+
+  for (const r of toProcess) {
+    const info = buildDenumireAndCod(r.excel);
+    if (!info) { skipped++; continue; }
+
+    const { denumire, cod, brand, supplierKey } = info;
+    const pretLista = r.excel.preturi['Lista']?.pretMp ?? r.excel.preturi['Livrare Directă']?.pretMp ?? null;
+
+    if (!EXECUTE) {
+      console.log(`  ⬜ ${cod.padEnd(35)} │ ${denumire}`);
+      continue;
+    }
+
+    // Evită duplicatele
+    if (await codInternExists(cod)) {
+      console.log(`  ⏭  [${cod}] deja există — sărit`);
+      skipped++;
+      continue;
+    }
+
+    // Găsim supplier-ul (cu cache)
+    if (!supplierCache[supplierKey]) {
+      supplierCache[supplierKey] = await findSupplier(supplierKey);
+    }
+    const supplierId = supplierCache[supplierKey];
+
+    const specs = {
+      placi_bax: r.excel.placi_bax,
+      mp_bax:    r.excel.mp_bax,
+      m3_bax:    r.excel.m3_bax,
+      pending_cod_intern: true,
+    };
+
+    const { data: newProd, error: insErr } = await sb
+      .from('products')
+      .insert({
+        cod_intern:        cod,
+        denumire_completa: denumire,
+        pret_lista:        pretLista,
+        unit:              'mp',
+        brand,
+        manufacturer:      brand,
+        supplier_id:       supplierId || undefined,
+        category_id:       categoryId || undefined,
+        specifications:    specs,
+        pack_quantity:     String(r.excel.placi_bax || ''),
+      })
+      .select('id')
+      .single();
+
+    if (insErr) {
+      console.error(`  ❌  [${cod}] ${insErr.message}`);
+      errors++;
+      continue;
+    }
+
+    inserted++;
+    console.log(`  ✅  [${cod}] → ${newProd.id}`);
+
+    for (const [tipOferta, pret] of Object.entries(r.excel.preturi)) {
+      const { error: ppErr } = await sb
+        .from('product_prices')
+        .insert({
+          product_id: newProd.id,
+          price_type: tipOferta,
+          price:      pret.pretMp,
+          unit:       'mp',
+          currency:   'RON',
+          valid_from: new Date().toISOString().slice(0, 10),
+        });
+      if (ppErr) console.error(`    ⚠️   ${tipOferta}: ${ppErr.message}`);
+      else console.log(`    📋  ${tipOferta}: ${fmtPrice(pret.pretMp)} lei/mp`);
+    }
+  }
+
+  if (!EXECUTE) {
+    console.log(`\n💡  Adaugă --execute --insert-missing pentru a insera cele ${toProcess.length} produse.`);
+  } else {
+    console.log(`\n✅  Insert finalizat: ${inserted} inserate | ⏭ ${skipped} sărite | ❌ ${errors} erori`);
+    console.log(`📌  Produse temporare: SELECT cod_intern FROM products WHERE cod_intern LIKE 'ADEPLAST-%' OR cod_intern LIKE 'BAUMIT-%';`);
+  }
+}
+
 // ── Executare actualizări ─────────────────────────────────────────────────────
 async function executeUpdates(allMatchResults) {
   console.log('\n\n🔄  Pornesc actualizarea prețurilor...\n');
@@ -714,27 +868,36 @@ const totalMatched = allResults.filter(r => r.match).length;
 const totalAll     = allResults.length;
 console.log(`\n📊  SUMAR: ${totalMatched}/${totalAll} poziții Excel au corespondent în DB`);
 
-// ── Hirsch insert (separat de update-ul produselor existente) ─────────────────
+// Supplier cache comun pentru toate inserările
+const supplierCache = {};
+
+// ── Hirsch insert ─────────────────────────────────────────────────────────────
 if (INSERT_HIRSCH) {
   console.log('\n\n🏭  INSERARE PRODUSE HIRSCH (brand nou)');
   console.log('─'.repeat(60));
   const hirschUnmatched = epsResults.filter(
     r => !r.match && normalize(r.excel.producator).includes('hirsch')
   );
-  const supplierId = await findOrCreateHirschSupplier();
+  const hirschSupplierId = await findOrCreateHirschSupplier();
   const categoryId = await findEpsCategory();
-  await previewAndInsertHirsch(hirschUnmatched, supplierId, categoryId);
+  await previewAndInsertHirsch(hirschUnmatched, hirschSupplierId, categoryId);
+}
+
+// ── Insert Adeplast/Baumit lipsă ──────────────────────────────────────────────
+if (INSERT_MISSING) {
+  console.log('\n\n🏗️   INSERARE PRODUSE LIPSĂ (Adeplast EPS120/150/200/GRAFITAT + Baumit)');
+  console.log('─'.repeat(60));
+  const allUnmatched = [...epsResults, ...xpsResults].filter(r => !r.match);
+  const categoryId = await findEpsCategory();
+  await previewAndInsertMissing(allUnmatched, categoryId, supplierCache);
 }
 
 if (!EXECUTE) {
   console.log('\n💡  Rulează cu --execute pentru a aplica actualizările:');
   console.log(`    node scripts/update_eps_xps_pricing.mjs --eps "${epsPath}" --xps "${xpsPath}" --execute`);
-  if (INSERT_HIRSCH) {
-    console.log(`    (adaugă și --insert-hirsch pentru a insera produsele Hirsch noi)`);
-  } else {
-    console.log(`\n💡  Pentru a adăuga produsele Hirsch noi în DB:`);
-    console.log(`    node scripts/update_eps_xps_pricing.mjs --eps "${epsPath}" --xps "${xpsPath}" --insert-hirsch`);
-  }
+  console.log(`\n💡  Flags disponibile pentru inserare produse noi:`);
+  console.log(`    --insert-hirsch   → inserează produsele Hirsch (brand nou complet)`);
+  console.log(`    --insert-missing  → inserează Adeplast EPS120/150/200/GRAFITAT + Baumit lipsă`);
 } else {
   await executeUpdates(allResults);
 }
