@@ -93,10 +93,16 @@ function PolystyrenePricesRow({ product }: { product: Product }) {
     queryFn: async () => {
       const { data } = await supabase
         .from("product_prices")
-        .select("price_type, price, unit, currency")
+        .select("price_type, price, unit, currency, valid_to")
         .eq("product_id", product.id)
-        .is("valid_to", null);
-      return data || [];
+        .order("valid_to", { ascending: false, nullsFirst: true });
+      // Deduplicare: păstrăm câte un rând per price_type (cel activ preferabil)
+      const seen = new Set<string>();
+      return (data || []).filter((p: any) => {
+        if (seen.has(p.price_type)) return false;
+        seen.add(p.price_type);
+        return true;
+      });
     },
   });
 
