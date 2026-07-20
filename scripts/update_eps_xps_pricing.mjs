@@ -194,13 +194,19 @@ function normalize(s) {
     .replace(/\s+/g, ' ').trim();
 }
 
-// Caută numărul de mm în denumire: 5cm, 5 cm, 50mm, 50 mm, 5.0cm
+// Caută grosimea reală în mm din denumire.
+// Evităm dimensiunile plăcii (ex: "600 x 1250 mm") și căutăm contextul "grosime".
 function extractThicknessMm(name) {
   const n = normalize(name);
-  // mm direct
-  let m = n.match(/(\d+)\s*mm/);
-  if (m) return Number(m[1]);
-  // cm → mm
+  // Prioritate maximă: "10 cm grosime" sau "grosime 10 cm"
+  let m = n.match(/(\d+(?:[.,]\d+)?)\s*cm\s+grosime/);
+  if (m) return Math.round(Number(m[1].replace(',', '.')) * 10);
+  m = n.match(/grosime\s+(\d+(?:[.,]\d+)?)\s*cm/);
+  if (m) return Math.round(Number(m[1].replace(',', '.')) * 10);
+  // mm fără context dimensional — limităm la ≤400mm (grosimi reale de izolaţie)
+  m = n.match(/(\d+)\s*mm/);
+  if (m && Number(m[1]) <= 400) return Number(m[1]);
+  // cm generic (fără keyword "grosime")
   m = n.match(/(\d+(?:[.,]\d+)?)\s*cm/);
   if (m) return Math.round(Number(m[1].replace(',', '.')) * 10);
   return null;
