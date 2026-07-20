@@ -45,7 +45,8 @@ const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
 // ── Argumente CLI ─────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-const EXECUTE = args.includes('--execute');
+const EXECUTE        = args.includes('--execute');
+const INSERT_HIRSCH  = args.includes('--insert-hirsch');
 let epsPath = null, xpsPath = null;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--eps') epsPath = args[i + 1];
@@ -455,6 +456,134 @@ function printXpsTable(xpsExcel, dbAll, priceMap) {
   return matchResults;
 }
 
+// ── Insert Hirsch (brand nou, fără cod intern real) ───────────────────────────
+async function findOrCreateHirschSupplier() {
+  const { data: existing } = await sb
+    .from('suppliers')
+    .select('id, name')
+    .ilike('name', '%hirsch%')
+    .maybeSingle();
+  if (existing) {
+    console.log(`   → Supplier existent: "${existing.name}" (${existing.id})`);
+    return existing.id;
+  }
+  if (!EXECUTE) return null;
+  const { data: created, error } = await sb
+    .from('suppliers')
+    .insert({ name: 'Hirsch Porozell', notes: 'Producător polistiren expandat EPS. Fișe tehnice: https://www.hirsch-porozell.ro/polistiren-pentru-constructii/' })
+    .select('id')
+    .single();
+  if (error) { console.error('❌  Eroare creare supplier Hirsch:', error.message); return null; }
+  console.log(`   ✅  Supplier Hirsch Porozell creat: ${created.id}`);
+  return created.id;
+}
+
+async function findEpsCategory() {
+  // Caută categoria cea mai specifică pentru polistiren expandat
+  const { data: cats } = await sb
+    .from('categories')
+    .select('id, name, parent_id')
+    .or('name.ilike.%polistiren expandat%,name.ilike.%EPS%,name.ilike.%polistiren%');
+  if (!cats || cats.length === 0) return null;
+  // Preferă categorii cu parent (subcategorie) și cu "expandat" sau "EPS" în nume
+  const best = cats.find(c => c.parent_id && /expandat|EPS/i.test(c.name))
+    || cats.find(c => /expandat|EPS/i.test(c.name))
+    || cats.find(c => c.parent_id)
+    || cats[0];
+  console.log(`   → Categorie EPS selectată: "${best.name}" (${best.id})`);
+  return best.id;
+}
+
+async function previewAndInsertHirsch(hirschItems, supplierId, categoryId) {
+  if (hirschItems.length === 0) {
+    console.log('   ℹ️   Nu există produse Hirsch nematchuite în Excel.');
+    return;
+  }
+
+  console.log(`\n${'═'.repeat(100)}`);
+  console.log(`  HIRSCH — ${hirschItems.length} produse de inserat (cod_intern temporar HIRSCH-xxx)`);
+  console.log('═'.repeat(100));
+
+  const toInsert = hirschItems.map(r => {
+    const grosimeCm = r.excel.grosime / 10;
+    // cod_intern temporar — se înlocuiește manual după primirea codurilor reale
+    const codIntern = `HIRSCH-${r.excel.rezistenta.replace(/\s+/g, '-')}-${r.excel.grosime}mm`;
+    const denumire  = `Polistiren expandat EPS Hirsch ${r.excel.rezistenta}, ${Number.isInteger(grosimeCm) ? grosimeCm : grosimeCm.toFixed(1)} cm grosime, 1000 x 500 mm`;
+    const pretLista = r.excel.preturi['Lista']?.pretMp ?? null;
+    return { codIntern, denumire, pretLista, excel: r.excel };
+  });
+
+  for (const item of toInsert) {
+    console.log(`  ${EXECUTE ? '→' : '⬜'} ${item.codIntern.padEnd(30)} │ ${item.denumire}`);
+  }
+
+  if (!EXECUTE) {
+    console.log(`\n💡  Adaugă --execute --insert-hirsch pentru a insera cele ${toInsert.length} produse.`);
+    return;
+  }
+
+  console.log('\n🔄  Inserez produsele Hirsch...\n');
+  let inserted = 0, errors = 0;
+
+  for (const item of toInsert) {
+    const specs = {
+      placi_bax: item.excel.placi_bax,
+      mp_bax:    item.excel.mp_bax,
+      m3_bax:    item.excel.m3_bax,
+      pending_cod_intern: true,  // marcat pentru completare ulterioară
+    };
+
+    // Insert produs
+    const { data: newProd, error: insErr } = await sb
+      .from('products')
+      .insert({
+        cod_intern:       item.codIntern,
+        denumire_completa: item.denumire,
+        pret_lista:       item.pretLista,
+        unit:             'mp',
+        brand:            'Hirsch Porozell',
+        manufacturer:     'Hirsch Porozell',
+        supplier_id:      supplierId || undefined,
+        category_id:      categoryId || undefined,
+        specifications:   specs,
+        pack_quantity:    String(item.excel.placi_bax || ''),
+      })
+      .select('id')
+      .single();
+
+    if (insErr) {
+      console.error(`  ❌  [${item.codIntern}] insert produs: ${insErr.message}`);
+      errors++;
+      continue;
+    }
+
+    inserted++;
+    console.log(`  ✅  [${item.codIntern}] inserat → id: ${newProd.id}`);
+
+    // Upsert product_prices
+    for (const [tipOferta, pret] of Object.entries(item.excel.preturi)) {
+      const { error: ppErr } = await sb
+        .from('product_prices')
+        .insert({
+          product_id: newProd.id,
+          price_type: tipOferta,
+          price:      pret.pretMp,
+          unit:       'mp',
+          currency:   'RON',
+          valid_from: new Date().toISOString().slice(0, 10),
+        });
+      if (ppErr) {
+        console.error(`    ⚠️   [${item.codIntern}] ${tipOferta}: ${ppErr.message}`);
+      } else {
+        console.log(`    📋  ${tipOferta}: ${fmtPrice(pret.pretMp)} lei/mp`);
+      }
+    }
+  }
+
+  console.log(`\n✅  Hirsch: ${inserted} produse inserate | ❌ ${errors} erori`);
+  console.log(`\n📌  Caută produsele fără cod real: SELECT cod_intern, denumire_completa FROM products WHERE cod_intern LIKE 'HIRSCH-%';`);
+}
+
 // ── Executare actualizări ─────────────────────────────────────────────────────
 async function executeUpdates(allMatchResults) {
   console.log('\n\n🔄  Pornesc actualizarea prețurilor...\n');
@@ -592,9 +721,27 @@ const totalMatched = allResults.filter(r => r.match).length;
 const totalAll     = allResults.length;
 console.log(`\n📊  SUMAR: ${totalMatched}/${totalAll} poziții Excel au corespondent în DB`);
 
+// ── Hirsch insert (separat de update-ul produselor existente) ─────────────────
+if (INSERT_HIRSCH) {
+  console.log('\n\n🏭  INSERARE PRODUSE HIRSCH (brand nou)');
+  console.log('─'.repeat(60));
+  const hirschUnmatched = epsResults.filter(
+    r => !r.match && normalize(r.excel.producator).includes('hirsch')
+  );
+  const supplierId = await findOrCreateHirschSupplier();
+  const categoryId = await findEpsCategory();
+  await previewAndInsertHirsch(hirschUnmatched, supplierId, categoryId);
+}
+
 if (!EXECUTE) {
   console.log('\n💡  Rulează cu --execute pentru a aplica actualizările:');
   console.log(`    node scripts/update_eps_xps_pricing.mjs --eps "${epsPath}" --xps "${xpsPath}" --execute`);
+  if (INSERT_HIRSCH) {
+    console.log(`    (adaugă și --insert-hirsch pentru a insera produsele Hirsch noi)`);
+  } else {
+    console.log(`\n💡  Pentru a adăuga produsele Hirsch noi în DB:`);
+    console.log(`    node scripts/update_eps_xps_pricing.mjs --eps "${epsPath}" --xps "${xpsPath}" --insert-hirsch`);
+  }
 } else {
   await executeUpdates(allResults);
 }
