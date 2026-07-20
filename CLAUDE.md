@@ -115,7 +115,7 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ## 8. Stadiul Curent al Proiectului
 
-> Ultima actualizare: **2026-07-17**. Actualizează după fiecare sesiune importantă.
+> Ultima actualizare: **2026-07-20**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
 - **Motor de echivalare DB-first cu bariere dure** (2026-07-17):
@@ -157,8 +157,23 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 - **Scripturi datasheets** (2026-07-15): backfill URL-uri fișe tehnice, descoperire
   fișe lipsă, extragere specs în masă (`scripts/`).
 - Fix categorii false din breadcrumbs scraper (max 2-3 niveluri) + curățenie DB retroactivă.
+- **Prețuri EPS/XPS + pagina Rețete termosistem** (2026-07-20):
+  - `scripts/update_eps_xps_pricing.mjs` [NOU] — script Node.js rulat local: compară
+    Excel (EPS_baza_completa.xlsx + XPS_baza_completa.xlsx) cu DB, actualizează
+    `pret_lista`, upsert `product_prices` per tip ofertă (Lista/Full Tir/MU+Capac/
+    Livrare Directă) și salvează `specifications.{placi_bax,mp_bax,m3_bax}` prin
+    merge JS (fără RPC). ⚠️ Necesită rulare locală cu `SUPABASE_SERVICE_ROLE_KEY`.
+  - `GenericPackagingBlock.tsx` — pentru `systemType === "polystyrene"`: ambalare
+    citită din `specifications` (placi_bax/mp_bax/m3_bax) fără niciun apel AI;
+    selector tip preț (Lista/Full Tir/...) din `product_prices`; afișaj variante
+    preț /m², /bax, /m³; paleți ascunși temporar; "baxuri" peste tot.
+  - `RecipeQuote.tsx` — "pachete" → "baxuri" în nota_ai; linia PALET omisă la
+    salvarea ofertei pentru rețete polystyrene.
 
 ### În curs / Următor ⏳
+- **Rulare script prețuri EPS/XPS** (pe mașina locală cu .env complet):
+  `node scripts/update_eps_xps_pricing.mjs --eps EPS_baza_completa.xlsx --xps XPS_baza_completa.xlsx`
+  (fără `--execute` = tabel comparativ; cu `--execute` = aplică în DB)
 - **RE-extragere specs cu schema nouă** (rulare locală, durează ore):
   `node scraper/extract_specs_from_pdfs.mjs` — scriptul detectează singur schema
   veche (fără `tip_produs`) și reprocesează doar ce trebuie, deci se poate
