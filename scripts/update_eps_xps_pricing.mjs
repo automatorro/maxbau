@@ -208,9 +208,11 @@ function extractThicknessMm(name) {
 // Caută rezistența EPS: EPS50, EPS 100, EPS100 GRAFITAT etc.
 function extractResistance(name) {
   const n = normalize(name).toUpperCase();
-  const m = n.match(/EPS\s*(\d+)(\s*GRAFITAT)?/);
+  const m = n.match(/EPS\s*(\d+)/);
   if (!m) return null;
-  return 'EPS' + m[1] + (m[2] ? ' GRAFITAT' : '');
+  // "grafitat" sau "neopor" pot apărea oriunde în denumire (nu doar după număr)
+  const hasGrafitat = n.includes('GRAFITAT') || n.includes('NEOPOR');
+  return 'EPS' + m[1] + (hasGrafitat ? ' GRAFITAT' : '');
 }
 
 // Caută producătorul în denumire
