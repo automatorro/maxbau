@@ -524,24 +524,26 @@ async function executeUpdates(allMatchResults) {
       }
     }
 
-    // 3. Stochează și prețul pe bax în specifications
-    const specsUpdate = {
+    // 3. Stochează ambalare în specifications (merge cu specs existente)
+    const existingSpecs = match.product.specifications || {};
+    const mergedSpecs = {
+      ...existingSpecs,
       placi_bax: excel.placi_bax,
       mp_bax:    excel.mp_bax,
       m3_bax:    excel.m3_bax,
     };
-    await sb
+    const { error: specsErr } = await sb
       .from('products')
       .update({
-        specifications: sb.rpc ? undefined : undefined, // handled below via jsonb merge
-        pack_quantity: String(excel.placi_bax || ''),
+        pack_quantity:  String(excel.placi_bax || ''),
+        specifications: mergedSpecs,
       })
       .eq('id', productId);
-    // Merge specs separat cu jsonb operator
-    await sb.rpc('jsonb_merge_product_specs', {
-      p_id: productId,
-      p_specs: specsUpdate,
-    }).then(() => {}).catch(() => {}); // RPC optional, nu blochează
+    if (specsErr) {
+      console.error(`  ⚠️   [${tipLabel}] specs update: ${specsErr.message}`);
+    } else {
+      console.log(`  📦  [${tipLabel}] ambalare: ${excel.placi_bax} buc/bax, ${excel.mp_bax} mp/bax, ${excel.m3_bax} m³/bax`);
+    }
   }
 
   console.log(`\n✅  Finalizat: ${updated} înregistrări actualizate | ❌ ${errors} erori | ⏭  ${skipped} negăsite (sărite)`);

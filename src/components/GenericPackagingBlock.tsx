@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Check, Loader2, Search, Info } from "lucide-react";
+import { Loader2, Search, Info } from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ export type SystemType = "wool" | "polystyrene" | "drywall" | "masonry" | "gener
 export function getSystemType(recipeName: string, category: string | null): SystemType {
   const name = recipeName.toLowerCase();
   const cat = (category || "").toLowerCase();
-  
+
   if (cat === "vata-sistem" || name.includes("vată") || name.includes("vata")) {
     return "wool";
   }
@@ -103,6 +103,10 @@ export function GenericPackagingBlock({
   const [packagingInfo, setPackagingInfo] = useState<StructuredPackagingInfo | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
+  // Polystyrene-specific: price type selector and m³/bax for price breakdown
+  const [selectedPriceType, setSelectedPriceType] = useState<string | null>(null);
+  const [m3BaxValue, setM3BaxValue] = useState<number | null>(null);
+
   // ── Filters state ─────────────────────────────────────────────────────────
   const [woolThickness, setWoolThickness] = useState<number | null>(10);
   const [polyThickness, setPolyThickness] = useState<number | null>(10);
@@ -121,6 +125,8 @@ export function GenericPackagingBlock({
     setSelectedProductUnit("mp");
     setPackagingInfo(null);
     setSearchQuery("");
+    setSelectedPriceType(null);
+    setM3BaxValue(null);
   }, [recipeName]);
 
   // ── Fetch products based on system type ──────────────────────────────────
@@ -172,6 +178,35 @@ export function GenericPackagingBlock({
       return data || [];
     },
   });
+
+  // ── Fetch product_prices for selected polystyrene product ─────────────────
+  const { data: polyPrices = [] } = useQuery({
+    queryKey: ["poly-product-prices", selectedProductId],
+    enabled: !!selectedProductId && systemType === "polystyrene",
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("product_prices")
+        .select("price_type, price, unit, currency")
+        .eq("product_id", selectedProductId!);
+      return data || [];
+    },
+  });
+
+  // Auto-select "Lista" price type when prices load
+  useEffect(() => {
+    if (polyPrices.length > 0 && !selectedPriceType) {
+      const lista = polyPrices.find((p) => p.price_type === "Lista");
+      setSelectedPriceType(lista?.price_type || polyPrices[0].price_type);
+    }
+  }, [polyPrices, selectedPriceType]);
+
+  // Update pretUnitar when price type changes
+  useEffect(() => {
+    if (selectedPriceType && polyPrices.length > 0) {
+      const entry = polyPrices.find((p) => p.price_type === selectedPriceType);
+      if (entry) setSelectedProductPret(Number(entry.price));
+    }
+  }, [selectedPriceType, polyPrices]);
 
   // ── Combine & Filter Products ────────────────────────────────────────────
   const filteredProducts = useMemo(() => {
@@ -240,17 +275,51 @@ export function GenericPackagingBlock({
     setSelectedProductPret(Number(product.pret_lista) || 0);
     setSelectedProductUnit(product.unit || "mp");
     setPackagingInfo(null);
-    setAiLoading(true);
+    setSelectedPriceType(null);
+    setM3BaxValue(null);
 
+    if (systemType === "polystyrene") {
+      // Citire directă din DB — fără AI
+      const specs = ((product.specifications as any) || {});
+      const brand = product.brand || product.denumire_completa.split(" ")[0] || "Standard";
+      const thicknessCm = inferThicknessFromName(product.denumire_completa) ?? 10;
+      const thicknessMm = thicknessCm * 10;
+
+      const isXps = product.denumire_completa.toLowerCase().includes("xps");
+      // Dimensiuni standard: EPS 100×50 cm, XPS 125×60 cm
+      const lungimeMm = isXps ? 1250 : 1000;
+      const latimeMm  = isXps ? 600  : 500;
+
+      const placiBax  = Number(specs.placi_bax) || Number(product.pack_quantity) || 4;
+      const mpBax     = Number(specs.mp_bax)    || ((lungimeMm / 1000) * (latimeMm / 1000) * placiBax);
+      const m3Bax     = Number(specs.m3_bax)    || (mpBax * thicknessMm / 1000);
+
+      setM3BaxValue(m3Bax);
+      setPackagingInfo({
+        brand,
+        grosime_mm:          thicknessMm,
+        lungime_mm:          lungimeMm,
+        latime_mm:           latimeMm,
+        placi_bax:           placiBax,
+        acoperire_bax_mp:    mpBax,
+        baxuri_palet:        20,
+        acoperire_palet_mp:  mpBax * 20,
+        greutate_bax_kg:     0,
+        utilizare_recomandata: isXps ? "izolație fundație / subsol" : "termoizolație fațadă",
+      });
+      return;
+    }
+
+    // Pentru alte tipuri (vată, gips, zidărie) — citim specs cache, fallback AI
+    setAiLoading(true);
     try {
       const result = await enrichProductPackagingWithAI(product.id, product.denumire_completa);
       if (result) {
         setPackagingInfo(result);
       } else {
-        // Fallbacks per type
         let fallbackCov = 2.88;
-        if (systemType === "drywall") fallbackCov = 3.0; // 3mp sheet typically
-        if (systemType === "masonry") fallbackCov = 1.0; // 1mc typically
+        if (systemType === "drywall") fallbackCov = 3.0;
+        if (systemType === "masonry") fallbackCov = 1.0;
 
         const fallback: StructuredPackagingInfo = {
           brand: product.brand || product.denumire_completa.split(" ")[0] || "Standard",
@@ -288,6 +357,8 @@ export function GenericPackagingBlock({
         setSelectedProductPret(0);
         setSelectedProductUnit("mp");
         setPackagingInfo(null);
+        setSelectedPriceType(null);
+        setM3BaxValue(null);
       }
     }
   }, [filteredProducts, selectedProductId]);
@@ -528,17 +599,17 @@ export function GenericPackagingBlock({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
           <Info className="h-3.5 w-3.5 text-primary" />
-          {systemType === "generic" 
-            ? "Caută produsul principal în catalog" 
+          {systemType === "generic"
+            ? "Caută produsul principal în catalog"
             : "Produs principal pre-selectat (cheapest first)"}
         </Label>
-        
+
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             className="pl-8 h-8 text-xs"
-            placeholder={systemType === "generic" 
-              ? 'Tastează pentru a căuta (ex: "adeziv")...' 
+            placeholder={systemType === "generic"
+              ? 'Tastează pentru a căuta (ex: "adeziv")...'
               : 'Filtrează după brand (ex: "Knauf")...'}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -604,7 +675,7 @@ export function GenericPackagingBlock({
         )}
       </div>
 
-      {/* AI loading overlay */}
+      {/* AI loading overlay — doar pentru vată / gips / zidărie */}
       {aiLoading && (
         <div className="flex items-center gap-2 text-xs text-muted-foreground py-1 bg-muted/20 border border-muted-foreground/10 px-3 rounded-md animate-pulse">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -622,7 +693,7 @@ export function GenericPackagingBlock({
                 label: "Dimensiuni",
                 value: `${packagingInfo.lungime_mm}×${packagingInfo.latime_mm} mm`,
               },
-              { label: "Bucăți/Ambalaj", value: `${packagingInfo.placi_bax} buc` },
+              { label: "Bucăți/Bax", value: `${packagingInfo.placi_bax} buc` },
               { label: "Grosime", value: `${packagingInfo.grosime_mm} mm` },
             ].map(({ label, value }) => (
               <div key={label}>
@@ -634,14 +705,70 @@ export function GenericPackagingBlock({
             ))}
           </div>
 
+          {/* ── Variante preț polistiren (doar din DB, fără AI) ── */}
+          {systemType === "polystyrene" && (
+            <div className="space-y-2">
+              {polyPrices.length > 0 ? (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      Tip preț
+                    </Label>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {polyPrices.map((p) => (
+                        <Button
+                          key={p.price_type}
+                          type="button"
+                          variant={selectedPriceType === p.price_type ? "default" : "outline"}
+                          className="h-7 px-3 text-xs"
+                          onClick={() => setSelectedPriceType(p.price_type)}
+                        >
+                          {p.price_type}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center bg-primary/[0.02] rounded-lg p-2 border border-primary/10">
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-muted-foreground block">Preț/m²</span>
+                      <span className="text-sm font-bold text-foreground">
+                        {selectedProductPret.toFixed(2)} lei
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-muted-foreground block">Preț/bax</span>
+                      <span className="text-sm font-bold text-foreground">
+                        {(selectedProductPret * packagingInfo.acoperire_bax_mp).toFixed(2)} lei
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-muted-foreground block">Preț/m³</span>
+                      <span className="text-sm font-bold text-foreground">
+                        {m3BaxValue
+                          ? ((selectedProductPret * packagingInfo.acoperire_bax_mp) / m3BaxValue).toFixed(2)
+                          : "—"} lei
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-muted-foreground bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 p-2 rounded-md">
+                  Prețurile pe tip ofertă (Lista / Full Tir / Livrare Directă) vor apărea după
+                  rularea scriptului <code>update_eps_xps_pricing.mjs</code> cu datele Excel.
+                  Acum este afișat prețul listă din catalog.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Card className="bg-primary/[0.02] border-primary/15 shadow-sm">
               <CardContent className="p-3 text-center">
                 <span className="text-[10px] text-muted-foreground block font-medium">
-                  Necesar Pachete/Baxuri
+                  Necesar Baxuri
                 </span>
                 <span className="text-lg font-bold text-primary block my-0.5">
-                  {calc.packsNeeded} pachete
+                  {calc.packsNeeded} baxuri
                 </span>
                 <span className="text-[10px] text-muted-foreground block">
                   × {packagingInfo.acoperire_bax_mp} {selectedProductUnit}/bax
@@ -663,19 +790,21 @@ export function GenericPackagingBlock({
               </CardContent>
             </Card>
 
-            <Card className="bg-primary/[0.02] border-primary/15 shadow-sm">
-              <CardContent className="p-3 text-center">
-                <span className="text-[10px] text-muted-foreground block font-medium">
-                  Paleți Returnabili
-                </span>
-                <span className="text-lg font-bold text-foreground block my-0.5">
-                  {calc.fullPalletsNeeded} paleți
-                </span>
-                <span className="text-[10px] text-muted-foreground block">
-                  ({calc.palletsDecimal.toFixed(2)} exact)
-                </span>
-              </CardContent>
-            </Card>
+            {systemType !== "polystyrene" && (
+              <Card className="bg-primary/[0.02] border-primary/15 shadow-sm">
+                <CardContent className="p-3 text-center">
+                  <span className="text-[10px] text-muted-foreground block font-medium">
+                    Paleți Returnabili
+                  </span>
+                  <span className="text-lg font-bold text-foreground block my-0.5">
+                    {calc.fullPalletsNeeded} paleți
+                  </span>
+                  <span className="text-[10px] text-muted-foreground block">
+                    ({calc.palletsDecimal.toFixed(2)} exact)
+                  </span>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div className="text-xs text-muted-foreground bg-muted/10 p-3 rounded-lg border border-border/10 space-y-1.5 shadow-sm">
@@ -686,16 +815,18 @@ export function GenericPackagingBlock({
               </span>
             </div>
             <div className="flex justify-between text-foreground font-semibold">
-              <span>Cost produs principal (rotunjit la pachete întregi):</span>
+              <span>Cost produs principal (rotunjit la baxuri întregi):</span>
               <span className="text-primary">{calc.woolTotalCost.toFixed(2)} lei</span>
             </div>
-            <div className="flex justify-between text-amber-800 font-semibold bg-amber-50/50 dark:bg-amber-950/20 px-2 py-0.5 rounded">
-              <span>
-                Garanție returnabilă paleți europeni ({calc.fullPalletsNeeded} buc × 85
-                lei):
-              </span>
-              <span>+{calc.palletGuarantee.toFixed(2)} lei</span>
-            </div>
+            {systemType !== "polystyrene" && (
+              <div className="flex justify-between text-amber-800 font-semibold bg-amber-50/50 dark:bg-amber-950/20 px-2 py-0.5 rounded">
+                <span>
+                  Garanție returnabilă paleți europeni ({calc.fullPalletsNeeded} buc × 85
+                  lei):
+                </span>
+                <span>+{calc.palletGuarantee.toFixed(2)} lei</span>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -603,26 +603,31 @@ const RecipeQuote = () => {
         pret_final: woolCalc.pretUnitar * (1 - (parseFloat(discount) || 0) / 100),
         subtotal: woolCalc.woolTotalCost * (1 - (parseFloat(discount) || 0) / 100),
         nota_ai: {
-          ambalare: `${woolCalc.packsNeeded} pachete × ${pkg.acoperire_bax_mp} ${woolCalc.unitDb}`,
+          ambalare: `${woolCalc.packsNeeded} baxuri × ${pkg.acoperire_bax_mp} ${woolCalc.unitDb}`,
           grosime: `${pkg.grosime_mm} mm`,
           recomandare: pkg.utilizare_recomandata,
         },
       });
 
-      // Garanție paleți
-      items.push({
-        quote_id: quote.id,
-        product_id: null,
-        cod_intern: "PALET",
-        denumire: `Garanție Palet Euro (Returnabil — ${woolCalc.fullPalletsNeeded} buc)`,
-        quantity: woolCalc.fullPalletsNeeded,
-        unit: "buc",
-        pret_unitar: 85,
-        discount_percent: 0,
-        pret_final: 85,
-        subtotal: woolCalc.palletGuarantee,
-        nota_ai: { returnabil: true },
-      });
+      // Garanție paleți — omis temporar pentru polistiren
+      const recipeSystemType = selectedRecipe
+        ? getSystemType(selectedRecipe.recipe_name, selectedRecipe.category)
+        : "generic";
+      if (recipeSystemType !== "polystyrene") {
+        items.push({
+          quote_id: quote.id,
+          product_id: null,
+          cod_intern: "PALET",
+          denumire: `Garanție Palet Euro (Returnabil — ${woolCalc.fullPalletsNeeded} buc)`,
+          quantity: woolCalc.fullPalletsNeeded,
+          unit: "buc",
+          pret_unitar: 85,
+          discount_percent: 0,
+          pret_final: 85,
+          subtotal: woolCalc.palletGuarantee,
+          nota_ai: { returnabil: true },
+        });
+      }
     }
 
     // Materiale auxiliare din rețetă (salvăm toate materialele din rețetă)
@@ -1036,10 +1041,16 @@ const RecipeQuote = () => {
                         </span>
                         <span className="font-medium">{woolCalc.woolTotalCost.toFixed(2)} lei</span>
                       </div>
-                      <div className="flex justify-between w-full max-w-xs text-amber-700">
-                        <span>Garanție paleți ({woolCalc.fullPalletsNeeded} × 85 lei):</span>
-                        <span className="font-medium">+{woolCalc.palletGuarantee.toFixed(2)} lei</span>
-                      </div>
+                      {(() => {
+                        const sysType2 = selectedRecipe ? getSystemType(selectedRecipe.recipe_name, selectedRecipe.category) : "generic";
+                        if (sysType2 === "polystyrene") return null;
+                        return (
+                          <div className="flex justify-between w-full max-w-xs text-amber-700">
+                            <span>Garanție paleți ({woolCalc.fullPalletsNeeded} × 85 lei):</span>
+                            <span className="font-medium">+{woolCalc.palletGuarantee.toFixed(2)} lei</span>
+                          </div>
+                        );
+                      })()}
                       <div className="flex justify-between w-full max-w-xs text-muted-foreground">
                         <span>Materiale auxiliare:</span>
                         <span className="font-medium">
