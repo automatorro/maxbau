@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { DashboardLayout } from "@/components/DashboardLayout";
@@ -48,6 +48,12 @@ interface Product {
   fisa_tehnica_processed?: boolean;
 }
 
+function isPolystyrene(p: Product): boolean {
+  const name = (p.denumire_completa || "").toLowerCase();
+  const cat = (p.categories?.name || "").toLowerCase();
+  return /eps|xps|polistiren/.test(name) || /polistiren/.test(cat);
+}
+
 const getAiInfo = (p: Product): AiInfo | null => {
   const specs = p.specifications || {};
   if (specs.ai_info) {
@@ -78,6 +84,86 @@ const getAiInfo = (p: Product): AiInfo | null => {
   }
   return null;
 };
+
+function PolystyrenePricesRow({ product }: { product: Product }) {
+  const [selectedPriceType, setSelectedPriceType] = useState<string | null>(null);
+
+  const { data: prices = [] } = useQuery({
+    queryKey: ["product-prices-poly", product.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("product_prices")
+        .select("price_type, price, unit, currency")
+        .eq("product_id", product.id)
+        .is("valid_to", null);
+      return data || [];
+    },
+  });
+
+  useEffect(() => {
+    if (prices.length > 0 && !selectedPriceType) {
+      const lista = prices.find((p) => p.price_type === "Lista");
+      setSelectedPriceType(lista?.price_type || prices[0].price_type);
+    }
+  }, [prices, selectedPriceType]);
+
+  if (prices.length === 0) return null;
+
+  const specs = product.specifications || {};
+  const mpBax = Number(specs.mp_bax) || null;
+  const m3Bax = Number(specs.m3_bax) || null;
+  const placiBax = Number(specs.placi_bax) || null;
+
+  const activePrice = prices.find((p) => p.price_type === selectedPriceType) || prices[0];
+  const pricePerM2 = activePrice ? Number(activePrice.price) : Number(product.pret_lista);
+  const pricePerBax = mpBax ? pricePerM2 * mpBax : null;
+  const pricePerM3 = pricePerBax && m3Bax ? pricePerBax / m3Bax : null;
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
+      <h5 className="text-xs font-semibold text-primary uppercase tracking-wider">
+        Variante preț polistiren
+      </h5>
+      <div className="flex flex-wrap gap-1.5 items-center">
+        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Tip:</span>
+        {prices.map((p) => (
+          <button
+            key={p.price_type}
+            onClick={() => setSelectedPriceType(p.price_type)}
+            className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+              selectedPriceType === p.price_type
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:border-primary/50"
+            }`}
+          >
+            {p.price_type}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center text-xs max-w-sm">
+        <div className="bg-primary/5 rounded-lg p-2 border border-primary/15">
+          <p className="text-[9px] uppercase font-bold text-muted-foreground">Preț/m²</p>
+          <p className="text-sm font-bold text-primary">{pricePerM2.toFixed(2)} lei</p>
+        </div>
+        <div className="bg-primary/5 rounded-lg p-2 border border-primary/15">
+          <p className="text-[9px] uppercase font-bold text-muted-foreground">Preț/bax</p>
+          <p className="text-sm font-bold text-primary">
+            {pricePerBax ? `${pricePerBax.toFixed(2)} lei` : "—"}
+          </p>
+          {mpBax && placiBax && (
+            <p className="text-[9px] text-muted-foreground">{placiBax} buc · {mpBax} m²</p>
+          )}
+        </div>
+        <div className="bg-primary/5 rounded-lg p-2 border border-primary/15">
+          <p className="text-[9px] uppercase font-bold text-muted-foreground">Preț/m³</p>
+          <p className="text-sm font-bold text-primary">
+            {pricePerM3 ? `${pricePerM3.toFixed(2)} lei` : "—"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ProductPricesTab({ productId }: { productId: string }) {
   const { data: prices, isLoading } = useQuery({
@@ -909,6 +995,7 @@ const AdminProducts = () => {
                                   <p>{aiInfo?.compatibilitati || "-"}</p>
                                 </div>
                               </div>
+                              {isPolystyrene(product) && <PolystyrenePricesRow product={product} />}
                               {product.specifications?.fisa_tehnica_specs && (
                                 <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
                                   <h5 className="text-xs font-semibold text-primary uppercase tracking-wider flex items-center gap-1.5">
@@ -1105,6 +1192,7 @@ const AdminProducts = () => {
                           </div>
                         )}
                       </div>
+                      {isPolystyrene(product) && <PolystyrenePricesRow product={product} />}
                     </div>
                   )}
                 </div>

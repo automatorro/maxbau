@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -132,6 +132,14 @@ function getAiInfo(product: ProductFull): AiInfo | null {
   return null;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isPolystyrene(product: ProductFull): boolean {
+  const name = (product.denumire_completa || "").toLowerCase();
+  const cat = ((product.categories as any)?.name || "").toLowerCase();
+  return /eps|xps|polistiren/.test(name) || /polistiren/.test(cat);
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const DataSourceBadge = ({ source }: { source: DataSource }) => {
@@ -207,6 +215,99 @@ const ChipList = ({ label, items, color = "blue" }: { label: string; items?: str
             {item}
           </span>
         ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Polystyrene price section ────────────────────────────────────────────────
+
+const PolystyrenePriceSection = ({ product }: { product: ProductFull }) => {
+  const [selectedPriceType, setSelectedPriceType] = useState<string | null>(null);
+
+  const { data: prices = [] } = useQuery({
+    queryKey: ["product-prices-poly", product.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("product_prices")
+        .select("price_type, price, unit, currency")
+        .eq("product_id", product.id)
+        .is("valid_to", null);
+      return data || [];
+    },
+  });
+
+  useEffect(() => {
+    if (prices.length > 0 && !selectedPriceType) {
+      const lista = prices.find((p) => p.price_type === "Lista");
+      setSelectedPriceType(lista?.price_type || prices[0].price_type);
+    }
+  }, [prices, selectedPriceType]);
+
+  const specs = product.specifications || {};
+  const mpBax = Number(specs.mp_bax) || null;
+  const m3Bax = Number(specs.m3_bax) || null;
+  const placiBax = Number(specs.placi_bax) || null;
+
+  const activePrice = prices.find((p) => p.price_type === selectedPriceType) || prices[0];
+  const pricePerM2 = activePrice ? Number(activePrice.price) : Number(product.pret_lista);
+  const pricePerBax = mpBax ? pricePerM2 * mpBax : null;
+  const pricePerM3 = pricePerBax && m3Bax ? pricePerBax / m3Bax : null;
+
+  if (prices.length === 0) {
+    return (
+      <div className="text-2xl font-bold text-primary">
+        {Number(product.pret_lista).toFixed(2)}{" "}
+        <span className="text-base font-normal text-muted-foreground">
+          lei / {product.unit || "mp"} fără TVA
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 w-full">
+      <div className="flex flex-wrap gap-1.5 items-center">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mr-1">
+          Tip preț:
+        </span>
+        {prices.map((p) => (
+          <button
+            key={p.price_type}
+            onClick={() => setSelectedPriceType(p.price_type)}
+            className={cn(
+              "px-3 py-1 rounded-full text-xs font-semibold border transition-colors",
+              selectedPriceType === p.price_type
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:border-primary/50"
+            )}
+          >
+            {p.price_type}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-3 max-w-lg">
+        <div className="text-center p-2.5 rounded-lg bg-primary/5 border border-primary/15">
+          <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Preț/m²</p>
+          <p className="text-xl font-bold text-primary">{pricePerM2.toFixed(2)}</p>
+          <p className="text-[10px] text-muted-foreground">lei fără TVA</p>
+        </div>
+        <div className="text-center p-2.5 rounded-lg bg-primary/5 border border-primary/15">
+          <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Preț/bax</p>
+          <p className="text-xl font-bold text-primary">
+            {pricePerBax ? pricePerBax.toFixed(2) : "—"}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {mpBax && placiBax ? `${placiBax} buc · ${mpBax} m²` : "lei fără TVA"}
+          </p>
+        </div>
+        <div className="text-center p-2.5 rounded-lg bg-primary/5 border border-primary/15">
+          <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Preț/m³</p>
+          <p className="text-xl font-bold text-primary">
+            {pricePerM3 ? pricePerM3.toFixed(2) : "—"}
+          </p>
+          <p className="text-[10px] text-muted-foreground">lei fără TVA</p>
+        </div>
       </div>
     </div>
   );
@@ -826,6 +927,7 @@ const ProductDetail = () => {
   }
 
   const source = getDataSource(product);
+  const poly = isPolystyrene(product);
 
   return (
     <DashboardLayout>
@@ -857,13 +959,16 @@ const ProductDetail = () => {
           <h1 className="text-2xl font-bold leading-tight">{product.denumire_completa}</h1>
           <div className="flex flex-wrap items-center gap-4">
             <DataSourceBadge source={source} />
-            <div className="text-2xl font-bold text-primary">
-              {Number(product.pret_lista).toFixed(2)}{" "}
-              <span className="text-base font-normal text-muted-foreground">
-                lei / {product.unit || "buc"} fără TVA
-              </span>
-            </div>
+            {!poly && (
+              <div className="text-2xl font-bold text-primary">
+                {Number(product.pret_lista).toFixed(2)}{" "}
+                <span className="text-base font-normal text-muted-foreground">
+                  lei / {product.unit || "buc"} fără TVA
+                </span>
+              </div>
+            )}
           </div>
+          {poly && <PolystyrenePriceSection product={product} />}
         </div>
 
         <Separator />
