@@ -142,6 +142,95 @@ export interface MaterialSystem {
   components: SystemComponent[];
 }
 
+// ── Extragere planuri structurale (armătură / beton) ─────────────────────────
+// Vezi CLAUDE.md §8 + docs interne: extragere Vision pe PDF-uri scanate, apoi
+// agregare deterministă în cod (kg/ml pe combinația marcă + diametru).
+
+/** Marca de oțel standard din planurile românești. String liber pentru variante. */
+export type MarcaOtel = "B500C" | "PC52" | "OB37" | string;
+
+/** Tipul barei conform pattern-urilor de adnotare (§4.1 din spec). */
+export type TipBara = "dreapta" | "etrier" | "distributie";
+
+/**
+ * Adnotare brută extrasă 1:1 de pe planșă (grafică sau Extras), înainte de
+ * orice agregare. Modelul AI umple aceste câmpuri; aritmetica se face în cod.
+ */
+export interface RawRebarEntry {
+  /** ex: "R02.pdf" sau "Extras_fundatii.pdf" — pentru audit + agregare per-planșă */
+  sourceFile: string;
+  sourceType: "extras_table" | "graphic_plan";
+  /** codul poziției din planșă ex: "1a", "2", "11k" — opțional pe planșa grafică */
+  poz?: string;
+  marca: MarcaOtel;
+  diametruMm: number;
+  tipBara: TipBara;
+  numarBare: number;
+  /** metri, valoarea pe UN bară */
+  lungimeUnaBara: number;
+  /** valoarea „Lungime totală" tipărită în tabel (pentru cross-check) */
+  lungimeTotalaSursa?: number;
+  needsManualReview?: boolean;
+  reviewReason?: string;
+}
+
+/**
+ * Rezultatul agregării deterministe pe combinația (marcă + Ø). Calculat în
+ * TypeScript, NU cerut modelului AI.
+ */
+export interface RebarTotalByMarcaDiametru {
+  marca: MarcaOtel;
+  diametruMm: number;
+  totalMl: number;
+  /** kg/ml — din tabelul standardizat (§5.5 spec) */
+  masaPeMetru: number;
+  totalKg: number;
+  /** True dacă recalcularea nu se potrivește cu footer-ul tipărit al Extras-ului */
+  needsManualReview: boolean;
+  reviewReason?: string;
+  /** Lista fișierelor sursă care au contribuit (pentru trasabilitate) */
+  sourceFiles: string[];
+}
+
+/**
+ * Volum de beton pe clasă. Cerință deschisă (§10 pct.1 spec) — populat numai
+ * dacă găsim tabel centralizator de beton sau dacă cerința va fi confirmată.
+ */
+export interface ConcreteTotalByClass {
+  clasa: string; // ex: "C20/25", "C25/30"
+  totalMc: number;
+  needsManualReview: boolean;
+  reviewReason?: string;
+  sourceFiles: string[];
+}
+
+/**
+ * Metadate din caseta „MATERIALE:" a fiecărei planșe (§7 spec).
+ * Ne spune ce clasă de beton / marcă de oțel se aplică elementelor din acea planșă.
+ */
+export interface PlanMaterialsBox {
+  sourceFile: string;
+  beton?: Array<{ element: string; clasa: string; note?: string }>;
+  otel?: Array<{ element: string; marca: MarcaOtel }>;
+  lemn?: Array<{ specificatie: string }>;
+}
+
+/** Rezultatul agregat al unui import complet (mai multe planșe într-un proiect). */
+export interface StructuralImportResult {
+  /** Câte fișiere PDF au fost procesate în acest import */
+  numFiles: number;
+  /** Toate rândurile brute (pentru audit + re-agregare per fișier) */
+  rawEntries: RawRebarEntry[];
+  /** Totalurile finale, per (marcă + Ø), peste toate planurile */
+  rebarTotals: RebarTotalByMarcaDiametru[];
+  /** Beton — populat opțional când există tabel centralizator */
+  concreteTotals?: ConcreteTotalByClass[];
+  /** Metadate materiale per planșă */
+  materialsBoxes: PlanMaterialsBox[];
+  /** Erori / avertismente la nivel de import */
+  warnings: string[];
+}
+
 /** O linie în lista BOM (Bill of Materials) expandată */
 export interface BOMItem {
   id: string;

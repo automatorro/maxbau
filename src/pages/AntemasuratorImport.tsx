@@ -9,6 +9,11 @@ import {
   extractTableFromImageWithAnthropic,
   extractAntemasuratoareFromTextWithAnthropic,
   extractFloorPlanFromTextWithAnthropic,
+  extractStructuralExtrasFromImageWithAnthropic,
+  extractStructuralAnnotationsFromImageWithAnthropic,
+  classifyStructuralPlanWithAnthropic,
+  type ExtractedExtrasResult,
+  type ExtractedGraphicRebarResult,
 } from "@/utils/anthropic";
 import { findEquivalents } from "@/utils/equivalents";
 import {
@@ -25,7 +30,19 @@ import {
   bomToExtractedItems,
   aggregateBOM,
 } from "@/utils/bomEngine";
-import type { PlanData, BOMItem } from "@/types/planTypes";
+import { rasterizePdfPages } from "@/utils/pdfRasterize";
+import {
+  aggregateRebarEntries,
+  compareWithFooter,
+  applyFooterValidation,
+  normalizeMarca,
+} from "@/utils/rebarAggregator";
+import type {
+  PlanData,
+  BOMItem,
+  RawRebarEntry,
+  RebarTotalByMarcaDiametru,
+} from "@/types/planTypes";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -653,6 +670,191 @@ export default function AntemasuratorImport() {
     }
   }, [textInput, applyItems]);
 
+  // ── Flux Vision pentru planuri structurale scanate ────────────────────────
+  //
+  // Chemat când PDF-ul nu are text layer (scanat, print-to-PDF din CAD cu
+  // text-as-shapes) SAU când userul selectează manual "Plan Structură".
+  //
+  // Pipeline:
+  //   1. Rasterizează toate paginile la JPEG 2.5x
+  //   2. Prima pagină → clasificator Vision (detectează tip planșă)
+  //   3. În funcție de tip, rulează extractor Vision pe fiecare pagină:
+  //        - extras_armatura  → extractStructuralExtrasFromImageWithAnthropic
+  //        - plan_grafic_structural → extractStructuralAnnotationsFromImageWithAnthropic
+  //   4. Colectează RawRebarEntry[], agregă pe (marcă+Ø), compară cu footer
+  //   5. Convertește totaluri → ExtractedItem[] și le APPENDează la items[]
+  //
+  // Aritmetica se face în rebarAggregator.ts, NU e cerută modelului AI.
+  const processStructuralPdf = useCallback(
+    async (buf: ArrayBuffer, fileName: string, isScannedPdf: boolean) => {
+      setProgressMsg(
+        isScannedPdf
+          ? "PDF fără text extractibil — trec pe flux Vision..."
+          : "Trec pe flux Vision structural (forțat manual)..."
+      );
+
+      try {
+        // 1. Rasterizare
+        setProgressMsg("Randare pagini PDF (2.5x)...");
+        const pages = await rasterizePdfPages(
+          buf,
+          2.5,
+          (current, total) => setProgressMsg(`Randare pagina ${current}/${total}...`)
+        );
+        if (!pages.length) {
+          toast.error("PDF-ul nu conține pagini randabile.");
+          return;
+        }
+
+        // 2. Clasificare pe prima pagină
+        setProgressMsg("Clasificare planșă (Vision AI)...");
+        const classification = await classifyStructuralPlanWithAnthropic(
+          pages[0],
+          "image/jpeg"
+        );
+
+        // 3. Rutare pe baza tipului detectat
+        if (classification.tipPlansa === "sarpanta") {
+          toast.warning(
+            "Planșă de șarpantă detectată. Șarpanta nu e suportată încă — încarcă manual materialele.",
+            { duration: 6000 }
+          );
+          return;
+        }
+        if (classification.tipPlansa === "necunoscut") {
+          toast.error(
+            `Nu am putut clasifica planșa (${classification.motivatie}). Folosește dropdown-ul pentru a forța un tip.`,
+            { duration: 6000 }
+          );
+          return;
+        }
+        if (classification.tipPlansa === "plan_finisaje") {
+          toast.warning(
+            "Planșa pare a fi de finisaje, dar nu are text extractibil. Cere planul cu text (nu scanat).",
+            { duration: 6000 }
+          );
+          return;
+        }
+
+        const isExtras = classification.tipPlansa === "extras_armatura";
+        const isGrafic = classification.tipPlansa === "plan_grafic_structural";
+
+        // 4. Extragere pe fiecare pagină
+        const rawEntries: RawRebarEntry[] = [];
+        let footerReports: Array<{ diametruMm: number; totalMl?: number; totalKg?: number }> = [];
+        let footerTotalKg: number | undefined;
+        let categorie: string | null = classification.titlu;
+        let marcaImplicita: string | null = null;
+
+        for (let i = 0; i < pages.length; i++) {
+          const pageBase64 = pages[i];
+          setProgressMsg(
+            `Extragere pagina ${i + 1}/${pages.length} (${isExtras ? "Extras tabel" : "adnotări grafice"})...`
+          );
+
+          if (isExtras) {
+            const result: ExtractedExtrasResult =
+              await extractStructuralExtrasFromImageWithAnthropic(pageBase64, "image/jpeg");
+            if (i === 0) {
+              categorie = result.categorie ?? categorie;
+              marcaImplicita = result.marcaImplicita;
+              footerReports = result.footer.perDiametru.map((f) => ({
+                diametruMm: f.diametruMm,
+                totalMl: f.totalMl ?? undefined,
+                totalKg: f.totalKg ?? undefined,
+              }));
+              footerTotalKg = result.footer.totalKg ?? undefined;
+            }
+            for (const r of result.randuri) {
+              rawEntries.push({
+                sourceFile: fileName,
+                sourceType: "extras_table",
+                poz: r.poz,
+                marca: normalizeMarca(r.marca ?? marcaImplicita ?? "B500C"),
+                diametruMm: r.diametruMm,
+                tipBara: r.tipBara,
+                numarBare: r.numarBare,
+                lungimeUnaBara: r.lungimeUnaBara,
+                lungimeTotalaSursa: r.lungimeTotalaSursa ?? undefined,
+              });
+            }
+          } else if (isGrafic) {
+            const result: ExtractedGraphicRebarResult =
+              await extractStructuralAnnotationsFromImageWithAnthropic(pageBase64, "image/jpeg");
+            if (i === 0) marcaImplicita = result.marcaImplicita;
+            for (const a of result.adnotari) {
+              // Convertim adnotările grafice în RawRebarEntry.
+              // Pentru bare drepte / etrieri: numarBare × lungimeUnaBara = ml.
+              // Pentru distributie fără lungime (doar Ø/pas), lăsăm needsManualReview.
+              const needsReview = a.lungimeUnaBara == null;
+              rawEntries.push({
+                sourceFile: fileName,
+                sourceType: "graphic_plan",
+                poz: a.poz ?? undefined,
+                marca: normalizeMarca(a.marca ?? marcaImplicita ?? "B500C"),
+                diametruMm: a.diametruMm,
+                tipBara: a.tipBara,
+                numarBare: a.numarBare,
+                lungimeUnaBara: a.lungimeUnaBara ?? 0,
+                needsManualReview: needsReview,
+                reviewReason: needsReview
+                  ? "Lungime nedeterminată din desen — completează manual (probabil bară de distribuție Ø/pas fără cotă)"
+                  : undefined,
+              });
+            }
+          }
+        }
+
+        if (!rawEntries.length) {
+          toast.error("Nu s-au extras rânduri de armătură din planșă.");
+          return;
+        }
+
+        // 5. Agregare deterministă
+        setProgressMsg("Agregare pe (marcă + diametru)...");
+        let totals: RebarTotalByMarcaDiametru[] = aggregateRebarEntries(rawEntries);
+
+        // 6. Comparație cu footer (dacă avem tabel Extras)
+        if (isExtras && footerReports.length > 0) {
+          const validation = compareWithFooter(totals, footerReports, footerTotalKg);
+          totals = applyFooterValidation(totals, validation);
+          if (validation.discrepancies.length > 0) {
+            toast.warning(
+              `${validation.discrepancies.length} discrepanțe față de footer-ul tipărit. Verifică rândurile marcate cu galben.`,
+              { duration: 6000 }
+            );
+          }
+        }
+
+        // 7. Convertim la ExtractedItem[] și adăugăm la items existente
+        const newItems: ExtractedItem[] = totals.map((t, idx) => ({
+          id: randomId(),
+          nr: String(items.length + idx + 1),
+          sectiune: `${categorie ?? "Armătură"} — ${fileName}`,
+          descriere_client: `Oțel beton ${t.marca} Ø${t.diametruMm} fasonat`,
+          cantitate: t.totalKg,
+          unitate: "kg",
+          needsManualReview: t.needsManualReview,
+          reviewReason: t.reviewReason,
+        }));
+
+        setItems((prev) => [...prev, ...newItems]);
+        toast.success(
+          `${newItems.length} materiale (armătură) extrase din ${fileName}. Total: ${
+            totals.reduce((s, t) => s + t.totalKg, 0).toFixed(0)
+          } kg oțel.`,
+          { duration: 6000 }
+        );
+      } catch (e: any) {
+        console.error("[processStructuralPdf]", e);
+        toast.error(`Eroare la extragerea planului structural: ${e.message ?? "necunoscută"}`);
+      } finally {
+        setProgressMsg("");
+      }
+    },
+    [items.length]
+  );
+
   const handleFileUpload = useCallback(
     async (file: File) => {
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -674,9 +876,21 @@ export default function AntemasuratorImport() {
           const autoIsFloorPlan = detectIsFloorPlan(textItems);
           setDetectedAsFloorPlan(autoIsFloorPlan);
 
+          // ── NOU: PDF fără text layer (scanat / export CAD cu text-as-shapes) ──
+          // Planurile reale de șantier sunt aproape mereu print-to-PDF din
+          // scan/imagine (Bullzip PDF Printer etc.) — pdfjs întoarce 0 text items.
+          // Nu are sens să încercăm ramurile bazate pe text: mergem direct pe
+          // Vision. Vezi spec §1 „Bug blocant".
+          const HAS_TEXT_LAYER_THRESHOLD = 5;
+          const isScannedPdf = textItems.length < HAS_TEXT_LAYER_THRESHOLD;
+
+          if (isScannedPdf || docType === "structural") {
+            await processStructuralPdf(buf, file.name, isScannedPdf);
+            return;
+          }
+
           const treatAsFloorPlan =
             docType === "floor_plan" ||
-            docType === "structural" ||
             (docType === "auto" && autoIsFloorPlan);
 
           if (treatAsFloorPlan) {
@@ -1177,8 +1391,8 @@ export default function AntemasuratorImport() {
                     <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
                     <p className="text-xs text-blue-700">
                       <strong>Excel</strong> — cel mai precis, procesare instant. &nbsp;
-                      <strong>PDF/Imagine</strong> — extragere OCR via AI. &nbsp;
-                      <strong>PDF multi-pagină</strong> — OCR extrage primul tabel; produsele de pe paginile 2+ pot fi adăugate manual sau prin tab-ul <em>Text / Copy-paste</em>.
+                      <strong>PDF cu text</strong> — parsare locală + AI text. &nbsp;
+                      <strong>PDF scanat (fără text)</strong> — extragere Vision AI pe pagini randate (planuri de rezistență / Extras de armătură). Cantitățile de oțel se agregă automat pe (marcă + Ø) și se compară cu footer-ul tipărit.
                     </p>
                   </div>
                 </TabsContent>

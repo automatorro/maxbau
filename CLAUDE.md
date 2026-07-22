@@ -115,9 +115,62 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ## 8. Stadiul Curent al Proiectului
 
-> Ultima actualizare: **2026-07-20**. Actualizează după fiecare sesiune importantă.
+> Ultima actualizare: **2026-07-22**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **Extragere planuri structurale scanate via Anthropic Vision** (2026-07-22):
+  - Bug fix blocant: pipeline-ul presupunea că PDF-urile de plan au text layer
+    extractibil (`pdfjs.getTextContent()`). Planurile reale de șantier (print-to-PDF
+    din CAD, ex. Bullzip PDF Printer) au **0 text items** — indiferent ce docType
+    alegea userul, ajungeau la extractoare de text goale (Anthropic AI apelat cu
+    string gol). Fix: detecție `textItems.length < 5` → rutare Vision.
+  - `src/utils/pdfRasterize.ts` [NOU] — utilitar provider-agnostic: pdfjs → canvas
+    → JPEG base64 la scale 2.5x (păstrează cotele cu 2-3 zecimale). Folosit
+    exclusiv de fluxul Vision (nu duplică logica din `geminiVision.ts`, care
+    rămâne dezactivat).
+  - `src/utils/anthropic.ts` — 4 extractoare Vision noi cu tool schema dedicată:
+    * `classifyStructuralPlanWithAnthropic()` — clasificator pe prima pagină
+      (extras_armatura / plan_grafic_structural / plan_finisaje / sarpanta /
+      necunoscut) + detectează rotația paginii + prezența casetei MATERIALE.
+    * `extractStructuralExtrasFromImageWithAnthropic()` — cale A: tabel „Extras
+      de armătură". Extrage rând-cu-rând (Poz/Ø/N/L/L_totală + footer per Ø),
+      cu instrucțiuni explicite pentru text rotit 90°.
+    * `extractStructuralAnnotationsFromImageWithAnthropic()` — cale B: planșa
+      grafică cu adnotări individuale. Recunoaște 3 pattern-uri distincte
+      (bară dreaptă `N×ØD L=X`, etrier `etr.ØD L=X` + `etr ØD/pas — N buc`,
+      distribuție `NØD/pas L=X`).
+    * `extractMaterialsBoxFromImageWithAnthropic()` — caseta „MATERIALE:" per
+      planșă (clasa beton + marca oțel per element).
+    * **Toate returnează date brute rând-cu-rând** — aritmetica NU e delegată
+      modelului AI.
+  - `src/utils/rebarAggregator.ts` [NOU] — motor pur (24 teste Vitest):
+    * `STEEL_MASS_PER_METER` hardcoded (Ø6..Ø32) cu valorile exact tipărite
+      pe footer-ul extraselor românești standard, + fallback teoretic pentru
+      Ø nemapate.
+    * `normalizeMarca()` — colapsează „B 500 C" / „BST500S" / „BST500" → „B500C".
+    * `validateEntry()` — recalculează `N×L` și flag mismatch > 2% față de sursă.
+    * `aggregateRebarEntries()` — agregă pe (marcă + Ø) peste toate fișierele
+      unui import, colectează sourceFiles pentru trasabilitate.
+    * `compareWithFooter()` — cross-check cu footer-ul tipărit, detectează:
+      Ø absent din footer (BUG REAL Ø16 din Extras_centuri), Ø absent din calc,
+      mismatch pe valoare > 2%, discrepanță pe total kg.
+    * `applyFooterValidation()` — propagă `needsManualReview` + motivul înapoi
+      pe totaluri (fără mutare).
+  - `src/types/planTypes.ts` — 5 tipuri noi: `RawRebarEntry` (audit + re-agregare
+    per fișier), `RebarTotalByMarcaDiametru`, `ConcreteTotalByClass` (opțional
+    pentru viitor), `PlanMaterialsBox` (metadate MATERIALE), `StructuralImportResult`.
+  - `src/pages/AntemasuratorImport.tsx` — `processStructuralPdf()` nouă:
+    rasterizare → clasificare → extragere pe fiecare pagină → agregare
+    deterministă → convertire la ExtractedItem[] și append în lista existentă.
+    Selectorul „Plan Structură" e acum funcțional (înainte era identic cu
+    „Plan Finisaje"). Info-box actualizat cu explicații pentru PDF cu/fără text.
+  - **Șarpanta (R09/R10) explicit amânată** — spec §10 pct.3: structura tabelului
+    centralizator pentru lemn nu a fost verificată încă, poate diferi semnificativ.
+  - **Chestiuni deschise** (spec §10): volum beton pe clasă neconfirmat încă
+    (Extras-urile primite conțin doar oțel); agregare per-proiect implementată
+    prin acumulare de items la nivel de import — dacă utilizatorul încarcă mai
+    multe PDF-uri structurale, fiecare produce items separat (viitor: re-agregare
+    globală în UI).
 - **Motor de echivalare DB-first cu bariere dure** (2026-07-17):
   - `src/lib/equivalentsEngine.ts` [NOU] — motor pur (21 teste Vitest): bariere de
     familie de produs (vată ≠ OSB ≠ fotovoltaice), de subtip/aplicație (adeziv gresie

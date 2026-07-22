@@ -421,6 +421,431 @@ REGULI STRICTE:
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// STRUCTURAL PLAN VISION EXTRACTORS
+// ─────────────────────────────────────────────────────────────────────────────
+// Extragere planuri structurale (armătură + beton) din PDF-uri SCANATE, care
+// nu au text layer. Randare pdfjs → JPEG base64 → Anthropic Vision cu tool
+// schema dedicată. Aritmetica se face DETERMINIST în rebarAggregator.ts, NU
+// e cerută modelului. Vezi CLAUDE.md §8 + spec §5, §6.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Helper: apel Anthropic Vision cu tool_choice, fără fallback Gemini (imaginile
+ *  au format diferit între cei doi provideri, iar spec-ul cere Anthropic). */
+async function callAnthropicVisionTool(
+  systemPrompt: string,
+  userText: string,
+  imageBase64: string,
+  mimeType: string,
+  toolSchema: any,
+  toolName: string,
+  maxTokens = 8192
+): Promise<any> {
+  const { ok, status, data } = await callAiProxy("anthropic", {
+    model: "claude-3-5-sonnet-20241022",
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: mimeType, data: imageBase64 },
+          },
+          { type: "text", text: userText },
+        ],
+      },
+    ],
+    tools: [toolSchema],
+    tool_choice: { type: "tool", name: toolName },
+  });
+
+  if (!ok) {
+    console.error("Anthropic Vision Error:", status, data);
+    throw new Error(`Anthropic Vision (${status}): ${data?.error ?? "eroare necunoscută"}`);
+  }
+
+  const toolCall = data.content?.find(
+    (c: any) => c.type === "tool_use" && c.name === toolName
+  );
+  if (!toolCall?.input) {
+    throw new Error("Modelul Vision nu a returnat date structurate valabile.");
+  }
+  return toolCall.input;
+}
+
+// ── (A) EXTRAS DE ARMĂTURĂ — tabel centralizator, sursă primară ──────────────
+
+export interface ExtractedExtrasResult {
+  categorie: string | null;      // ex: "ARMARE FUNDAȚII" / "ARMARE CENTURI ȘI GRINZI"
+  proiect: string | null;
+  beneficiar: string | null;
+  marcaImplicita: string | null; // marcă activă pentru rândurile fără marcă explicită
+  randuri: Array<{
+    poz: string;
+    marca: string | null;        // marca specifică rândului, dacă diferă (null → moștenește marcaImplicita)
+    diametruMm: number;
+    numarBare: number;
+    lungimeUnaBara: number;      // metri
+    lungimeTotalaSursa: number | null; // valoarea tipărită în tabel — pentru cross-check
+    tipBara: "dreapta" | "etrier" | "distributie";
+    note: string;
+  }>;
+  footer: {
+    perDiametru: Array<{
+      diametruMm: number;
+      totalMl: number | null;
+      totalKg: number | null;
+    }>;
+    totalKg: number | null;
+  };
+  observatii: string;
+}
+
+export async function extractStructuralExtrasFromImageWithAnthropic(
+  imageBase64: string,
+  mimeType: string
+): Promise<ExtractedExtrasResult> {
+  const systemPrompt = `Ești expert în citirea tabelelor „Extras de armătură" de pe planurile de rezistență românești (SR EN 1992-1-1 / STAS 438).
+
+CONTEXT: aceste tabele centralizează pozițiile de armătură pentru o categorie de elemente (fundații, centuri, grinzi, stâlpi, placă). Sunt tipărite adesea landscape pe pagină portrait — trebuie să interpretezi TEXT ROTIT LA ORICE UNGHI (0°, 90°, 180°, 270°).
+
+STRUCTURA STANDARD A TABELULUI:
+  Antet:  Poz | Ø [mm] | Nr. bare | Lungime bară [m] | Lungime totală [m]
+  Rânduri: câte una per poziție (Poz poate fi „1a", „2", „11k")
+  Marca oțelului („B 500 C", „PC 52", „OB 37") apare ca antet de secțiune peste
+  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca „activă"
+  pe măsură ce parcurgi rândurile de sus în jos.
+  Footer:  „LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + „MASA PE DIAMETRU" (sumă kg/Ø) + „TOTAL [kg]".
+
+REGULI STRICTE:
+1. Extrage DOAR datele scrise. NU calcula, NU corecta, NU inventa. Aritmetica
+   se face în cod, tu doar transcrii ce vezi.
+2. Poz = codul exact al poziției (ex „1a", păstrează sufixul alfabetic).
+3. Ø = numărul întreg (6, 8, 10, 12, 14, 16, 20 etc.).
+4. „Nr. bare" = numărul întreg de bare identice (poate fi mare, ex 548).
+5. „Lungime bară" = valoarea din coloană, exact așa cum e tipărită (poate fi 4.45 sau 4,45 — normalizează la punct zecimal).
+6. „Lungime totală" = valoarea din coloana finală. **Dacă celula e goală, returnează null** (nu recalcula tu). Asta e vital — există bug-uri reale de proiectant unde celula lipsește, iar noi trebuie să detectăm asta.
+7. Marca implicită (marcaImplicita) = marca principală declarată în antetul planșei. Rândurile individuale pot avea marca=null → moștenesc marcaImplicita.
+8. tipBara:
+   - „etrier" dacă poziția e desenată/adnotată ca etrier sau agrafă închisă (formă dreptunghiulară închisă lângă poziție)
+   - „distributie" dacă e bară de repartiție/distribuție (notată `N Ø/pas`)
+   - „dreapta" în rest (bare longitudinale drepte)
+   Dacă nu poți distinge sigur, alege „dreapta" și menționează în „note".
+9. FOOTER: extrage FIECARE Ø din „LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — pur și simplu nu-l pune în footer. Codul va detecta discrepanța.
+10. Toate valorile numerice: folosește punct zecimal (nu virgulă). Convertește tu.`;
+
+  const toolSchema = {
+    name: "extract_rebar_extras",
+    description: "Structured extraction of a rebar 'Extras de armătură' table from an image",
+    input_schema: {
+      type: "object",
+      properties: {
+        categorie: { type: ["string", "null"], description: "Titlul categoriei, ex: ARMARE FUNDAȚII" },
+        proiect: { type: ["string", "null"], description: "Numele/numărul proiectului din antet" },
+        beneficiar: { type: ["string", "null"] },
+        marcaImplicita: { type: ["string", "null"], description: "Marca principală declarată în antet (ex 'B 500 C')" },
+        randuri: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              poz: { type: "string" },
+              marca: { type: ["string", "null"], description: "Marca specifică rândului, sau null dacă moștenește marcaImplicita" },
+              diametruMm: { type: "number" },
+              numarBare: { type: "number" },
+              lungimeUnaBara: { type: "number", description: "În metri, cu punct zecimal" },
+              lungimeTotalaSursa: { type: ["number", "null"], description: "Valoarea din coloana Lungime totală, sau null dacă celula e goală în tabel" },
+              tipBara: { type: "string", enum: ["dreapta", "etrier", "distributie"] },
+              note: { type: "string" },
+            },
+            required: ["poz", "marca", "diametruMm", "numarBare", "lungimeUnaBara", "lungimeTotalaSursa", "tipBara", "note"],
+          },
+        },
+        footer: {
+          type: "object",
+          properties: {
+            perDiametru: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  diametruMm: { type: "number" },
+                  totalMl: { type: ["number", "null"] },
+                  totalKg: { type: ["number", "null"] },
+                },
+                required: ["diametruMm", "totalMl", "totalKg"],
+              },
+            },
+            totalKg: { type: ["number", "null"], description: "TOTAL [kg] global din footer" },
+          },
+          required: ["perDiametru", "totalKg"],
+        },
+        observatii: { type: "string", description: "Note despre calitatea extracției, celule ambigue, rotație pagină" },
+      },
+      required: ["categorie", "proiect", "beneficiar", "marcaImplicita", "randuri", "footer", "observatii"],
+    },
+  };
+
+  return callAnthropicVisionTool(
+    systemPrompt,
+    "Extrage tabelul „Extras de armătură" din această imagine. Include TOATE rândurile Poz, marca implicită din antet, și footer-ul cu totalurile pe diametre.",
+    imageBase64,
+    mimeType,
+    toolSchema,
+    "extract_rebar_extras"
+  );
+}
+
+// ── (B) PLANȘĂ GRAFICĂ STRUCTURALĂ — fallback / cross-validation ─────────────
+
+export interface ExtractedGraphicRebarResult {
+  titlu: string | null;             // titlul planșei din cartuș (ex "PLAN ARMARE PLACĂ PESTE PARTER")
+  marcaImplicita: string | null;    // din caseta MATERIALE
+  adnotari: Array<{
+    poz: string | null;             // poate lipsi pe planșa grafică
+    marca: string | null;
+    diametruMm: number;
+    tipBara: "dreapta" | "etrier" | "distributie";
+    numarBare: number;              // câte bare identice la ACEASTĂ ocurență (nu total)
+    lungimeUnaBara: number | null;  // pentru bare drepte: L=X,XXm; pentru etrier: perimetrul
+    pas: number | null;             // pentru etrier/distributie: pasul în cm sau m
+    zonaAcoperitaM: number | null;  // pentru distributie fără N explicit: lungimea zonei
+    note: string;
+  }>;
+  observatii: string;
+}
+
+export async function extractStructuralAnnotationsFromImageWithAnthropic(
+  imageBase64: string,
+  mimeType: string
+): Promise<ExtractedGraphicRebarResult> {
+  const systemPrompt = `Ești expert în citirea planșelor grafice de rezistență (armare fundații, centuri, grinzi, stâlpi, placă) din România.
+
+CONTEXT: pe planșa grafică barele de armătură sunt adnotate individual, împrăștiate pe desen. Aceeași poziție (ex „1a") apare de mai multe ori — o dată pentru fiecare element care folosește acel tip de bară. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
+
+TREI PATTERN-URI DE ADNOTARE, DE RECUNOSCUT DISTINCT:
+
+1) BARĂ DREAPTĂ:  „(poz) N × Ø D  L=X,XXm"
+   Exemplu: „(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
+
+2) ETRIER / AGRAFĂ:  două adnotări legate una de alta:
+   a) „(poz) etr.ØD L=X,XXm" (lungimea/perimetrul UNUI etrier, lângă schița formei lui)
+   b) „etr ØD/pas — N buc" (câți etrieri sunt pe elementul respectiv, la pasul dat)
+   Exemplu: „(2) etr.Ø8 L=1,15m" + „etr Ø8/20 — 137buc"
+      → poz=2, tipBara=etrier, numarBare=137, lungimeUnaBara=1.15, pas=0.20
+   Dacă găsești doar N și pas, dar nu perimetrul: lungimeUnaBara=null și menționează în note.
+
+3) BARĂ / PLASĂ DE DISTRIBUȚIE:  „N Ø D / pas  L=X,XXm"
+   Exemplu: „4Ø12/8 L=5,70m" → poz=null (dacă nu e etichetat), tipBara=distributie, numarBare=4, diametruMm=12, lungimeUnaBara=5.70, pas=0.08
+   Pe suprafață mare: „NØD/m²" — atunci numarBare=N/m² × suprafață (fără cotă explicită NU calcula, lasă zonaAcoperitaM=null, semnalează în note).
+
+REGULI STRICTE:
+1. Extrage FIECARE ocurență a fiecărei adnotări. Nu deduplica pe „poz"; agregarea se face în cod.
+2. Nu calcula lungimi totale sau kg. Tu doar transcrii N și L pentru ocurență.
+3. Interpretează text rotit la orice unghi.
+4. Marca implicită vine din caseta MATERIALE („# Oțel armături: ..."). Reține-o și pune-o în marcaImplicita.
+5. Dacă nu poți distinge cu certitudine tipBara, alege „dreapta" și menționează ambiguitatea în note.
+6. Ignoră cotele de dimensiuni ale elementelor (25×30, 3.50m etc.) — acelea sunt geometrie, nu armătură.`;
+
+  const toolSchema = {
+    name: "extract_rebar_annotations",
+    description: "Structured extraction of individual rebar annotations from a structural drawing image",
+    input_schema: {
+      type: "object",
+      properties: {
+        titlu: { type: ["string", "null"] },
+        marcaImplicita: { type: ["string", "null"] },
+        adnotari: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              poz: { type: ["string", "null"] },
+              marca: { type: ["string", "null"] },
+              diametruMm: { type: "number" },
+              tipBara: { type: "string", enum: ["dreapta", "etrier", "distributie"] },
+              numarBare: { type: "number" },
+              lungimeUnaBara: { type: ["number", "null"] },
+              pas: { type: ["number", "null"] },
+              zonaAcoperitaM: { type: ["number", "null"] },
+              note: { type: "string" },
+            },
+            required: ["poz", "marca", "diametruMm", "tipBara", "numarBare", "lungimeUnaBara", "pas", "zonaAcoperitaM", "note"],
+          },
+        },
+        observatii: { type: "string" },
+      },
+      required: ["titlu", "marcaImplicita", "adnotari", "observatii"],
+    },
+  };
+
+  return callAnthropicVisionTool(
+    systemPrompt,
+    "Extrage TOATE adnotările de armătură (bare drepte, etrieri, distribuție) de pe această planșă. Include fiecare ocurență separat — agregarea se face în cod.",
+    imageBase64,
+    mimeType,
+    toolSchema,
+    "extract_rebar_annotations"
+  );
+}
+
+// ── (C) Caseta „MATERIALE:" — metadate de clasă beton / marcă oțel ───────────
+
+export interface ExtractedMaterialsBoxResult {
+  gasit: boolean;
+  beton: Array<{ element: string; clasa: string; note: string }>;
+  otel: Array<{ element: string; marca: string }>;
+  lemn: Array<{ specificatie: string }>;
+  observatii: string;
+}
+
+export async function extractMaterialsBoxFromImageWithAnthropic(
+  imageBase64: string,
+  mimeType: string
+): Promise<ExtractedMaterialsBoxResult> {
+  const systemPrompt = `Ești expert în extragerea casetei „MATERIALE:" de pe planurile de rezistență românești.
+
+Caseta e de obicei lângă cartușul de titlu (colț dreapta-jos), și arată așa:
+
+  MATERIALE:
+  # Beton:
+    -fundatii: C25/30, XC2, Dmax16, Cem II/A-S 32,5R, Cl 0,20;
+    -centuri: C20/25, XC1, Dmax16;
+  # Oțel armături:
+    -plasă pardoseală: PC52;
+    -restul elementelor: B500C.
+  # Lemn (dacă e planșă șarpantă):
+    -lemn masiv clasă rezistență C24;
+    -clasa de exploatare 2.
+
+Extrage fiecare linie ca un obiect distinct. Dacă nu găsești caseta pe această pagină, setează gasit=false și returnează liste goale.
+
+REGULI:
+1. „element" = ce e înaintea „:" (ex „fundatii", „centuri", „plasă pardoseală", „restul elementelor"). Păstrează exact ce scrie.
+2. „clasa" (beton) = doar codul clasei + expunere (ex „C25/30, XC2, Dmax16"). Restul (ciment, cloruri) merge în „note".
+3. „marca" (oțel) = doar marca (ex „B500C", „PC52", „OB37"). Normalizează spațiile.
+4. Nu inventa. Dacă nu e casetă → gasit=false.`;
+
+  const toolSchema = {
+    name: "extract_materials_box",
+    description: "Extracts the MATERIALE box (beton class, otel marca, lemn) from a structural plan image",
+    input_schema: {
+      type: "object",
+      properties: {
+        gasit: { type: "boolean" },
+        beton: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              element: { type: "string" },
+              clasa: { type: "string" },
+              note: { type: "string" },
+            },
+            required: ["element", "clasa", "note"],
+          },
+        },
+        otel: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              element: { type: "string" },
+              marca: { type: "string" },
+            },
+            required: ["element", "marca"],
+          },
+        },
+        lemn: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { specificatie: { type: "string" } },
+            required: ["specificatie"],
+          },
+        },
+        observatii: { type: "string" },
+      },
+      required: ["gasit", "beton", "otel", "lemn", "observatii"],
+    },
+  };
+
+  return callAnthropicVisionTool(
+    systemPrompt,
+    "Găsește și extrage caseta „MATERIALE:" de pe această planșă. Dacă nu există, setează gasit=false.",
+    imageBase64,
+    mimeType,
+    toolSchema,
+    "extract_materials_box",
+    2048
+  );
+}
+
+// ── (D) Clasificator ușor: ce e planșa? ──────────────────────────────────────
+
+export interface StructuralPlanClassification {
+  tipPlansa: "extras_armatura" | "plan_grafic_structural" | "plan_finisaje" | "sarpanta" | "necunoscut";
+  titlu: string | null;
+  areTabelExtras: boolean;
+  areCasetaMateriale: boolean;
+  rotatiePagina: 0 | 90 | 180 | 270;
+  motivatie: string;
+}
+
+export async function classifyStructuralPlanWithAnthropic(
+  imageBase64: string,
+  mimeType: string
+): Promise<StructuralPlanClassification> {
+  const systemPrompt = `Ești expert în identificarea tipului de planșă de construcții din România, doar din prima ei imagine.
+
+Trebuie să determini:
+1. Ce tip de planșă e (privind cartușul de titlu + conținut general).
+2. Dacă e prezent un tabel „Extras de armătură" (rectangular, cu coloane Poz / Ø / Nr. bare / Lungime).
+3. Dacă e prezentă caseta „MATERIALE:" (# Beton / # Oțel armături).
+4. Cu ce rotație e conținutul pe pagină (0/90/180/270°).
+
+TIPURI DE PLANȘĂ:
+- „extras_armatura": planșa este DOAR (sau majoritar) un tabel Extras de armătură. Fără desen grafic important.
+- „plan_grafic_structural": planșă cu desen tehnic + adnotări de armare (bare, etrieri, poziții). Poate avea sau nu tabel Extras.
+- „plan_finisaje": plan de arhitectură (camere, pardoseală, tavan). NU e structural.
+- „sarpanta": planșă de acoperiș / șarpantă (grinzi lemn, tabel materiale lemn C24).
+- „necunoscut": nu se poate clasifica cu certitudine.
+
+Fii onest dacă nu ești sigur — pune „necunoscut" și explică în motivatie.`;
+
+  const toolSchema = {
+    name: "classify_structural_plan",
+    description: "Classify the type of construction drawing from a single image",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipPlansa: {
+          type: "string",
+          enum: ["extras_armatura", "plan_grafic_structural", "plan_finisaje", "sarpanta", "necunoscut"],
+        },
+        titlu: { type: ["string", "null"], description: "Titlul din cartuș, exact cum scrie" },
+        areTabelExtras: { type: "boolean" },
+        areCasetaMateriale: { type: "boolean" },
+        rotatiePagina: { type: "number", enum: [0, 90, 180, 270] },
+        motivatie: { type: "string" },
+      },
+      required: ["tipPlansa", "titlu", "areTabelExtras", "areCasetaMateriale", "rotatiePagina", "motivatie"],
+    },
+  };
+
+  return callAnthropicVisionTool(
+    systemPrompt,
+    "Uită-te la această planșă și clasifică-o. Verifică prezența tabelului „Extras de armătură" și a casetei „MATERIALE:".",
+    imageBase64,
+    mimeType,
+    toolSchema,
+    "classify_structural_plan",
+    2048
+  );
+}
+
 // ── Equivalent Finder (replacing ai-find-equivalent) ────────────────────────
 export async function findEquivalentWithAnthropic(cerereClient: string) {
   if (cerereClient.trim().length < 3) throw new Error("Cererea este prea scurtă.");
