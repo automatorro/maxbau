@@ -1155,6 +1155,97 @@ REGULI STRICTE:
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ROOF COVERING (§16) — Plan învelitoare / țiglă
+// ─────────────────────────────────────────────────────────────────────────────
+// Categorie SEPARATĂ de lemn/șarpantă (§14). Plan de arhitectură DTAC
+// (nu structurist), calculează SUPRAFAȚĂ de acoperire (m² țiglă înclinată),
+// nu secțiuni lemn. A02 e nativ CAD (text layer real) → folosim callAnthropicTextTool.
+//
+// Modelul returnează DOAR date brute (lista de cote, unghi, material,
+// coame/dolii). Aritmetica (sumă cote, validare împotriva totalului,
+// înmulțire cu 1/cos(pantă)) se face determinist în TS — vezi
+// computeRoofCovering() din structuralGeometry.ts.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ExtractedRoofCoveringRaw {
+  /** Titlul planșei din cartuș (ex „PLAN ÎNVELITOARE"). */
+  titluPlansa: string | null;
+  /** Unghiul de pantă tipărit pe planșă. Dacă apar mai multe valori pe
+   *  versante diferite, returnează toate — codul verifică uniformitatea. */
+  unghiuriPantaGrade: number[];
+  /** Lista de cote pe axa X (orizontală) — segmentele de contur ale conturului
+   *  acoperișului. Ex: [0.825, 3.40, 3.20, 2.25, 2.25, 2.85, 1.40, 0.825] */
+  coteOrizontalaX: number[];
+  /** Totalul tipărit al cotelor X (ex 17.00) — pentru validare împotriva sumei. */
+  totalOrizontalaXTiparit: number | null;
+  /** Idem pentru axa Y. */
+  coteOrizontalaY: number[];
+  totalOrizontalaYTiparit: number | null;
+  /** Denumirea materialului dacă apare (ex „țiglă ceramică vișinie"). */
+  materialInvelitoare: string | null;
+  /** Segmente ml pentru coame/dolii/muchii dacă apar cotate pe plan.
+   *  Vândute separat la ml, nu la m². Poate fi listă goală. */
+  coameDoliiSegmenteMl: number[];
+  observatii: string;
+}
+
+export async function extractRoofCoveringFromTextWithAnthropic(
+  text: string
+): Promise<ExtractedRoofCoveringRaw> {
+  const systemPrompt = `Ești expert în citirea planșelor de învelitoare / plan țiglă din România (planuri DTAC arhitectură).
+
+CONTEXT: primești textul extras nativ din PDF (cu poziții x,y păstrate). Planul arată conturul acoperișului în proiecție orizontală + cotele de contur + unghiul de pantă tipărit + eventual materialul (țiglă).
+
+CE SĂ EXTRAGI (BRUT, fără calcule):
+
+1. **Titlul planșei** din cartuș — ex „PLAN ÎNVELITOARE", „PLAN ACOPERIȘ".
+
+2. **Unghiul(le) de pantă** tipărit(e) pe planșă — ex „20°", „20,00°". Poate apărea o singură dată sau repetat la fiecare versant. Extrage TOATE valorile găsite ca listă — codul verifică uniformitatea.
+
+3. **Cotele orizontale de contur** — pe X (orizontal) și pe Y (vertical), separat. Sunt lanțuri de cote adunate (ex „0,825+3,40+3,20+2,25+2,25+2,85+1,40+0,825" ← lanț pe X). Fiecare cotă = un segment. Convertește virgula în punct.
+
+4. **Totalul tipărit al lanțului** (ex „17,00") — pentru validare. Dacă lipsește, returnează null.
+
+5. **Denumire material** dacă apare pe planșă — ex „țiglă ceramică vișinie", „țiglă metalică Bramac". Null dacă nu apare.
+
+6. **Coame/dolii cotate** — segmente ml separate pentru muchii înclinate. Listă de lungimi în ml (ex [3.03, 4.50]). Listă goală dacă nu sunt cotate.
+
+REGULI STRICTE:
+1. NU calcula. NU suma cotele tu. NU converti orizontală→înclinată. Toate acestea se fac în cod.
+2. Extrage exact ce vezi tipărit. Dacă un total lipsește, null.
+3. Cotele în METRI (converti dacă apar în cm).
+4. Unghiuri în grade zecimale (converti dacă apar cu ',' — 20,00 → 20.00).`;
+
+  const toolSchema = {
+    name: "extract_roof_covering",
+    description: "Structured extraction of roof covering plan (pitch angle + horizontal cotes + material)",
+    input_schema: {
+      type: "object",
+      properties: {
+        titluPlansa: { type: ["string", "null"] },
+        unghiuriPantaGrade: { type: "array", items: { type: "number" } },
+        coteOrizontalaX: { type: "array", items: { type: "number" } },
+        totalOrizontalaXTiparit: { type: ["number", "null"] },
+        coteOrizontalaY: { type: "array", items: { type: "number" } },
+        totalOrizontalaYTiparit: { type: ["number", "null"] },
+        materialInvelitoare: { type: ["string", "null"] },
+        coameDoliiSegmenteMl: { type: "array", items: { type: "number" } },
+        observatii: { type: "string" },
+      },
+      required: ["titluPlansa", "unghiuriPantaGrade", "coteOrizontalaX", "totalOrizontalaXTiparit", "coteOrizontalaY", "totalOrizontalaYTiparit", "materialInvelitoare", "coameDoliiSegmenteMl", "observatii"],
+    },
+  };
+
+  return callAnthropicTextTool(
+    systemPrompt,
+    `Text brut extras din planul de învelitoare (poziții păstrate):\n\n${text.substring(0, 60000)}`,
+    toolSchema,
+    "extract_roof_covering",
+    ANTHROPIC_MAX_TOKENS_CLASSIFY
+  );
+}
+
 // ── Equivalent Finder (replacing ai-find-equivalent) ────────────────────────
 export async function findEquivalentWithAnthropic(cerereClient: string) {
   if (cerereClient.trim().length < 3) throw new Error("Cererea este prea scurtă.");

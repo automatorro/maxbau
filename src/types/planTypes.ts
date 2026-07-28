@@ -232,7 +232,9 @@ export type TipElementLemn =
 
 export type MetodaCalculLemn =
   | "cota_explicita"    // cotă exactă lângă piesă pe planșă
-  | "pas_x_rulaj"       // lungime_rulaj ÷ pas + 1 pe latură dreaptă
+  | "pas_x_rulaj"       // număr bucăți = lungime_rulaj_orizontal ÷ pas + 1
+  | "unghi_confirmat"   // §14.4 update: lungime = rulaj_orizontal ÷ cos(unghiPantaGrade)
+                        //  DOAR pentru elemente drepte, pe versant simplu (nu hip/vale/coamă)
   | "manual_necesar";   // geometrie neregulată (vale, coamă complexă) — nu automatizăm
 
 export interface RawLumberEntry {
@@ -240,13 +242,48 @@ export interface RawLumberEntry {
   tipElement: TipElementLemn;
   sectiuneCm: string;              // ex "14x14", "10x14"
   metodaCalcul: MetodaCalculLemn;
+  /** Unghiul pantei (grade) folosit când metodaCalcul = "unghi_confirmat".
+   *  Sursa curentă: A02_Plan_Invelitoare.pdf → 20° confirmat de utilizator ca
+   *  aplicabil întregii case (§14.4 + §16.4). NU presupune uniformitate
+   *  totală — dacă vreo secțiune a acoperișului are altă pantă, câmpul rămâne
+   *  undefined și cade pe manual_necesar. */
+  unghiPantaGrade?: number;
   numarBucati: number | null;      // null dacă metodaCalcul = "manual_necesar"
   lungimeUnitaraM: number | null;
   /** ÎNTOTDEAUNA true pentru lemn — nu există validare încrucișată. Politică
    *  explicită, nu bug: până când proiectantul confirmă manual, orice cantitate
-   *  de lemn calculată automat rămâne estimare. */
+   *  de lemn calculată automat rămâne estimare. Unghiul confirmat elimină o
+   *  sursă de incertitudine, dar NU creează un mecanism de validare
+   *  încrucișată echivalent footer-ului de armătură. */
   needsManualReview: true;
   reviewReason: string;
+}
+
+// ── §16: Plan învelitoare / țiglă — categorie SEPARATĂ de structura lemn ────
+// A02_Plan_Invelitoare.pdf e emis de arh. (nu structurist), calculează
+// SUPRAFAȚĂ (m² țiglă înclinată) — nu secțiuni/lungimi de lemn. Are text
+// layer real (nativ CAD, cale TEXT §13), deci fiabilitate mult mai bună
+// decât lemnul (§14). Unghiul de pantă e tipărit explicit pe planșă.
+
+export interface RoofCoveringResult {
+  sourceFile: string;
+  /** Unghiul de pantă tipărit pe planșă (ex 20°). Extractorul verifică
+   *  uniformitatea între versante — dacă apar valori diferite, semnalează
+   *  în reviewReason și rămâne cu prima valoare, needsManualReview=true. */
+  unghiPantaGrade: number;
+  /** Suprafață orizontală (proiecție în plan), sumă a cotelor de contur.
+   *  Validată împotriva totalului tipărit pe planșă (același principiu ca
+   *  footer-ul de la Extras armătură §5.3). */
+  suprafataOrizontalaMp: number;
+  /** = orizontală ÷ cos(unghi). Calculată în TS, NU cerută modelului. */
+  suprafataInclinataMp: number;
+  /** Denumirea materialului dacă apare pe planșă (ex „țiglă ceramică vișinie") */
+  materialInvelitoare: string | null;
+  /** Lungime totală ml coame + dolii + muchii (opțional, dacă e extras).
+   *  Vândut separat de țiglă, la ml — nu la m². */
+  coameDoliiMl?: number;
+  needsManualReview: boolean;
+  reviewReason?: string;
 }
 
 /** Rezultatul agregat al unui import complet (mai multe planșe într-un proiect). */

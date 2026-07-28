@@ -13,10 +13,12 @@ import {
   extractStructuralAnnotationsFromImageWithAnthropic,
   extractStructuralExtrasFromTextWithAnthropic,
   extractStructuralAnnotationsFromTextWithAnthropic,
+  extractRoofCoveringFromTextWithAnthropic,
   classifyStructuralPlanWithAnthropic,
   type ExtractedExtrasResult,
   type ExtractedGraphicRebarResult,
 } from "@/utils/anthropic";
+import { computeRoofCovering } from "@/utils/roofGeometry";
 import { findEquivalents } from "@/utils/equivalents";
 import {
   detectIsFloorPlan,
@@ -508,7 +510,7 @@ export default function AntemasuratorImport() {
   const [activeTab, setActiveTab] = useState<"file" | "text">("file");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Tipul documentului detectat (auto sau forțat de utilizator)
-  const [docType, setDocType] = useState<"auto" | "floor_plan" | "structural" | "bof">("auto");
+  const [docType, setDocType] = useState<"auto" | "floor_plan" | "structural" | "roof_covering" | "bof">("auto");
   // null = nu s-a detectat încă, true/false = rezultatul ultimei detecții
   const [detectedAsFloorPlan, setDetectedAsFloorPlan] = useState<boolean | null>(null);
 
@@ -673,6 +675,78 @@ export default function AntemasuratorImport() {
       setProcessing(false);
     }
   }, [textInput, applyItems]);
+
+  // ── §16: Flux învelitoare / țiglă (TEXT-only, PDF nativ CAD) ───────────────
+  //
+  // Categorie separată de structura de lemn (§14). Calculează SUPRAFAȚĂ, nu
+  // secțiuni/lungimi. Unghi de pantă tipărit pe planșă → deblochează calcul
+  // determinist supraf_înclinată = supraf_orizontală / cos(unghi).
+  //
+  // A02_Plan_Invelitoare.pdf și similarele sunt native CAD → doar text.
+  // Dacă cineva încarcă un plan învelitoare scanat, îi spunem clar că
+  // nu-l putem procesa pe această cale (nu construim Vision pentru asta acum).
+  const processRoofCoveringPdf = useCallback(
+    async (fileName: string, textItems: any[]) => {
+      if (!textItems || textItems.length < 5) {
+        toast.error(
+          "Planul de învelitoare pare scanat (fără text). Această categorie e suportată doar pe PDF nativ CAD. Cere planul reexportat cu text.",
+          { duration: 7000 }
+        );
+        return;
+      }
+
+      setProgressMsg("Extragere plan învelitoare (text)...");
+      try {
+        const tableText = layoutTextItemsAsTable(textItems);
+        const raw = await extractRoofCoveringFromTextWithAnthropic(tableText);
+        const result = computeRoofCovering(raw, fileName);
+
+        const items: ExtractedItem[] = [];
+        const baseId = fileName.replace(/\.pdf$/i, "");
+
+        // Rândul principal: țiglă (la m² înclinat)
+        items.push({
+          id: randomId(),
+          nr: String(baseId + "_1"),
+          sectiune: `Învelitoare — ${fileName}`,
+          descriere_client: result.materialInvelitoare
+            ? `${result.materialInvelitoare} — suprafață înclinată`
+            : `Țiglă / învelitoare — suprafață înclinată (pantă ${result.unghiPantaGrade}°)`,
+          cantitate: result.suprafataInclinataMp,
+          unitate: "mp",
+          needsManualReview: result.needsManualReview,
+          reviewReason: result.reviewReason,
+        });
+
+        // Rând separat pentru coame/dolii (dacă au fost cotate) — la ml
+        if (result.coameDoliiMl && result.coameDoliiMl > 0) {
+          items.push({
+            id: randomId(),
+            nr: String(baseId + "_2"),
+            sectiune: `Învelitoare — ${fileName}`,
+            descriere_client: "Coame + dolii + muchii înclinate",
+            cantitate: result.coameDoliiMl,
+            unitate: "ml",
+            needsManualReview: result.needsManualReview,
+            reviewReason: result.reviewReason,
+          });
+        }
+
+        setItems((prev) => [...prev, ...items]);
+
+        const summary = result.needsManualReview
+          ? `⚠️ ${items.length} rânduri învelitoare extrase, dar necesită verificare: ${result.reviewReason}`
+          : `Învelitoare: ${result.suprafataInclinataMp.toFixed(1)} mp înclinat (orizontal ${result.suprafataOrizontalaMp.toFixed(1)} mp, pantă ${result.unghiPantaGrade}°).`;
+        toast[result.needsManualReview ? "warning" : "success"](summary, { duration: 6000 });
+      } catch (e: any) {
+        console.error("[processRoofCoveringPdf]", e);
+        toast.error(`Eroare extragere învelitoare: ${e.message ?? "necunoscută"}`);
+      } finally {
+        setProgressMsg("");
+      }
+    },
+    []
+  );
 
   // ── Flux structural (Vision SAU text) ──────────────────────────────────────
   //
@@ -1017,6 +1091,19 @@ export default function AntemasuratorImport() {
           // vizual e OK, dar getTextContent scoate simboluri Unicode nemapate.
           const textUsable = hasUsableTextLayer(textItems);
 
+          // §16: plan învelitoare / țiglă — categorie separată. Text-only
+          // (fișierele A02 și similare sunt native CAD). Auto-detect prin
+          // keyword în text sau prin numele fișierului.
+          const flatTextLower = textItems.map((i: any) => i.str).join(" ").toLowerCase();
+          const looksLikeRoofCovering =
+            /plan\s+(învelitoare|invelitoare|acoperi[sș]|țigl[ăa])/.test(flatTextLower) ||
+            /invelitoare|inveltoare|acoperis|tigla/i.test(file.name);
+
+          if (docType === "roof_covering" || (docType === "auto" && looksLikeRoofCovering && textUsable)) {
+            await processRoofCoveringPdf(file.name, textItems);
+            return;
+          }
+
           // §13 spec: docType === "structural" NU forțează Vision — alege doar
           // schema/promptul. Decizia text/Vision e strict pe calitatea textItems.
           if (docType === "structural") {
@@ -1146,7 +1233,7 @@ export default function AntemasuratorImport() {
         setProcessing(false);
       }
     },
-    [applyItems, docType]
+    [applyItems, docType, processStructuralPdf, processRoofCoveringPdf]
   );
 
 
@@ -1510,15 +1597,22 @@ export default function AntemasuratorImport() {
                       <select
                         value={docType}
                         onChange={(e) => {
-                          const val = e.target.value as "auto" | "floor_plan" | "structural" | "bof";
+                          const val = e.target.value as "auto" | "floor_plan" | "structural" | "roof_covering" | "bof";
                           setDocType(val);
-                          toast.info(`Tip interpretare setat pe: ${val === "auto" ? "Autodetecție" : val === "floor_plan" ? "Plan Finisaje" : val === "structural" ? "Plan Structură" : "Antemasurătoare"}`);
+                          const label =
+                            val === "auto" ? "Autodetecție" :
+                            val === "floor_plan" ? "Plan Finisaje" :
+                            val === "structural" ? "Plan Structură" :
+                            val === "roof_covering" ? "Plan Învelitoare / Țiglă" :
+                            "Antemasurătoare";
+                          toast.info(`Tip interpretare setat pe: ${label}`);
                         }}
                         className="text-xs bg-white border border-slate-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary w-full sm:w-auto"
                       >
                         <option value="auto">Autodetecție automată</option>
                         <option value="floor_plan">Plan Finisaje / Pardoseli</option>
                         <option value="structural">Plan Rezistență & Structură</option>
+                        <option value="roof_covering">Plan Învelitoare / Țiglă</option>
                         <option value="bof">Antemasurătoare tabelară (deviz)</option>
                       </select>
                     </div>
@@ -1540,7 +1634,8 @@ export default function AntemasuratorImport() {
                     <p className="text-xs text-blue-700">
                       <strong>Excel</strong> — cel mai precis, procesare instant. &nbsp;
                       <strong>PDF cu text</strong> — parsare locală + AI text. &nbsp;
-                      <strong>PDF scanat (fără text)</strong> — extragere Vision AI pe pagini randate (planuri de rezistență / Extras de armătură). Cantitățile de oțel se agregă automat pe (marcă + Ø) și se compară cu footer-ul tipărit.
+                      <strong>PDF scanat (fără text)</strong> — extragere Vision AI pe pagini randate (planuri de rezistență / Extras de armătură). Cantitățile de oțel se agregă automat pe (marcă + Ø) și se compară cu footer-ul tipărit. &nbsp;
+                      <strong>Plan învelitoare</strong> — necesită PDF nativ CAD (text real); calculează suprafața înclinată din unghiul de pantă tipărit + cotele orizontale.
                     </p>
                   </div>
                 </TabsContent>

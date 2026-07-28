@@ -118,6 +118,33 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 > Ultima actualizare: **2026-07-28**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **§14 update (unghi confirmat) + §16 NOU (plan învelitoare)** (2026-07-28):
+  - **§14 update**: `RawLumberEntry` extins cu `unghiPantaGrade?: number` + nouă
+    valoare `"unghi_confirmat"` în `MetodaCalculLemn`. Utilizatorul a confirmat că
+    unghiul 20° de pe A02_Plan_Invelitoare.pdf se aplică întregii case, deci
+    calculul de lungime pentru elemente drepte (căprior/pană/pop pe versant
+    simplu) e acum posibil determinist: `lungime = rulaj_orizontal ÷ cos(20°)`.
+    Hip/vale/coamă rămân `manual_necesar`. `needsManualReview` rămâne activ
+    necondiționat pentru lemn (nu există centralizator = nu există validare).
+  - **§16 NOU — Plan învelitoare/țiglă**: categorie SEPARATĂ de structura lemn.
+    A02 e nativ CAD (text layer real) → cale TEXT §13, cost mic, fiabilitate mare.
+    * `src/utils/roofGeometry.ts` [NOU] — motor pur (14 teste Vitest):
+      `validateCote()` (sumă cote vs total tipărit, toleranță 2%, principiu §5.3),
+      `pickUniformAngle()` (verifică uniformitate 0.1° între versante),
+      `computeRoofCovering()` (suprafață_înclinată = orizontală ÷ cos(unghi)).
+    * `extractRoofCoveringFromTextWithAnthropic` [NOU] în `anthropic.ts` — modelul
+      returnează DOAR date brute (lista de cote pe X/Y, unghi, material,
+      coame/dolii). ZERO aritmetică cerută modelului — se face în roofGeometry.
+    * `RoofCoveringResult` + `ExtractedRoofCoveringRaw` — tipuri noi în
+      `planTypes.ts` respectiv exportate din `anthropic.ts`.
+    * `processRoofCoveringPdf()` în `AntemasuratorImport.tsx` — flux dedicat
+      TEXT-only (refuză scanat cu mesaj clar; nu construim Vision pentru asta).
+    * Rutare: `docType === "roof_covering"` + auto-detect prin keyword
+      „învelitoare/țiglă/acoperiș" în text sau nume fișier.
+    * Rezultat → 2 ExtractedItem: unul pentru țiglă la m² înclinat + unul opțional
+      pentru coame/dolii la ml (vândute separat).
+    * Dropdown UI extins cu „Plan Învelitoare / Țiglă".
+    * 110 teste totale în proiect (85 vechi + 11 §13 + 14 §16).
 - **Fix critic §11 + arhitectură 3-căi §13 + MVP șarpantă §14** (2026-07-28):
   - **BUG BLOCANT PRODUCȚIE FIX**: modelul `claude-3-5-sonnet-20241022` era
     hardcodat în 5 locații și **retras din API din 28.10.2025**. Cauza reală
