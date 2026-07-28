@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { callAiProxy } from "@/utils/aiProxy";
+import { ANTHROPIC_TEXT_MODEL } from "@/utils/aiConfig";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -450,7 +451,7 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`;
   // 1. Încercăm cu Anthropic prin proxy-ul securizat
   try {
     const { ok, status, data } = await callAiProxy("anthropic", {
-      model: "claude-3-5-sonnet-20241022",
+      model: ANTHROPIC_TEXT_MODEL,
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],

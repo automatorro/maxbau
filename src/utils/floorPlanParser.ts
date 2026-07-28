@@ -158,6 +158,69 @@ function textNearMaterialKeyword(text: string): boolean {
   return MATERIAL_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+// ── Text quality check (§13 spec) ─────────────────────────────────────────────
+
+/**
+ * Verifică CALITATEA textului extras din PDF. Necesar pe lângă verificarea
+ * de cantitate (`items.length < 5`) — există PDF-uri CAD care exportă text
+ * prin fonturi Type3/SHX cu encoding netradițional: vizual arată corect, dar
+ * `getTextContent` returnează glife cu coduri de caractere gunoi.
+ *
+ * Metodă: procentul de caractere „recognoscibile" (cifre, litere ASCII,
+ * litere RO, spații, punctuație uzuală) din tot textul extras. Sub prag =
+ * text corupt → tratează ca „fără text layer" → rutează spre Vision.
+ *
+ * Prag recomandat: 0.70 (70%). Un text CAD real are >95% recognoscibile; un
+ * text corupt încarce simboluri Unicode private / astea neasignate în masă.
+ */
+export function textQualityRatio(items: PdfTextItem[]): number {
+  const allText = items.map((i) => i.str).join("");
+  if (allText.length === 0) return 0;
+  // Recognoscibile: cifre, litere latine (inclusiv RO), spații, punctuație uzuală,
+  // simboluri tehnice comune pe planuri (Ø, ×, ², °, /, -, +, =).
+  const okChars = allText.match(/[0-9a-zA-ZăâîșțĂÂÎȘȚ\s.,;:()\[\]{}\-+=*\/×²°Ø<>@#!?'"%$&|_\\]/g);
+  return okChars ? okChars.length / allText.length : 0;
+}
+
+/** True dacă PDF-ul are text extractibil ȘI text-ul e recognoscibil.
+ *  Combinație de cantitate (>=5 items) + calitate (>=70% chars ok). */
+export function hasUsableTextLayer(items: PdfTextItem[]): boolean {
+  if (items.length < 5) return false;
+  return textQualityRatio(items) >= 0.70;
+}
+
+// ── Table layout (§13 spec) ───────────────────────────────────────────────────
+
+/**
+ * Grupează text items pe rânduri (după y ±3pt) și ordonează pe x. Returnează
+ * string cu rândurile separate prin `\n` și celulele prin ` | `. Folosit ca
+ * input pentru extractoarele text — modelul are șansă mai mare să reconstruiască
+ * un tabel dintr-un layout preservat decât dintr-un dump concatenat orbește.
+ */
+export function layoutTextItemsAsTable(items: PdfTextItem[]): string {
+  const Y_TOL = 3;
+  const rows = new Map<number, PdfTextItem[]>();
+  for (const item of items) {
+    let key: number | null = null;
+    for (const k of rows.keys()) {
+      if (Math.abs(k - item.y) <= Y_TOL) { key = k; break; }
+    }
+    if (key === null) { rows.set(item.y, [item]); }
+    else { rows.get(key)!.push(item); }
+  }
+  return [...rows.entries()]
+    .sort(([ya], [yb]) => yb - ya) // top-down: Y mare = sus
+    .map(([, cells]) =>
+      cells
+        .sort((a, b) => a.x - b.x)
+        .map((c) => c.str.trim())
+        .filter((s) => s.length > 0)
+        .join(" | ")
+    )
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
 // ── Floor plan heuristic ──────────────────────────────────────────────────────
 
 /**

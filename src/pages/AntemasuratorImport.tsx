@@ -11,6 +11,8 @@ import {
   extractFloorPlanFromTextWithAnthropic,
   extractStructuralExtrasFromImageWithAnthropic,
   extractStructuralAnnotationsFromImageWithAnthropic,
+  extractStructuralExtrasFromTextWithAnthropic,
+  extractStructuralAnnotationsFromTextWithAnthropic,
   classifyStructuralPlanWithAnthropic,
   type ExtractedExtrasResult,
   type ExtractedGraphicRebarResult,
@@ -22,6 +24,8 @@ import {
   detectRoomBlocks,
   roomBlocksToPlanData,
   roomBlocksToExtractedItems,
+  hasUsableTextLayer,
+  layoutTextItemsAsTable,
   type FloorPlanItem,
 } from "@/utils/floorPlanParser";
 import {
@@ -670,28 +674,159 @@ export default function AntemasuratorImport() {
     }
   }, [textInput, applyItems]);
 
-  // ── Flux Vision pentru planuri structurale scanate ────────────────────────
+  // ── Flux structural (Vision SAU text) ──────────────────────────────────────
   //
-  // Chemat când PDF-ul nu are text layer (scanat, print-to-PDF din CAD cu
-  // text-as-shapes) SAU când userul selectează manual "Plan Structură".
+  // §13 din spec: 3 căi, nu 2. Decizia text/Vision se ia STRICT pe baza
+  // calității textItems, NU pe docType. docType alege doar SCHEMA (structural
+  // vs. floor_plan vs. deviz), nu ruta text/Vision.
   //
   // Pipeline:
-  //   1. Rasterizează toate paginile la JPEG 2.5x
-  //   2. Prima pagină → clasificator Vision (detectează tip planșă)
-  //   3. În funcție de tip, rulează extractor Vision pe fiecare pagină:
-  //        - extras_armatura  → extractStructuralExtrasFromImageWithAnthropic
-  //        - plan_grafic_structural → extractStructuralAnnotationsFromImageWithAnthropic
-  //   4. Colectează RawRebarEntry[], agregă pe (marcă+Ø), compară cu footer
-  //   5. Convertește totaluri → ExtractedItem[] și le APPENDează la items[]
+  //   MODE "text":
+  //     1. Grupează textItems ca tabel (y-align + x-sort)
+  //     2. Trimite la extractStructuralExtrasFromTextWithAnthropic (ambele
+  //        căi, A și B, în ordine — încearcă Extras întâi, cade pe adnotări
+  //        dacă rezultatul e gol). Fără clasificator Vision pe text (mai
+  //        ieftin decizia locală bazată pe pattern-uri).
+  //   MODE "vision":
+  //     1. Rasterizează toate paginile la JPEG 2.5x
+  //     2. Prima pagină → clasificator Vision (extras/grafic/finisaje/șarpantă)
+  //     3. Extractor Vision per pagină după tipul detectat
+  //
+  //   Comun: colectează RawRebarEntry[] → aggregateRebarEntries → convertește
+  //   la ExtractedItem[] și append în items[].
   //
   // Aritmetica se face în rebarAggregator.ts, NU e cerută modelului AI.
   const processStructuralPdf = useCallback(
-    async (buf: ArrayBuffer, fileName: string, isScannedPdf: boolean) => {
+    async (
+      buf: ArrayBuffer,
+      fileName: string,
+      mode: "text" | "vision",
+      textItemsForTextMode?: any[]
+    ) => {
       setProgressMsg(
-        isScannedPdf
-          ? "PDF fără text extractibil — trec pe flux Vision..."
-          : "Trec pe flux Vision structural (forțat manual)..."
+        mode === "text"
+          ? "PDF cu text extractibil — extragere structurală pe text..."
+          : "PDF fără text utilizabil — flux Vision structural..."
       );
+
+      // ── MODE TEXT — mult mai ieftin și mai fiabil când PDF-ul e nativ CAD ──
+      if (mode === "text") {
+        try {
+          const tableText = layoutTextItemsAsTable(textItemsForTextMode ?? []);
+          if (!tableText.trim()) {
+            toast.error("Text extras dar layout gol — trec pe Vision.");
+            return processStructuralPdf(buf, fileName, "vision");
+          }
+
+          setProgressMsg("Extragere text-structural (Extras)...");
+          const result = await extractStructuralExtrasFromTextWithAnthropic(tableText);
+
+          if (result.randuri && result.randuri.length > 0) {
+            const marcaImplicita = result.marcaImplicita;
+            const rawEntries: RawRebarEntry[] = result.randuri.map((r) => ({
+              sourceFile: fileName,
+              sourceType: "extras_table",
+              poz: r.poz,
+              marca: normalizeMarca(r.marca ?? marcaImplicita ?? "B500C"),
+              diametruMm: r.diametruMm,
+              tipBara: r.tipBara,
+              numarBare: r.numarBare,
+              lungimeUnaBara: r.lungimeUnaBara,
+              lungimeTotalaSursa: r.lungimeTotalaSursa ?? undefined,
+            }));
+
+            let totals: RebarTotalByMarcaDiametru[] = aggregateRebarEntries(rawEntries);
+            if (result.footer && result.footer.perDiametru.length > 0) {
+              const footerReports = result.footer.perDiametru.map((f) => ({
+                diametruMm: f.diametruMm,
+                totalMl: f.totalMl ?? undefined,
+                totalKg: f.totalKg ?? undefined,
+              }));
+              const validation = compareWithFooter(totals, footerReports, result.footer.totalKg ?? undefined);
+              totals = applyFooterValidation(totals, validation);
+              if (validation.discrepancies.length > 0) {
+                toast.warning(
+                  `${validation.discrepancies.length} discrepanțe față de footer-ul tipărit.`,
+                  { duration: 6000 }
+                );
+              }
+            }
+
+            const categorie = result.categorie ?? "Armătură";
+            const newItems: ExtractedItem[] = totals.map((t, idx) => ({
+              id: randomId(),
+              nr: String(items.length + idx + 1),
+              sectiune: `${categorie} — ${fileName}`,
+              descriere_client: `Oțel beton ${t.marca} Ø${t.diametruMm} fasonat`,
+              cantitate: t.totalKg,
+              unitate: "kg",
+              needsManualReview: t.needsManualReview,
+              reviewReason: t.reviewReason,
+            }));
+
+            setItems((prev) => [...prev, ...newItems]);
+            toast.success(
+              `${newItems.length} materiale (armătură / text) extrase din ${fileName}. Total: ${
+                totals.reduce((s, t) => s + t.totalKg, 0).toFixed(0)
+              } kg oțel.`,
+              { duration: 6000 }
+            );
+            return;
+          }
+
+          // Extras gol → încearcă adnotări
+          setProgressMsg("Fără tabel Extras în text — încerc adnotări grafice...");
+          const annResult = await extractStructuralAnnotationsFromTextWithAnthropic(tableText);
+          if (!annResult.adnotari || annResult.adnotari.length === 0) {
+            toast.error("Nu s-a extras nimic util din text — încearcă cu Vision.");
+            return;
+          }
+
+          const marcaImplicita = annResult.marcaImplicita;
+          const rawEntries: RawRebarEntry[] = annResult.adnotari.map((a) => {
+            const needsReview = a.lungimeUnaBara == null;
+            return {
+              sourceFile: fileName,
+              sourceType: "graphic_plan" as const,
+              poz: a.poz ?? undefined,
+              marca: normalizeMarca(a.marca ?? marcaImplicita ?? "B500C"),
+              diametruMm: a.diametruMm,
+              tipBara: a.tipBara,
+              numarBare: a.numarBare,
+              lungimeUnaBara: a.lungimeUnaBara ?? 0,
+              needsManualReview: needsReview,
+              reviewReason: needsReview
+                ? "Lungime nedeterminată din text — completează manual"
+                : undefined,
+            };
+          });
+          const totals = aggregateRebarEntries(rawEntries);
+          const newItems: ExtractedItem[] = totals.map((t, idx) => ({
+            id: randomId(),
+            nr: String(items.length + idx + 1),
+            sectiune: `Armătură (text/grafic) — ${fileName}`,
+            descriere_client: `Oțel beton ${t.marca} Ø${t.diametruMm} fasonat`,
+            cantitate: t.totalKg,
+            unitate: "kg",
+            needsManualReview: t.needsManualReview,
+            reviewReason: t.reviewReason,
+          }));
+          setItems((prev) => [...prev, ...newItems]);
+          toast.success(
+            `${newItems.length} materiale (adnotări text) extrase din ${fileName}.`,
+            { duration: 6000 }
+          );
+          return;
+        } catch (e: any) {
+          console.error("[processStructuralPdf/text]", e);
+          toast.error(`Eroare extragere text-structural: ${e.message ?? "necunoscută"}. Încearcă Vision (forțează din dropdown).`);
+          return;
+        } finally {
+          setProgressMsg("");
+        }
+      }
+
+      // ── MODE VISION — pentru PDF-uri scanate ──────────────────────────────
 
       try {
         // 1. Rasterizare
@@ -876,16 +1011,29 @@ export default function AntemasuratorImport() {
           const autoIsFloorPlan = detectIsFloorPlan(textItems);
           setDetectedAsFloorPlan(autoIsFloorPlan);
 
-          // ── NOU: PDF fără text layer (scanat / export CAD cu text-as-shapes) ──
-          // Planurile reale de șantier sunt aproape mereu print-to-PDF din
-          // scan/imagine (Bullzip PDF Printer etc.) — pdfjs întoarce 0 text items.
-          // Nu are sens să încercăm ramurile bazate pe text: mergem direct pe
-          // Vision. Vezi spec §1 „Bug blocant".
-          const HAS_TEXT_LAYER_THRESHOLD = 5;
-          const isScannedPdf = textItems.length < HAS_TEXT_LAYER_THRESHOLD;
+          // §13 spec: text layer utilizabil = CANTITATE + CALITATE.
+          // Nu doar "există text", ci "text-ul e recognoscibil" (>=70% chars ok).
+          // Text CAD prin Type3/SHX poate produce glife cu encoding gunoi:
+          // vizual e OK, dar getTextContent scoate simboluri Unicode nemapate.
+          const textUsable = hasUsableTextLayer(textItems);
 
-          if (isScannedPdf || docType === "structural") {
-            await processStructuralPdf(buf, file.name, isScannedPdf);
+          // §13 spec: docType === "structural" NU forțează Vision — alege doar
+          // schema/promptul. Decizia text/Vision e strict pe calitatea textItems.
+          if (docType === "structural") {
+            const mode = textUsable ? "text" : "vision";
+            await processStructuralPdf(buf, file.name, mode, textItems);
+            return;
+          }
+
+          // Fără text utilizabil pe autodetecție → nu putem face nimic cu text:
+          // dacă utilizatorul chiar voia un plan, își va alege manual din dropdown.
+          // Cu text disponibil, continuăm pe fluxurile text existente (floor_plan
+          // sau deviz tabular).
+          if (!textUsable) {
+            toast.error(
+              "PDF fără text extractibil. Pentru un plan structural, selectează „Plan Structură" din dropdown ca să activez fluxul Vision.",
+              { duration: 7000 }
+            );
             return;
           }
 

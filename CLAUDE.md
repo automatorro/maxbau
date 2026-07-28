@@ -115,9 +115,37 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ## 8. Stadiul Curent al Proiectului
 
-> Ultima actualizare: **2026-07-22**. Actualizează după fiecare sesiune importantă.
+> Ultima actualizare: **2026-07-28**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **Fix critic §11 + arhitectură 3-căi §13 + MVP șarpantă §14** (2026-07-28):
+  - **BUG BLOCANT PRODUCȚIE FIX**: modelul `claude-3-5-sonnet-20241022` era
+    hardcodat în 5 locații și **retras din API din 28.10.2025**. Cauza reală
+    a erorii 500 pe R04 semnalată de utilizator. `src/utils/aiConfig.ts` [NOU]
+    centralizează `ANTHROPIC_VISION_MODEL` și `ANTHROPIC_TEXT_MODEL` (`claude-sonnet-5`
+    pentru ambele) — modelele nu se mai hardcodează nicăieri, se importă din
+    aiConfig. Bug preexistent mascat pe funcții vechi de fallback Gemini; nou-le
+    Vision (fără fallback per §6) l-au expus direct.
+  - **Arhitectură 3-căi §13**: rutare text/Vision decisă STRICT de calitatea
+    textItems (cantitate ≥5 + procent chars recognoscibile ≥70%), nu de
+    docType. `docType==="structural"` alege doar schema/promptul, nu ruta.
+    `hasUsableTextLayer()` + `textQualityRatio()` + `layoutTextItemsAsTable()`
+    [NOI] în `floorPlanParser.ts`. `extractStructuralExtrasFromTextWithAnthropic`
+    și `extractStructuralAnnotationsFromTextWithAnthropic` [NOI] — oglindă
+    exactă a versiunilor Vision, aceeași tool schema partajată, aceeași
+    agregare via `rebarAggregator.ts`. PDF-uri CAD native cu text real merg
+    prin cale mult mai ieftină și mai fiabilă. 11 teste noi (46 total pe
+    floorPlanParser, 85 → 85+11 = 96 total în proiect... verifică local).
+  - **MVP șarpantă §14** (conservator): tip `RawLumberEntry` cu
+    `needsManualReview: true` **necondiționat** (politică, nu bug — nu există
+    tabel centralizator de lemn pentru validare încrucișată, confirmat cu
+    utilizatorul). `extractLumberFromImageWithAnthropic` [NOU] — extrage
+    doar catalog secțiuni + specificații materiale + tipuri îmbinări, NU
+    cantități. Calcul geometric pas×rulaj rămâne extindere ulterioară,
+    dedicată, doar după confirmare cu inginer structurist.
+  - ⚠️ **Rebuild + hard-refresh obligatoriu după deploy** (§15 spec): bundle
+    hash nou trebuie confirmat înainte de retestare — cache-ul de browser
+    pe bundle vechi poate masca deploy-ul reușit.
 - **Extragere planuri structurale scanate via Anthropic Vision** (2026-07-22):
   - Bug fix blocant: pipeline-ul presupunea că PDF-urile de plan au text layer
     extractibil (`pdfjs.getTextContent()`). Planurile reale de șantier (print-to-PDF

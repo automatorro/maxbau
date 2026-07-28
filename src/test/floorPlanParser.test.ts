@@ -23,6 +23,9 @@ import {
   extractWallFinish,
   applyMandatoryAttributePenalty,
   roomBlocksToExtractedItems,
+  textQualityRatio,
+  hasUsableTextLayer,
+  layoutTextItemsAsTable,
   type PdfTextItem,
 } from "../utils/floorPlanParser";
 
@@ -389,5 +392,92 @@ describe("roomBlocksToExtractedItems", () => {
     const floorItems = roomBlocksToExtractedItems(blocks);
     const floorLine = floorItems.find((i) => i.materialTip === "pardoseala");
     expect(floorLine?.cantitate).toBe(58.63);
+  });
+});
+
+// ── §13 spec — verificare calitate text + layout tabelar ─────────────────────
+
+describe("textQualityRatio", () => {
+  const item = (str: string): PdfTextItem => ({
+    str, x: 0, y: 0, w: 10, h: 10, angleDeg: 0, font: "test",
+  });
+
+  it("text ASCII curat = 1.0", () => {
+    const items = [item("Poz Diametru Nr bare Lungime"), item("1a 14 24 4.45")];
+    expect(textQualityRatio(items)).toBe(1);
+  });
+
+  it("text cu diacritice românești = 1.0 (sunt recognoscibile)", () => {
+    const items = [item("ARMARE FUNDAȚII"), item("Lungime totală")];
+    expect(textQualityRatio(items)).toBe(1);
+  });
+
+  it("text cu simboluri tehnice (Ø, ×, ²) = 1.0", () => {
+    expect(textQualityRatio([item("Ø14 × 2Ø10 = 25m²")])).toBe(1);
+  });
+
+  it("text corupt (Unicode privat) sub prag", () => {
+    // 4 chars din 20 sunt privileged, restul e Private Use Area (gunoi)
+    const corrupt = "abcd";
+    expect(textQualityRatio([item(corrupt)])).toBeLessThan(0.3);
+  });
+
+  it("text gol = 0", () => {
+    expect(textQualityRatio([])).toBe(0);
+    expect(textQualityRatio([item("")])).toBe(0);
+  });
+});
+
+describe("hasUsableTextLayer", () => {
+  const item = (str: string): PdfTextItem => ({
+    str, x: 0, y: 0, w: 10, h: 10, angleDeg: 0, font: "test",
+  });
+
+  it("false pe puține items indiferent de calitate", () => {
+    expect(hasUsableTextLayer([item("Poz"), item("14")])).toBe(false);
+  });
+
+  it("true pe items suficiente + text curat", () => {
+    const items = Array.from({ length: 20 }, (_, i) => item(`rand ${i} valoare`));
+    expect(hasUsableTextLayer(items)).toBe(true);
+  });
+
+  it("false pe items suficiente dar text corupt (Type3/SHX)", () => {
+    const corrupt = "".repeat(4);
+    const items = Array.from({ length: 20 }, () => item(corrupt));
+    expect(hasUsableTextLayer(items)).toBe(false);
+  });
+});
+
+describe("layoutTextItemsAsTable", () => {
+  it("grupează pe y-align și sortează pe x", () => {
+    const items: PdfTextItem[] = [
+      { str: "Poz",   x: 10, y: 100, w: 20, h: 10, angleDeg: 0, font: "t" },
+      { str: "Ø",     x: 50, y: 100, w: 10, h: 10, angleDeg: 0, font: "t" },
+      { str: "N",     x: 80, y: 100, w: 10, h: 10, angleDeg: 0, font: "t" },
+      { str: "1a",    x: 10, y: 80,  w: 20, h: 10, angleDeg: 0, font: "t" },
+      { str: "14",    x: 50, y: 80,  w: 10, h: 10, angleDeg: 0, font: "t" },
+      { str: "24",    x: 80, y: 80,  w: 10, h: 10, angleDeg: 0, font: "t" },
+    ];
+    const layout = layoutTextItemsAsTable(items);
+    expect(layout).toBe("Poz | Ø | N\n1a | 14 | 24");
+  });
+
+  it("y-tolerance ±3pt îngăduie diferențe subpixel", () => {
+    const items: PdfTextItem[] = [
+      { str: "A", x: 0,  y: 100, w: 5, h: 5, angleDeg: 0, font: "t" },
+      { str: "B", x: 20, y: 102, w: 5, h: 5, angleDeg: 0, font: "t" }, // +2pt
+    ];
+    const layout = layoutTextItemsAsTable(items);
+    expect(layout).toBe("A | B");
+  });
+
+  it("filtrează celule goale", () => {
+    const items: PdfTextItem[] = [
+      { str: "A",  x: 0,  y: 100, w: 5, h: 5, angleDeg: 0, font: "t" },
+      { str: "  ", x: 20, y: 100, w: 5, h: 5, angleDeg: 0, font: "t" },
+      { str: "B",  x: 40, y: 100, w: 5, h: 5, angleDeg: 0, font: "t" },
+    ];
+    expect(layoutTextItemsAsTable(items)).toBe("A | B");
   });
 });

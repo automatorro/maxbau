@@ -1,5 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import { callAiProxy } from "@/utils/aiProxy";
+import {
+  ANTHROPIC_VISION_MODEL,
+  ANTHROPIC_TEXT_MODEL,
+  ANTHROPIC_MAX_TOKENS_EXTRACT,
+  ANTHROPIC_MAX_TOKENS_CLASSIFY,
+} from "@/utils/aiConfig";
 
 // API keys are stored server-side and used only inside the `ai-proxy` edge
 // function. The browser never has access to them.
@@ -116,7 +122,7 @@ async function callAnthropicTool(
 ): Promise<any> {
   try {
     const { ok, status, data } = await callAiProxy("anthropic", {
-      model: "claude-3-5-sonnet-20241022",
+      model: ANTHROPIC_TEXT_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
@@ -205,7 +211,7 @@ Reguli stricte:
 
   try {
     const { ok, status, data } = await callAiProxy("anthropic", {
-      model: "claude-3-5-sonnet-20241022",
+      model: ANTHROPIC_VISION_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [
@@ -284,7 +290,7 @@ Reguli stricte:
 
   try {
     const { ok, status, data } = await callAiProxy("anthropic", {
-      model: "claude-3-5-sonnet-20241022",
+      model: ANTHROPIC_TEXT_MODEL,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: "user", content: `Text brut extras din antemăsurătoare:\n\n${text.substring(0, 50000)}` }],
@@ -439,10 +445,10 @@ async function callAnthropicVisionTool(
   mimeType: string,
   toolSchema: any,
   toolName: string,
-  maxTokens = 8192
+  maxTokens = ANTHROPIC_MAX_TOKENS_EXTRACT
 ): Promise<any> {
   const { ok, status, data } = await callAiProxy("anthropic", {
-    model: "claude-3-5-sonnet-20241022",
+    model: ANTHROPIC_VISION_MODEL,
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: [
@@ -843,6 +849,309 @@ Fii onest dacă nu ești sigur — pune „necunoscut" și explică în motivati
     toolSchema,
     "classify_structural_plan",
     2048
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STRUCTURAL PLAN TEXT-BASED EXTRACTORS (§13 din spec)
+// ─────────────────────────────────────────────────────────────────────────────
+// Oglindă a extractoarelor Vision de mai sus, dar cu input TEXT (extras nativ
+// din PDF via pdfjs.getTextContent). Folosite când PDF-ul are text layer real
+// (export CAD nativ) — mult mai ieftin și mai fiabil decât rasterizare + Vision.
+//
+// Schemele tool_use sunt IDENTICE cu versiunile Vision — datele rezultate
+// intră în același `aggregateRebarEntries()` din rebarAggregator.ts, deci
+// nicio duplicare de logică de agregare.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Helper: apel Anthropic pe text cu tool_choice, fără fallback Gemini
+ *  (păstrăm politica din §6: extractoarele structurale nu au fallback).
+ *  Nu reutilizăm `callAnthropicTool` pentru că acela are fallback Gemini
+ *  care ar masca eșecuri silențios. */
+async function callAnthropicTextTool(
+  systemPrompt: string,
+  userText: string,
+  toolSchema: any,
+  toolName: string,
+  maxTokens = ANTHROPIC_MAX_TOKENS_EXTRACT
+): Promise<any> {
+  const { ok, status, data } = await callAiProxy("anthropic", {
+    model: ANTHROPIC_TEXT_MODEL,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userText }],
+    tools: [toolSchema],
+    tool_choice: { type: "tool", name: toolName },
+  });
+
+  if (!ok) {
+    console.error("Anthropic Text Error:", status, data);
+    throw new Error(`Anthropic Text (${status}): ${data?.error ?? "eroare necunoscută"}`);
+  }
+
+  const toolCall = data.content?.find(
+    (c: any) => c.type === "tool_use" && c.name === toolName
+  );
+  if (!toolCall?.input) {
+    throw new Error("Modelul text nu a returnat date structurate valabile.");
+  }
+  return toolCall.input;
+}
+
+// ── Tool schemas partajate Vision ↔ Text ────────────────────────────────────
+// (schema tool_use e identică indiferent dacă input-ul e imagine sau text)
+
+const EXTRAS_TOOL_SCHEMA = {
+  name: "extract_rebar_extras",
+  description: "Structured extraction of a rebar 'Extras de armătură' table",
+  input_schema: {
+    type: "object",
+    properties: {
+      categorie: { type: ["string", "null"], description: "Titlul categoriei, ex: ARMARE FUNDAȚII" },
+      proiect: { type: ["string", "null"] },
+      beneficiar: { type: ["string", "null"] },
+      marcaImplicita: { type: ["string", "null"] },
+      randuri: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            poz: { type: "string" },
+            marca: { type: ["string", "null"] },
+            diametruMm: { type: "number" },
+            numarBare: { type: "number" },
+            lungimeUnaBara: { type: "number" },
+            lungimeTotalaSursa: { type: ["number", "null"] },
+            tipBara: { type: "string", enum: ["dreapta", "etrier", "distributie"] },
+            note: { type: "string" },
+          },
+          required: ["poz", "marca", "diametruMm", "numarBare", "lungimeUnaBara", "lungimeTotalaSursa", "tipBara", "note"],
+        },
+      },
+      footer: {
+        type: "object",
+        properties: {
+          perDiametru: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                diametruMm: { type: "number" },
+                totalMl: { type: ["number", "null"] },
+                totalKg: { type: ["number", "null"] },
+              },
+              required: ["diametruMm", "totalMl", "totalKg"],
+            },
+          },
+          totalKg: { type: ["number", "null"] },
+        },
+        required: ["perDiametru", "totalKg"],
+      },
+      observatii: { type: "string" },
+    },
+    required: ["categorie", "proiect", "beneficiar", "marcaImplicita", "randuri", "footer", "observatii"],
+  },
+};
+
+const ANNOTATIONS_TOOL_SCHEMA = {
+  name: "extract_rebar_annotations",
+  description: "Structured extraction of individual rebar annotations",
+  input_schema: {
+    type: "object",
+    properties: {
+      titlu: { type: ["string", "null"] },
+      marcaImplicita: { type: ["string", "null"] },
+      adnotari: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            poz: { type: ["string", "null"] },
+            marca: { type: ["string", "null"] },
+            diametruMm: { type: "number" },
+            tipBara: { type: "string", enum: ["dreapta", "etrier", "distributie"] },
+            numarBare: { type: "number" },
+            lungimeUnaBara: { type: ["number", "null"] },
+            pas: { type: ["number", "null"] },
+            zonaAcoperitaM: { type: ["number", "null"] },
+            note: { type: "string" },
+          },
+          required: ["poz", "marca", "diametruMm", "tipBara", "numarBare", "lungimeUnaBara", "pas", "zonaAcoperitaM", "note"],
+        },
+      },
+      observatii: { type: "string" },
+    },
+    required: ["titlu", "marcaImplicita", "adnotari", "observatii"],
+  },
+};
+
+/** Cale text pentru Extras de armătură (§13). Text-ul trebuie să vină cu
+ *  poziționare păstrată (grupare rânduri după y, coloane după x) — dat de
+ *  layoutTextItemsAsTable() din floorPlanParser.ts. */
+export async function extractStructuralExtrasFromTextWithAnthropic(
+  text: string
+): Promise<ExtractedExtrasResult> {
+  const systemPrompt = `Ești expert în citirea tabelelor „Extras de armătură" extrase ca TEXT din PDF-uri românești de rezistență.
+
+CONTEXT: primești textul brut extras cu poziții (x,y) din PDF, grupat pe rânduri. E tabelul „EXTRAS DE ARMĂTURĂ" al unei categorii de elemente (fundații, centuri, grinzi, stâlpi, placă).
+
+STRUCTURA STANDARD A TABELULUI:
+  Antet:  Poz | Ø [mm] | Nr. bare | Lungime bară [m] | Lungime totală [m]
+  Rânduri: câte una per poziție (Poz poate fi „1a", „2", „11k")
+  Marca oțelului („B 500 C", „PC 52", „OB 37") apare ca antet de secțiune peste
+  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca „activă"
+  pe măsură ce parcurgi textul de sus în jos.
+  Footer:  „LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + „MASA PE DIAMETRU" (sumă kg/Ø) + „TOTAL [kg]".
+
+REGULI STRICTE:
+1. Extrage DOAR datele scrise. NU calcula, NU corecta, NU inventa. Aritmetica se face în cod.
+2. Poz = codul exact al poziției (păstrează sufixul alfabetic).
+3. „Lungime totală" = valoarea din coloana finală. **Dacă celula lipsește / e goală în text, returnează null** (nu recalcula). Există bug-uri reale de proiectant unde celula lipsește — trebuie să detectăm asta.
+4. Marca implicită (marcaImplicita) = marca principală declarată în antetul planșei.
+5. tipBara: „etrier" / „distributie" / „dreapta" (după context — extras-ul poate marca explicit tipul, altfel „dreapta").
+6. FOOTER: extrage FIECARE Ø din „LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — codul va detecta discrepanța.
+7. Toate valorile numerice: punct zecimal (nu virgulă).`;
+
+  return callAnthropicTextTool(
+    systemPrompt,
+    `Text brut extras din PDF (rânduri grupate pe y, coloane pe x):\n\n${text.substring(0, 60000)}`,
+    EXTRAS_TOOL_SCHEMA,
+    "extract_rebar_extras"
+  );
+}
+
+/** Cale text pentru adnotări individuale pe planșă grafică (§13). */
+export async function extractStructuralAnnotationsFromTextWithAnthropic(
+  text: string
+): Promise<ExtractedGraphicRebarResult> {
+  const systemPrompt = `Ești expert în citirea adnotărilor de armătură extrase ca TEXT dintr-o planșă grafică de rezistență românească.
+
+CONTEXT: primești textul extras cu poziții din PDF. Adnotările de bare sunt împrăștiate pe desen — aceeași poziție (ex „1a") poate apărea de mai multe ori. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
+
+TREI PATTERN-URI DE ADNOTARE:
+
+1) BARĂ DREAPTĂ:  „(poz) N × Ø D  L=X,XXm"
+   Exemplu: „(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
+
+2) ETRIER / AGRAFĂ:  două adnotări legate:
+   a) „(poz) etr.ØD L=X,XXm" (perimetrul unui etrier)
+   b) „etr ØD/pas — N buc" (câți etrieri la ce pas)
+   Exemplu: „(2) etr.Ø8 L=1,15m" + „etr Ø8/20 — 137buc"
+
+3) DISTRIBUȚIE:  „N Ø D / pas  L=X,XXm"
+   Exemplu: „4Ø12/8 L=5,70m"
+
+REGULI STRICTE:
+1. Extrage FIECARE ocurență. Nu deduplica pe „poz".
+2. Nu calcula lungimi totale — doar transcrii N și L per ocurență.
+3. Marca implicită din caseta MATERIALE dacă apare.
+4. Ignoră cotele de dimensiuni ale elementelor (25×30, 3.50m etc.) — geometrie, nu armătură.`;
+
+  return callAnthropicTextTool(
+    systemPrompt,
+    `Text brut extras din planșa grafică:\n\n${text.substring(0, 60000)}`,
+    ANNOTATIONS_TOOL_SCHEMA,
+    "extract_rebar_annotations"
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LUMBER / ȘARPANTĂ (§14 din spec) — MVP conservator
+// ─────────────────────────────────────────────────────────────────────────────
+// NU există tabel centralizator de lemn (confirmat cu utilizatorul), deci
+// NU există sursă de validare încrucișată — orice cantitate calculată aici
+// e o estimare, NU un rezultat de încredere echivalent cu cel de armătură.
+// Politica: needsManualReview: true necondiționat pe toate cantitățile.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ExtractedLumberResult {
+  titluPlansa: string | null;
+  clasaLemn: string | null;        // ex "C24"
+  clasaExploatare: string | null;  // ex "2"
+  tratament: string | null;        // ex "ignifugat"
+  standardImbinari: string | null; // ex "SR EN 14080"
+  sectiuniFolosite: Array<{
+    secțiuneCm: string;            // ex "10x14", "12x14"
+    tipElement: "caprior" | "pana" | "pop" | "cosoroaba" | "clesti" | "contrafisa" | "coama" | "alt";
+    note: string;
+  }>;
+  imbinari: Array<{
+    tip: string;                    // ex "coamă A", "reazem căprior", "bază pop"
+    piese_metalice: string;         // ex "holzsurub Ø8 L=20cm"
+    note: string;
+  }>;
+  observatii: string;
+}
+
+export async function extractLumberFromImageWithAnthropic(
+  imageBase64: string,
+  mimeType: string
+): Promise<ExtractedLumberResult> {
+  const systemPrompt = `Ești expert în citirea planșelor de șarpantă / acoperiș lemn românești.
+
+CONTEXT: pe această planșă cauți DOAR catalogul de secțiuni + specificațiile materialului lemn + tipurile de îmbinări. NU calcula cantități totale — asta se face separat.
+
+CE SĂ EXTRAGI:
+
+1. **Caseta MATERIALE lemn**: clasa (ex C24), clasa exploatare (ex 2), tratamente (ignifugat), standard îmbinări (SR EN 14080).
+
+2. **Catalog secțiuni**: fiecare secțiune de lemn folosită pe planșă (ex „10x14", „12x14", „14x14") și ce tip de element o folosește (căprior/pană/pop/cosoroabă/clești/contrafișă/coamă).
+
+3. **Îmbinări**: tipurile de conexiuni desenate (coamă A, coamă B, reazem căprior, bază pop) și piesele metalice necesare (holzsurub Ø8 L=20cm, cuie striate, etc.).
+
+REGULI STRICTE:
+1. NU calcula cantități — doar catalog + specificații.
+2. Extrage EXACT ce e tipărit; nu inventa dimensiuni sau tipuri.
+3. Dacă un câmp nu apare pe această planșă, returnează null / listă goală.`;
+
+  const toolSchema = {
+    name: "extract_lumber",
+    description: "Structured extraction of lumber section catalog + materials + joints from a wood-roof drawing",
+    input_schema: {
+      type: "object",
+      properties: {
+        titluPlansa: { type: ["string", "null"] },
+        clasaLemn: { type: ["string", "null"] },
+        clasaExploatare: { type: ["string", "null"] },
+        tratament: { type: ["string", "null"] },
+        standardImbinari: { type: ["string", "null"] },
+        sectiuniFolosite: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              secțiuneCm: { type: "string" },
+              tipElement: { type: "string", enum: ["caprior", "pana", "pop", "cosoroaba", "clesti", "contrafisa", "coama", "alt"] },
+              note: { type: "string" },
+            },
+            required: ["secțiuneCm", "tipElement", "note"],
+          },
+        },
+        imbinari: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              tip: { type: "string" },
+              piese_metalice: { type: "string" },
+              note: { type: "string" },
+            },
+            required: ["tip", "piese_metalice", "note"],
+          },
+        },
+        observatii: { type: "string" },
+      },
+      required: ["titluPlansa", "clasaLemn", "clasaExploatare", "tratament", "standardImbinari", "sectiuniFolosite", "imbinari", "observatii"],
+    },
+  };
+
+  return callAnthropicVisionTool(
+    systemPrompt,
+    "Extrage catalogul de secțiuni de lemn, specificațiile materialului și tipurile de îmbinări de pe această planșă. NU calcula cantități.",
+    imageBase64,
+    mimeType,
+    toolSchema,
+    "extract_lumber"
   );
 }
 

@@ -215,6 +215,40 @@ export interface PlanMaterialsBox {
   lemn?: Array<{ specificatie: string }>;
 }
 
+// ── Șarpantă / lemn (§14 spec — MVP conservator) ─────────────────────────────
+// NU există centralizator scanat separat pentru lemn → nu avem sursă de
+// validare încrucișată. Politica: needsManualReview: true necondiționat pe
+// toate cantitățile, indiferent dacă am detectat o discrepanță sau nu.
+
+export type TipElementLemn =
+  | "caprior"
+  | "pana"
+  | "pop"
+  | "cosoroaba"
+  | "clesti"
+  | "contrafisa"
+  | "coama"
+  | "alt";
+
+export type MetodaCalculLemn =
+  | "cota_explicita"    // cotă exactă lângă piesă pe planșă
+  | "pas_x_rulaj"       // lungime_rulaj ÷ pas + 1 pe latură dreaptă
+  | "manual_necesar";   // geometrie neregulată (vale, coamă complexă) — nu automatizăm
+
+export interface RawLumberEntry {
+  sourceFile: string;
+  tipElement: TipElementLemn;
+  sectiuneCm: string;              // ex "14x14", "10x14"
+  metodaCalcul: MetodaCalculLemn;
+  numarBucati: number | null;      // null dacă metodaCalcul = "manual_necesar"
+  lungimeUnitaraM: number | null;
+  /** ÎNTOTDEAUNA true pentru lemn — nu există validare încrucișată. Politică
+   *  explicită, nu bug: până când proiectantul confirmă manual, orice cantitate
+   *  de lemn calculată automat rămâne estimare. */
+  needsManualReview: true;
+  reviewReason: string;
+}
+
 /** Rezultatul agregat al unui import complet (mai multe planșe într-un proiect). */
 export interface StructuralImportResult {
   /** Câte fișiere PDF au fost procesate în acest import */
