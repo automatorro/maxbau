@@ -115,9 +115,42 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ## 8. Stadiul Curent al Proiectului
 
-> Ultima actualizare: **2026-07-28**. Actualizează după fiecare sesiune importantă.
+> Ultima actualizare: **2026-07-29**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **Rețete Rigips / gips-carton — 9 soluții + 33 materiale** (2026-07-29):
+  - `scripts/import_rigips_recipes.mjs` [NOU] — script Node.js rulat local
+    cu SUPABASE_SERVICE_ROLE_KEY. Fără flag = raport dry-run cu materialele
+    găsite/lipsă. `--execute` inserează cele 9 rețete în `retete_constructii`
+    cu category `rigips-sistem`. `--export-missing <file.json>` exportă lista
+    de produse lipsă pentru import în `/admin/products`.
+  - Sursă: oferta Saint-Gobain Rigips prin MaxBau, nr 4784/2026-07-28 (Nord
+    One Brediceanu N4). 4 sheet-uri Excel — extras deterministe: Centralizator,
+    Ofertă Detaliată, Materiale UML, Detalii tehnice.
+  - **9 soluții** (categorie `rigips-sistem`) cu consum specific per m² perete:
+    * `3.40.05` — perete 12,5cm (2+2) RB, cu vată
+    * `3.40.06` — perete 15,0cm (2+2) RB, cu vată
+    * `ST_P.12` — perete 12,5cm HABITO + RB (rezistență trafic)
+    * `3.41.01` — perete 15,3cm RB + RBI zone umede
+    * `3.41.02` — perete 20,3cm RB + RBI zone umede, mai gros
+    * `3.40.10` — perete 15,0cm (3+3) RF (rezistență foc superioară)
+    * `3.22.00b` — tencuială uscată (2) RBI fără vată
+    * `3.50.16` — tencuială uscată 7,5cm (2) RFI (foc + zone umede)
+    * `ST_T.12` — tencuială uscată 12,5cm (2) Fonic (izolare acustică)
+  - **33 materiale unice** cu cod SAP Saint-Gobain (`1100...`_RO10_00 pentru
+    plăci și accesorii, `1200...`_RO10_00 pentru profile/șuruburi). Match în
+    DB prin (1) `cod_intern === cod_sap` exact, (2) fuzzy pe keywords brand +
+    tip (RB/RBI/RF/HABITO/Fonic/CW50/UW75 etc). Materialele nelegate rămân în
+    rețetă cu SAP-ul brut, iar UI-ul din RecipeQuote apoi cade pe fuzzy search
+    pe keywords.
+  - **NU s-au adăugat noi tipuri de packaging** (rețetele Rigips folosesc
+    aceleași unități m²/m/kg/buc existente în GenericPackagingBlock — palet,
+    rolă, cutie, legătură — deja gestionate de `inferPackSize()` din
+    RecipeQuote.tsx).
+  - ⚠️ **Necesită rulare locală**: dry-run mai întâi (`node scripts/import_rigips_recipes.mjs`),
+    apoi verifică lista de materiale lipsă, adaugă-le în catalog (manual sau
+    import CSV/JSON via `/admin/products`), apoi `--execute` pentru insert
+    rețete.
 - **§14 update (unghi confirmat) + §16 NOU (plan învelitoare)** (2026-07-28):
   - **§14 update**: `RawLumberEntry` extins cu `unghiPantaGrade?: number` + nouă
     valoare `"unghi_confirmat"` în `MetodaCalculLemn`. Utilizatorul a confirmat că
