@@ -116,7 +116,7 @@ export interface SystemComponent {
   role: string;
   /** Eticheta afișată utilizatorului */
   label: string;
-  /** Termeni de căutare pentru matching în catalogul MaxBau */
+  /** Termeni de căutare pentru matching în catalogul de produse */
   searchTerms: string[];
   /** Formula pentru calculul cantității */
   quantityFormula: (ctx: RoomContext) => number;

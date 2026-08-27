@@ -912,7 +912,7 @@ const NewQuote = () => {
       }
       setEquivalentResults(result as any);
       if (result.echivalente.length === 0) {
-        toast.info("Nu am găsit echivalente în catalogul MaxBau pentru acest produs");
+        toast.info("Nu am găsit echivalente în catalog pentru acest produs");
       }
     } catch (e) {
       console.error("Equivalent search error:", e);

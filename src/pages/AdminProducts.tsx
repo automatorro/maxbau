@@ -1369,7 +1369,7 @@ const AdminProducts = () => {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Furnizor MaxBau implicit</Label>
+                      <Label>Furnizor implicit</Label>
                       <Select value={form.supplier_id} onValueChange={v => setForm({...form, supplier_id: v})}>
                         <SelectTrigger><SelectValue placeholder="Selectează furnizorul" /></SelectTrigger>
                         <SelectContent>

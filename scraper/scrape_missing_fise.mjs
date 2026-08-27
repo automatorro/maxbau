@@ -320,7 +320,7 @@ async function runBatch(products, logMap) {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('  Maxbau.ro — Recuperare Fișe Tehnice Lipsă');
+  console.log('  Catalog Engine — Recuperare Fișe Tehnice Lipsă');
   console.log('═══════════════════════════════════════════════════════');
 
   if (DRY_RUN) console.log('⚠️   DRY-RUN: Fără scriere în DB/Storage');

@@ -115,9 +115,13 @@ node scripts/backfill_datasheets.js                    # completează fisa_tehni
 
 ## 8. Stadiul Curent al Proiectului
 
-> Ultima actualizare: **2026-07-29**. Actualizează după fiecare sesiune importantă.
+> Ultima actualizare: **2026-08-27**. Actualizează după fiecare sesiune importantă.
 
 ### Finalizat ✅
+- **White-Labeling & Decuplare Brand "MaxBau" -> "Sales Dashboard - Materiale de Construcții"** (2026-08-27):
+  - Plan de white-labeling aprobat ([implementation_plan.md](file:///C:/Users/Utilizator/.gemini/antigravity-ide/brain/a6f511f3-ae4c-47ab-8b8f-945bd6ddbb32/implementation_plan.md)): arhitectură Multi-Tenant cu o singură bază de date (Single DB), Catalog Master Shared (~4.400 produse de la producători) + suport pentru Produse Suplimentare per Companie.
+  - Curățat toate referințele hardcodate "MaxBau" din `index.html`, `src/index.css` (`--brand-orange`, `--brand-dark`), paginile UI (`Index`, `Login`, `Register`, `RecipeQuote`, `ProductDetail`, `NewQuote`, `AntemasuratorImport`, `MultiProductPicker`), exportul Excel (`OFERTĂ COMERCIALĂ`, `oferta_comerciala_*.xlsx`), prompturile AI (`Consultant.tsx`, Edge Functions `ai-consultant`, `ai-product-info`) și scripturile scraper (`BuildingSalesBot/1.0`, `Catalog Engine`).
+  - Teste automate Vitest (70/70 passed) și build de producție compilat cu succes (`npm run build`).
 - **Rețete Rigips / gips-carton — 9 soluții + 33 materiale** (2026-07-29):
   - `scripts/import_rigips_recipes.mjs` [NOU] — script Node.js rulat local
     cu SUPABASE_SERVICE_ROLE_KEY. Fără flag = raport dry-run cu materialele

@@ -59,7 +59,7 @@ const salesFeatures = [
     title: "Catalog produse",
     subtitle: "Căutare și filtrare avansată",
     description:
-      "Acces rapid la întregul catalog MaxBau cu prețuri actualizate, filtrare pe categorii și vizualizare date tehnice per produs.",
+      "Acces rapid la întregul catalog cu prețuri actualizate, filtrare pe categorii și vizualizare date tehnice per produs.",
     url: "/catalog",
     icon: Package,
     gradient: "from-emerald-500/15 via-emerald-500/5 to-transparent",
@@ -105,7 +105,7 @@ const Index = () => {
             Panou de control
           </h1>
           <p className="text-muted-foreground">
-            {user ? `Bine ai venit, ${user.email}!` : "Gestionează oferte și produse MaxBau."}
+            {user ? `Bine ai venit, ${user.email}!` : "Gestionează oferte și produse."}
           </p>
         </div>
 
