@@ -8,7 +8,7 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY |
 if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) {
   console.warn(
     "⚠️ AVERTISMENT: Variabilele de mediu VITE_SUPABASE_URL sau VITE_SUPABASE_PUBLISHABLE_KEY lipsesc! " +
-    "Aplicația folosește credențialele reale MaxBau ca fallback de siguranță."
+    "Aplicația folosește credențialele implicite ca fallback de siguranță."
   );
 }
 

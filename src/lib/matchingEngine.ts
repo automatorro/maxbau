@@ -1,5 +1,5 @@
 /**
- * Motor de potrivire produse echivalente MaxBau
+ * Motor de potrivire produse echivalente
  *
  * Implementează 3 straturi de matching în ordine descrescătoare de prioritate:
  *   1. Potrivire exactă pe cod intern

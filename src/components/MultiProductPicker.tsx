@@ -203,7 +203,7 @@ export function MultiProductPicker({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <p className="text-xs text-muted-foreground">
-            Selectați 1-3 produse echivalente din catalogul MaxBau
+            Selectați 1-3 produse echivalente din catalog
           </p>
         </DialogHeader>
 

@@ -719,7 +719,7 @@ const EquivalentsTab = ({ product }: { product: ProductFull }) => {
               ))}
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              ⚠️ Acestea sunt sugestii AI bazate pe denumire. Produsele de mai jos sunt echivalente reale din catalogul MaxBau.
+              ⚠️ Acestea sunt sugestii AI bazate pe denumire. Produsele de mai jos sunt echivalente reale din catalog.
             </p>
           </CardContent>
         </Card>

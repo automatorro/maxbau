@@ -589,7 +589,7 @@ Nu mai este nevoie să returnezi datele (rândurile). Vrem doar structura.`,
             },
             {
               role: "user",
-              content: `Clientul a cerut: "${cerereClient}"\n\nCategorie identificată: "${classification.category_path}"\n\nProduse disponibile în catalog MaxBau:\n${productList}\n\nIdentifică TOP 3 produse echivalente sau substituibile pentru cererea clientului. Ignoră brandul cerut și concentrează-te pe caracteristicile tehnice și aplicația produsului. Dacă mai puțin de 3 produse sunt potrivite, returnează doar cele relevante.`,
+              content: `Clientul a cerut: "${cerereClient}"\n\nCategorie identificată: "${classification.category_path}"\n\nProduse disponibile în catalog:\n${productList}\n\nIdentifică TOP 3 produse echivalente sau substituibile pentru cererea clientului. Ignoră brandul cerut și concentrează-te pe caracteristicile tehnice și aplicația produsului. Dacă mai puțin de 3 produse sunt potrivite, returnează doar cele relevante.`,
             },
           ],
           "rank_equivalents",

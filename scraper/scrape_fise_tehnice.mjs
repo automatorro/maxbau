@@ -358,7 +358,7 @@ async function fetchProductUrls() {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('  Maxbau.ro — Scraper Fișe Tehnice');
+  console.log('  Catalog Engine — Scraper Fișe Tehnice');
   console.log('═══════════════════════════════════════════════════════');
 
   if (DRY_RUN)    console.log('⚠️   DRY-RUN: nu se scrie în DB/Storage');

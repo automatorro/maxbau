@@ -67,7 +67,7 @@ const Register = () => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="email@maxbau.ro"
+                placeholder="email@companie.ro"
                 required
               />
             </div>

@@ -43,8 +43,10 @@
     --sidebar-border: 217 33% 17%;
     --sidebar-ring: 24 95% 53%;
 
-    --maxbau-orange: 24 95% 53%;
-    --maxbau-dark: 222 47% 11%;
+    --brand-orange: 24 95% 53%;
+    --brand-dark: 222 47% 11%;
+    --maxbau-orange: var(--brand-orange);
+    --maxbau-dark: var(--brand-dark);
   }
 
   .dark {

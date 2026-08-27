@@ -197,7 +197,7 @@ async function processProduct(product) {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('  Maxbau.ro — Generare Embeddings Vectoriale');
+  console.log('  Catalog Engine — Generare Embeddings Vectoriale');
   console.log('═══════════════════════════════════════════════════════');
   if (FORCE) console.log('🔄  FORCE: regenerează toți vectorii');
   if (TEST_LIMIT) console.log(`🔬  TEST: primele ${TEST_LIMIT} produse`);

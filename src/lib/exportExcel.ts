@@ -38,7 +38,7 @@ function createProductsSheet(items: ExcelQuoteItem[]) {
   const headers = [
     "#",
     "Cod intern",
-    "Denumire produs MaxBau",
+    "Denumire produs",
     ...(hasSmartCols
       ? ["Cerere client", "Similar cu", "Consum orientativ", "Ambalare", "Notă echivalență"]
       : []),
@@ -124,7 +124,7 @@ export function exportQuoteToExcel(meta: ExcelQuoteMeta, items: ExcelQuoteItem[]
     XLSX.utils.book_append_sheet(wb, ws, "Produse ofertă");
 
     const sumarData = [
-      ["OFERTĂ MAXBAU", ""],
+      ["OFERTĂ COMERCIALĂ", ""],
       ["", ""],
       ["Nr. ofertă", meta.nr_oferta || "—"],
       ["Data", meta.data],
@@ -151,7 +151,7 @@ export function exportQuoteToExcel(meta: ExcelQuoteMeta, items: ExcelQuoteItem[]
     // Multiple variants format:
     // Tab 1: Sumar Comparativ
     const sumarData = [
-      ["OFERTĂ MAXBAU - COMPARATIV VARIANTE", ""],
+      ["OFERTĂ COMERCIALĂ - COMPARATIV VARIANTE", ""],
       ["", ""],
       ["Nr. ofertă", meta.nr_oferta || "—"],
       ["Data", meta.data],
@@ -200,7 +200,7 @@ export function exportQuoteToExcel(meta: ExcelQuoteMeta, items: ExcelQuoteItem[]
   }
 
   // Generate and download file
-  const fileName = `oferta_maxbau_${(meta.client_name || "client")
+  const fileName = `oferta_comerciala_${(meta.client_name || "client")
     .replace(/\s+/g, "_")
     .toLowerCase()}_${meta.data.replace(/\./g, "-")}.xlsx`;
   XLSX.writeFile(wb, fileName);

@@ -983,7 +983,7 @@ export default function AntemasuratorImport() {
           cerere_initiala: item.descriere_client,
           nota_ai: match
             ? { echivalent: `Echivalent propus AI (scor ${match.scor}/100): ${match.justificare}` }
-            : { echivalent: "De procurat — nu există în catalogul maxbau" },
+            : { echivalent: "De procurat — nu există în catalog" },
         };
       });
 
@@ -1643,7 +1643,7 @@ export default function AntemasuratorImport() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5" />
-                2. Echivalente din catalogul maxbau
+                2. Echivalente din catalogul de produse
               </CardTitle>
             </CardHeader>
             <CardContent>

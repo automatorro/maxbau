@@ -176,7 +176,7 @@ const ProductSelector = ({
           <input
             type="text"
             className="w-full bg-transparent border-none outline-none text-xs p-1.5 placeholder:text-muted-foreground text-foreground"
-            placeholder="Caută în tot catalogul MaxBau..."
+            placeholder="Caută în tot catalogul..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -303,7 +303,7 @@ const RecipeQuote = () => {
 
   // Update page title
   useEffect(() => {
-    document.title = "Configurator Rețete & Sisteme | MaxBau";
+    document.title = "Configurator Rețete & Sisteme | Sales Dashboard";
   }, []);
 
   // ── Data fetching ─────────────────────────────────────────────────────────

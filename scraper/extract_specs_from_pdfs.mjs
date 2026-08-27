@@ -315,7 +315,7 @@ async function processProduct(logRow) {
     try {
       const resp = await fetch(fisa_tehnica_url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MaxbauBot/1.0)',
+          'User-Agent': 'Mozilla/5.0 (compatible; BuildingSalesBot/1.0)',
         },
       });
       if (resp.ok) {
@@ -403,7 +403,7 @@ async function processProduct(logRow) {
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════');
-  console.log('  Maxbau.ro — Extragere Specs AI din Fișe Tehnice');
+  console.log('  Catalog Engine — Extragere Specs AI din Fișe Tehnice');
   console.log('═══════════════════════════════════════════════════════');
   if (DRY_RUN) console.log('⚠️   DRY-RUN: nu se scrie în DB');
   if (TEST_LIMIT) console.log(`🔬  TEST: se oprește după ${TEST_LIMIT} extracții reale`);

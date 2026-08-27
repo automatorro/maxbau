@@ -164,7 +164,7 @@ async function fetchWithRetry(url, tries = 3) {
   for (let i = 0; i < tries; i++) {
     try {
       const resp = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; MaxbauBot/1.0; +https://maxbau.ro)' },
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; BuildingSalesBot/1.0)' },
         redirect: 'follow',
       });
       if (resp.ok || resp.status === 404) return resp;
