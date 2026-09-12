@@ -24,7 +24,7 @@ function makeIlikePattern(word: string): string {
 function removeDiacritics(str: string): string {
   return str
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/ș/g, 's').replace(/ț/g, 't')
     .replace(/Ș/g, 'S').replace(/Ț/g, 'T')
     .replace(/ă/g, 'a').replace(/â/g, 'a').replace(/î/g, 'i')
@@ -300,7 +300,7 @@ Reguli stricte:
 
     if (!ok) {
       console.error("Anthropic API Error:", status, data);
-      throw new Error(`Eroare API Anthropic (${status}): ${data?.error || ""}`);
+      throw new Error(`Eroare API Anthropic (${status})`);
     }
     const toolCall = data.content?.find((c: any) => c.type === "tool_use" && c.name === "extract_price_table");
     if (!toolCall?.input) throw new Error("Nu s-au putut extrage datele structurate din text.");
@@ -513,33 +513,33 @@ export async function extractStructuralExtrasFromImageWithAnthropic(
   imageBase64: string,
   mimeType: string
 ): Promise<ExtractedExtrasResult> {
-  const systemPrompt = `Ești expert în citirea tabelelor „Extras de armătură" de pe planurile de rezistență românești (SR EN 1992-1-1 / STAS 438).
+  const systemPrompt = `Ești expert în citirea tabelelor de armătură de pe planurile de rezistență românești (SR EN 1992-1-1 / STAS 438).
 
 CONTEXT: aceste tabele centralizează pozițiile de armătură pentru o categorie de elemente (fundații, centuri, grinzi, stâlpi, placă). Sunt tipărite adesea landscape pe pagină portrait — trebuie să interpretezi TEXT ROTIT LA ORICE UNGHI (0°, 90°, 180°, 270°).
 
 STRUCTURA STANDARD A TABELULUI:
   Antet:  Poz | Ø [mm] | Nr. bare | Lungime bară [m] | Lungime totală [m]
-  Rânduri: câte una per poziție (Poz poate fi „1a", „2", „11k")
-  Marca oțelului („B 500 C", „PC 52", „OB 37") apare ca antet de secțiune peste
-  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca „activă"
+  Rânduri: câte una per poziție (Poz poate fi "1a", "2", "11k")
+  Marca oțelului ("B 500 C", "PC 52", "OB 37") apare ca antet de secțiune peste
+  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca "activă"
   pe măsură ce parcurgi rândurile de sus în jos.
-  Footer:  „LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + „MASA PE DIAMETRU" (sumă kg/Ø) + „TOTAL [kg]".
+  Footer:  "LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + "MASA PE DIAMETRU" (sumă kg/Ø) + "TOTAL [kg]".
 
 REGULI STRICTE:
 1. Extrage DOAR datele scrise. NU calcula, NU corecta, NU inventa. Aritmetica
    se face în cod, tu doar transcrii ce vezi.
-2. Poz = codul exact al poziției (ex „1a", păstrează sufixul alfabetic).
+2. Poz = codul exact al poziției (ex "1a", păstrează sufixul alfabetic).
 3. Ø = numărul întreg (6, 8, 10, 12, 14, 16, 20 etc.).
-4. „Nr. bare" = numărul întreg de bare identice (poate fi mare, ex 548).
-5. „Lungime bară" = valoarea din coloană, exact așa cum e tipărită (poate fi 4.45 sau 4,45 — normalizează la punct zecimal).
-6. „Lungime totală" = valoarea din coloana finală. **Dacă celula e goală, returnează null** (nu recalcula tu). Asta e vital — există bug-uri reale de proiectant unde celula lipsește, iar noi trebuie să detectăm asta.
+4. "Nr. bare" = numărul întreg de bare identice (poate fi mare, ex 548).
+5. "Lungime bară" = valoarea din coloană, exact așa cum e tipărită (poate fi 4.45 sau 4,45 — normalizează la punct zecimal).
+6. "Lungime totală" = valoarea din coloana finală. **Dacă celula e goală, returnează null** (nu recalcula tu). Asta e vital — există bug-uri reale de proiectant unde celula lipsește, iar noi trebuie să detectăm asta.
 7. Marca implicită (marcaImplicita) = marca principală declarată în antetul planșei. Rândurile individuale pot avea marca=null → moștenesc marcaImplicita.
 8. tipBara:
-   - „etrier" dacă poziția e desenată/adnotată ca etrier sau agrafă închisă (formă dreptunghiulară închisă lângă poziție)
-   - „distributie" dacă e bară de repartiție/distribuție (notată `N Ø/pas`)
-   - „dreapta" în rest (bare longitudinale drepte)
-   Dacă nu poți distinge sigur, alege „dreapta" și menționează în „note".
-9. FOOTER: extrage FIECARE Ø din „LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — pur și simplu nu-l pune în footer. Codul va detecta discrepanța.
+   - "etrier" dacă poziția e desenată/adnotată ca etrier sau agrafă închisă (formă dreptunghiulară închisă lângă poziție)
+   - "distributie" dacă e bară de repartiție/distribuție (notată N Ø/pas)
+   - "dreapta" în rest (bare longitudinale drepte)
+   Dacă nu poți distinge sigur, alege "dreapta" și menționează în "note".
+9. FOOTER: extrage FIECARE Ø din "LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — pur și simplu nu-l pune în footer. Codul va detecta discrepanța.
 10. Toate valorile numerice: folosește punct zecimal (nu virgulă). Convertește tu.`;
 
   const toolSchema = {
@@ -596,7 +596,7 @@ REGULI STRICTE:
 
   return callAnthropicVisionTool(
     systemPrompt,
-    "Extrage tabelul „Extras de armătură" din această imagine. Include TOATE rândurile Poz, marca implicită din antet, și footer-ul cu totalurile pe diametre.",
+    `Extrage tabelul de armătură din această imagine. Include TOATE rândurile Poz, marca implicită din antet, şi footer-ul cu totalurile pe diametre.`,
     imageBase64,
     mimeType,
     toolSchema,
@@ -629,30 +629,30 @@ export async function extractStructuralAnnotationsFromImageWithAnthropic(
 ): Promise<ExtractedGraphicRebarResult> {
   const systemPrompt = `Ești expert în citirea planșelor grafice de rezistență (armare fundații, centuri, grinzi, stâlpi, placă) din România.
 
-CONTEXT: pe planșa grafică barele de armătură sunt adnotate individual, împrăștiate pe desen. Aceeași poziție (ex „1a") apare de mai multe ori — o dată pentru fiecare element care folosește acel tip de bară. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
+CONTEXT: pe planșa grafică barele de armătură sunt adnotate individual, împrăștiate pe desen. Aceeași poziție (ex "1a") apare de mai multe ori — o dată pentru fiecare element care folosește acel tip de bară. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
 
 TREI PATTERN-URI DE ADNOTARE, DE RECUNOSCUT DISTINCT:
 
-1) BARĂ DREAPTĂ:  „(poz) N × Ø D  L=X,XXm"
-   Exemplu: „(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
+1) BARĂ DREAPTĂ:  "(poz) N × Ø D  L=X,XXm"
+   Exemplu: "(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
 
 2) ETRIER / AGRAFĂ:  două adnotări legate una de alta:
-   a) „(poz) etr.ØD L=X,XXm" (lungimea/perimetrul UNUI etrier, lângă schița formei lui)
-   b) „etr ØD/pas — N buc" (câți etrieri sunt pe elementul respectiv, la pasul dat)
-   Exemplu: „(2) etr.Ø8 L=1,15m" + „etr Ø8/20 — 137buc"
+   a) "(poz) etr.ØD L=X,XXm" (lungimea/perimetrul UNUI etrier, lângă schița formei lui)
+   b) "etr ØD/pas — N buc" (câți etrieri sunt pe elementul respectiv, la pasul dat)
+   Exemplu: "(2) etr.Ø8 L=1,15m" + "etr Ø8/20 — 137buc"
       → poz=2, tipBara=etrier, numarBare=137, lungimeUnaBara=1.15, pas=0.20
    Dacă găsești doar N și pas, dar nu perimetrul: lungimeUnaBara=null și menționează în note.
 
-3) BARĂ / PLASĂ DE DISTRIBUȚIE:  „N Ø D / pas  L=X,XXm"
-   Exemplu: „4Ø12/8 L=5,70m" → poz=null (dacă nu e etichetat), tipBara=distributie, numarBare=4, diametruMm=12, lungimeUnaBara=5.70, pas=0.08
-   Pe suprafață mare: „NØD/m²" — atunci numarBare=N/m² × suprafață (fără cotă explicită NU calcula, lasă zonaAcoperitaM=null, semnalează în note).
+3) BARĂ / PLASĂ DE DISTRIBUȚIE:  "N Ø D / pas  L=X,XXm"
+   Exemplu: "4Ø12/8 L=5,70m" → poz=null (dacă nu e etichetat), tipBara=distributie, numarBare=4, diametruMm=12, lungimeUnaBara=5.70, pas=0.08
+   Pe suprafață mare: "NØD/m²" — atunci numarBare=N/m² × suprafață (fără cotă explicită NU calcula, lasă zonaAcoperitaM=null, semnalează în note).
 
 REGULI STRICTE:
-1. Extrage FIECARE ocurență a fiecărei adnotări. Nu deduplica pe „poz"; agregarea se face în cod.
+1. Extrage FIECARE ocurență a fiecărei adnotări. Nu deduplica pe "poz"; agregarea se face în cod.
 2. Nu calcula lungimi totale sau kg. Tu doar transcrii N și L pentru ocurență.
 3. Interpretează text rotit la orice unghi.
-4. Marca implicită vine din caseta MATERIALE („# Oțel armături: ..."). Reține-o și pune-o în marcaImplicita.
-5. Dacă nu poți distinge cu certitudine tipBara, alege „dreapta" și menționează ambiguitatea în note.
+4. Marca implicită vine din caseta MATERIALE ("# Oțel armături: ..."). Reține-o și pune-o în marcaImplicita.
+5. Dacă nu poți distinge cu certitudine tipBara, alege "dreapta" și menționează ambiguitatea în note.
 6. Ignoră cotele de dimensiuni ale elementelor (25×30, 3.50m etc.) — acelea sunt geometrie, nu armătură.`;
 
   const toolSchema = {
@@ -697,7 +697,7 @@ REGULI STRICTE:
   );
 }
 
-// ── (C) Caseta „MATERIALE:" — metadate de clasă beton / marcă oțel ───────────
+// ── (C) Caseta "MATERIALE:" — metadate de clasă beton / marcă oțel ───────────
 
 export interface ExtractedMaterialsBoxResult {
   gasit: boolean;
@@ -711,7 +711,7 @@ export async function extractMaterialsBoxFromImageWithAnthropic(
   imageBase64: string,
   mimeType: string
 ): Promise<ExtractedMaterialsBoxResult> {
-  const systemPrompt = `Ești expert în extragerea casetei „MATERIALE:" de pe planurile de rezistență românești.
+  const systemPrompt = `Ești expert în extragerea casetei MATERIALE de pe planurile de rezistență românești.
 
 Caseta e de obicei lângă cartușul de titlu (colț dreapta-jos), și arată așa:
 
@@ -729,9 +729,9 @@ Caseta e de obicei lângă cartușul de titlu (colț dreapta-jos), și arată a�
 Extrage fiecare linie ca un obiect distinct. Dacă nu găsești caseta pe această pagină, setează gasit=false și returnează liste goale.
 
 REGULI:
-1. „element" = ce e înaintea „:" (ex „fundatii", „centuri", „plasă pardoseală", „restul elementelor"). Păstrează exact ce scrie.
-2. „clasa" (beton) = doar codul clasei + expunere (ex „C25/30, XC2, Dmax16"). Restul (ciment, cloruri) merge în „note".
-3. „marca" (oțel) = doar marca (ex „B500C", „PC52", „OB37"). Normalizează spațiile.
+1. "element" = ce e înaintea ":" (ex "fundatii", "centuri", "plasă pardoseală", "restul elementelor"). Păstrează exact ce scrie.
+2. "clasa" (beton) = doar codul clasei + expunere (ex "C25/30, XC2, Dmax16"). Restul (ciment, cloruri) merge în "note".
+3. "marca" (oțel) = doar marca (ex "B500C", "PC52", "OB37"). Normalizează spațiile.
 4. Nu inventa. Dacă nu e casetă → gasit=false.`;
 
   const toolSchema = {
@@ -780,7 +780,7 @@ REGULI:
 
   return callAnthropicVisionTool(
     systemPrompt,
-    "Găsește și extrage caseta „MATERIALE:" de pe această planșă. Dacă nu există, setează gasit=false.",
+    "Găseşte şi extrage caseta MATERIALE de pe această planşă. Dacă nu există, setează gasit=false.",
     imageBase64,
     mimeType,
     toolSchema,
@@ -808,18 +808,18 @@ export async function classifyStructuralPlanWithAnthropic(
 
 Trebuie să determini:
 1. Ce tip de planșă e (privind cartușul de titlu + conținut general).
-2. Dacă e prezent un tabel „Extras de armătură" (rectangular, cu coloane Poz / Ø / Nr. bare / Lungime).
-3. Dacă e prezentă caseta „MATERIALE:" (# Beton / # Oțel armături).
+2. Dacă e prezent un tabel de armătură (rectangular, cu coloane Poz / Ø / Nr. bare / Lungime).
+3. Dacă e prezentă caseta MATERIALE (# Beton / # Oțel armături).
 4. Cu ce rotație e conținutul pe pagină (0/90/180/270°).
 
 TIPURI DE PLANȘĂ:
-- „extras_armatura": planșa este DOAR (sau majoritar) un tabel Extras de armătură. Fără desen grafic important.
-- „plan_grafic_structural": planșă cu desen tehnic + adnotări de armare (bare, etrieri, poziții). Poate avea sau nu tabel Extras.
-- „plan_finisaje": plan de arhitectură (camere, pardoseală, tavan). NU e structural.
-- „sarpanta": planșă de acoperiș / șarpantă (grinzi lemn, tabel materiale lemn C24).
-- „necunoscut": nu se poate clasifica cu certitudine.
+- "extras_armatura": planșa este DOAR (sau majoritar) un tabel Extras de armătură. Fără desen grafic important.
+- "plan_grafic_structural": planșă cu desen tehnic + adnotări de armare (bare, etrieri, poziții). Poate avea sau nu tabel Extras.
+- "plan_finisaje": plan de arhitectură (camere, pardoseală, tavan). NU e structural.
+- "sarpanta": planșă de acoperiș / șarpantă (grinzi lemn, tabel materiale lemn C24).
+- "necunoscut": nu se poate clasifica cu certitudine.
 
-Fii onest dacă nu ești sigur — pune „necunoscut" și explică în motivatie.`;
+Fii onest dacă nu ești sigur — pune "necunoscut" și explică în motivatie.`;
 
   const toolSchema = {
     name: "classify_structural_plan",
@@ -843,7 +843,7 @@ Fii onest dacă nu ești sigur — pune „necunoscut" și explică în motivati
 
   return callAnthropicVisionTool(
     systemPrompt,
-    "Uită-te la această planșă și clasifică-o. Verifică prezența tabelului „Extras de armătură" și a casetei „MATERIALE:".",
+    "Uita-te la aceasta plansa si clasifica-o. Verifica prezenta tabelului Extras de armatura si a casetei MATERIALE.",
     imageBase64,
     mimeType,
     toolSchema,
@@ -991,25 +991,25 @@ const ANNOTATIONS_TOOL_SCHEMA = {
 export async function extractStructuralExtrasFromTextWithAnthropic(
   text: string
 ): Promise<ExtractedExtrasResult> {
-  const systemPrompt = `Ești expert în citirea tabelelor „Extras de armătură" extrase ca TEXT din PDF-uri românești de rezistență.
+  const systemPrompt = `Ești expert în citirea tabelelor de armătură extrase ca TEXT din PDF-uri românești de rezistență.
 
-CONTEXT: primești textul brut extras cu poziții (x,y) din PDF, grupat pe rânduri. E tabelul „EXTRAS DE ARMĂTURĂ" al unei categorii de elemente (fundații, centuri, grinzi, stâlpi, placă).
+CONTEXT: primești textul brut extras cu poziții (x,y) din PDF, grupat pe rânduri. E tabelul EXTRAS DE ARMĂTURA al unei categorii de elemente (fundații, centuri, grinzi, stâlpi, placă).
 
 STRUCTURA STANDARD A TABELULUI:
   Antet:  Poz | Ø [mm] | Nr. bare | Lungime bară [m] | Lungime totală [m]
-  Rânduri: câte una per poziție (Poz poate fi „1a", „2", „11k")
-  Marca oțelului („B 500 C", „PC 52", „OB 37") apare ca antet de secțiune peste
-  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca „activă"
+  Rânduri: câte una per poziție (Poz poate fi "1a", "2", "11k")
+  Marca oțelului ("B 500 C", "PC 52", "OB 37") apare ca antet de secțiune peste
+  un grup de rânduri, NU ca o coloană în fiecare rând. Reține marca "activă"
   pe măsură ce parcurgi textul de sus în jos.
-  Footer:  „LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + „MASA PE DIAMETRU" (sumă kg/Ø) + „TOTAL [kg]".
+  Footer:  "LUNGIMEA PE DIAMETRE" (sumă ml/Ø) + "MASA PE DIAMETRU" (sumă kg/Ø) + "TOTAL [kg]".
 
 REGULI STRICTE:
 1. Extrage DOAR datele scrise. NU calcula, NU corecta, NU inventa. Aritmetica se face în cod.
 2. Poz = codul exact al poziției (păstrează sufixul alfabetic).
-3. „Lungime totală" = valoarea din coloana finală. **Dacă celula lipsește / e goală în text, returnează null** (nu recalcula). Există bug-uri reale de proiectant unde celula lipsește — trebuie să detectăm asta.
+3. "Lungime totală" = valoarea din coloana finală. **Dacă celula lipsește / e goală în text, returnează null** (nu recalcula). Există bug-uri reale de proiectant unde celula lipsește — trebuie să detectăm asta.
 4. Marca implicită (marcaImplicita) = marca principală declarată în antetul planșei.
-5. tipBara: „etrier" / „distributie" / „dreapta" (după context — extras-ul poate marca explicit tipul, altfel „dreapta").
-6. FOOTER: extrage FIECARE Ø din „LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — codul va detecta discrepanța.
+5. tipBara: "etrier" / "distributie" / "dreapta" (după context — extras-ul poate marca explicit tipul, altfel "dreapta").
+6. FOOTER: extrage FIECARE Ø din "LUNGIMEA PE DIAMETRE" ca rând separat. Dacă un Ø prezent în rânduri lipsește din footer, NU-l inventa — codul va detecta discrepanța.
 7. Toate valorile numerice: punct zecimal (nu virgulă).`;
 
   return callAnthropicTextTool(
@@ -1026,23 +1026,23 @@ export async function extractStructuralAnnotationsFromTextWithAnthropic(
 ): Promise<ExtractedGraphicRebarResult> {
   const systemPrompt = `Ești expert în citirea adnotărilor de armătură extrase ca TEXT dintr-o planșă grafică de rezistență românească.
 
-CONTEXT: primești textul extras cu poziții din PDF. Adnotările de bare sunt împrăștiate pe desen — aceeași poziție (ex „1a") poate apărea de mai multe ori. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
+CONTEXT: primești textul extras cu poziții din PDF. Adnotările de bare sunt împrăștiate pe desen — aceeași poziție (ex "1a") poate apărea de mai multe ori. Fiecare ocurență se contorizează SEPARAT (agregarea se face în cod).
 
 TREI PATTERN-URI DE ADNOTARE:
 
-1) BARĂ DREAPTĂ:  „(poz) N × Ø D  L=X,XXm"
-   Exemplu: „(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
+1) BARĂ DREAPTĂ:  "(poz) N × Ø D  L=X,XXm"
+   Exemplu: "(1a) 3Ø14 L=6,20m" → poz=1a, tipBara=dreapta, numarBare=3, diametruMm=14, lungimeUnaBara=6.20
 
 2) ETRIER / AGRAFĂ:  două adnotări legate:
-   a) „(poz) etr.ØD L=X,XXm" (perimetrul unui etrier)
-   b) „etr ØD/pas — N buc" (câți etrieri la ce pas)
-   Exemplu: „(2) etr.Ø8 L=1,15m" + „etr Ø8/20 — 137buc"
+   a) "(poz) etr.ØD L=X,XXm" (perimetrul unui etrier)
+   b) "etr ØD/pas — N buc" (câți etrieri la ce pas)
+   Exemplu: "(2) etr.Ø8 L=1,15m" + "etr Ø8/20 — 137buc"
 
-3) DISTRIBUȚIE:  „N Ø D / pas  L=X,XXm"
-   Exemplu: „4Ø12/8 L=5,70m"
+3) DISTRIBUȚIE:  "N Ø D / pas  L=X,XXm"
+   Exemplu: "4Ø12/8 L=5,70m"
 
 REGULI STRICTE:
-1. Extrage FIECARE ocurență. Nu deduplica pe „poz".
+1. Extrage FIECARE ocurență. Nu deduplica pe "poz".
 2. Nu calcula lungimi totale — doar transcrii N și L per ocurență.
 3. Marca implicită din caseta MATERIALE dacă apare.
 4. Ignoră cotele de dimensiuni ale elementelor (25×30, 3.50m etc.) — geometrie, nu armătură.`;
@@ -1095,7 +1095,7 @@ CE SĂ EXTRAGI:
 
 1. **Caseta MATERIALE lemn**: clasa (ex C24), clasa exploatare (ex 2), tratamente (ignifugat), standard îmbinări (SR EN 14080).
 
-2. **Catalog secțiuni**: fiecare secțiune de lemn folosită pe planșă (ex „10x14", „12x14", „14x14") și ce tip de element o folosește (căprior/pană/pop/cosoroabă/clești/contrafișă/coamă).
+2. **Catalog secțiuni**: fiecare secțiune de lemn folosită pe planșă (ex "10x14", "12x14", "14x14") și ce tip de element o folosește (căprior/pană/pop/cosoroabă/clești/contrafișă/coamă).
 
 3. **Îmbinări**: tipurile de conexiuni desenate (coamă A, coamă B, reazem căprior, bază pop) și piesele metalice necesare (holzsurub Ø8 L=20cm, cuie striate, etc.).
 
@@ -1169,7 +1169,7 @@ REGULI STRICTE:
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ExtractedRoofCoveringRaw {
-  /** Titlul planșei din cartuș (ex „PLAN ÎNVELITOARE"). */
+  /** Titlul planșei din cartuș (ex "PLAN ÎNVELITOARE"). */
   titluPlansa: string | null;
   /** Unghiul de pantă tipărit pe planșă. Dacă apar mai multe valori pe
    *  versante diferite, returnează toate — codul verifică uniformitatea. */
@@ -1182,7 +1182,7 @@ export interface ExtractedRoofCoveringRaw {
   /** Idem pentru axa Y. */
   coteOrizontalaY: number[];
   totalOrizontalaYTiparit: number | null;
-  /** Denumirea materialului dacă apare (ex „țiglă ceramică vișinie"). */
+  /** Denumirea materialului dacă apare (ex "țiglă ceramică vișinie"). */
   materialInvelitoare: string | null;
   /** Segmente ml pentru coame/dolii/muchii dacă apar cotate pe plan.
    *  Vândute separat la ml, nu la m². Poate fi listă goală. */
@@ -1199,15 +1199,15 @@ CONTEXT: primești textul extras nativ din PDF (cu poziții x,y păstrate). Plan
 
 CE SĂ EXTRAGI (BRUT, fără calcule):
 
-1. **Titlul planșei** din cartuș — ex „PLAN ÎNVELITOARE", „PLAN ACOPERIȘ".
+1. **Titlul planșei** din cartuș — ex "PLAN ÎNVELITOARE", "PLAN ACOPERIȘ".
 
-2. **Unghiul(le) de pantă** tipărit(e) pe planșă — ex „20°", „20,00°". Poate apărea o singură dată sau repetat la fiecare versant. Extrage TOATE valorile găsite ca listă — codul verifică uniformitatea.
+2. **Unghiul(le) de pantă** tipărit(e) pe planșă — ex "20°", "20,00°". Poate apărea o singură dată sau repetat la fiecare versant. Extrage TOATE valorile găsite ca listă — codul verifică uniformitatea.
 
-3. **Cotele orizontale de contur** — pe X (orizontal) și pe Y (vertical), separat. Sunt lanțuri de cote adunate (ex „0,825+3,40+3,20+2,25+2,25+2,85+1,40+0,825" ← lanț pe X). Fiecare cotă = un segment. Convertește virgula în punct.
+3. **Cotele orizontale de contur** — pe X (orizontal) și pe Y (vertical), separat. Sunt lanțuri de cote adunate (ex "0,825+3,40+3,20+2,25+2,25+2,85+1,40+0,825" ← lanț pe X). Fiecare cotă = un segment. Convertește virgula în punct.
 
-4. **Totalul tipărit al lanțului** (ex „17,00") — pentru validare. Dacă lipsește, returnează null.
+4. **Totalul tipărit al lanțului** (ex "17,00") — pentru validare. Dacă lipsește, returnează null.
 
-5. **Denumire material** dacă apare pe planșă — ex „țiglă ceramică vișinie", „țiglă metalică Bramac". Null dacă nu apare.
+5. **Denumire material** dacă apare pe planșă — ex "țiglă ceramică vișinie", "țiglă metalică Bramac". Null dacă nu apare.
 
 6. **Coame/dolii cotate** — segmente ml separate pentru muchii înclinate. Listă de lungimi în ml (ex [3.03, 4.50]). Listă goală dacă nu sunt cotate.
 
@@ -1639,15 +1639,7 @@ export async function fetchTechInfoWithAnthropic(
     const parsed = await callAnthropicTool(
       `Ești expert în materiale de construcții din România (Baumit, Weber, Ceresit, Knauf, Leier, Bramac, etc.).
 Răspunde DOAR cu informații pe care le cunoști cu certitudine. Dacă nu ești sigur, spune "necunoscut". Toate prețurile sunt FĂRĂ TVA.`,
-      `Pentru următoarele produse, furnizează date tehnice:
-${productList}
-${clientRequest ? `Context cerere client: "${clientRequest}"` : ""}
-Pentru FIECARE produs returnează:
-- consum: consum estimat per mp sau per unitate (ex: "4-6 kg/mp") sau "N/A"
-- ambalaj: tip și greutate ambalaj (ex: "sac 25 kg")
-- alternative: lista de maxim 3 produse alternative echivalente (brand + denumire)
-- compatibilitati: cu ce materiale/suporturi e compatibil
-- utilizare: interior/exterior/ambele + aplicații specifice`,
+      `Pentru următoarele produse, furnizează date tehnice:\n${productList}\n${clientRequest ? `Context cerere client: "${clientRequest}"` : ""}\nPentru FIECARE produs returnează:\n- consum: consum estimat per mp sau per unitate (ex: "4-6 kg/mp") sau "N/A"\n- ambalaj: tip și greutate ambalaj (ex: "sac 25 kg")\n- alternative: lista de maxim 3 produse alternative echivalente (brand + denumire)\n- compatibilitati: cu ce materiale/suporturi e compatibil\n- utilizare: interior/exterior/ambele + aplicații specifice`,
       techSchema,
       "product_tech_info"
     );
@@ -1837,4 +1829,3 @@ export async function parseClientRequestWithAI(rawText: string): Promise<{ mater
 
   return response.items || [];
 }
-
