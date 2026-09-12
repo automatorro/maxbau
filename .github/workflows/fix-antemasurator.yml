@@ -1,0 +1,47 @@
+name: Fix AntemasuratorImport build error
+on:
+  workflow_dispatch:
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Apply fix
+        run: |
+          python3 - <<'PYEOF'
+          import re
+
+          path = 'src/pages/AntemasuratorImport.tsx'
+          with open(path, 'r', encoding='utf-8') as f:
+              content = f.read()
+
+          old = '"PDF fără text extractibil. Pentru un plan structural, selectează „Plan Structură” din dropdown ca să activez fluxul Vision.",'
+          new = "'PDF fără text extractibil. Pentru un plan structural, selectează \"Plan Structură\" din dropdown ca să activez fluxul Vision.',"
+
+          if old in content:
+              content = content.replace(old, new, 1)
+              with open(path, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              print('Fix applied successfully')
+          else:
+              print('Pattern not found - fix may already be applied')
+          PYEOF
+      - name: Remove this workflow
+        run: rm .github/workflows/fix-antemasurator.yml
+      - name: Commit
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add src/pages/AntemasuratorImport.tsx
+          git add -u .github/workflows/fix-antemasurator.yml
+          git diff --cached --quiet || git commit -m "fix: resolve JS string delimiter error in AntemasuratorImport.tsx
+
+          Outer double-quote delimiter terminated prematurely by ASCII quote
+          inside Romanian curly-quote pair. Changed to single-quote delimiter.
+
+          Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+          git push
